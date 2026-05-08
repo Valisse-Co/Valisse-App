@@ -43,46 +43,47 @@
 }
 
 :root {
-  --primary: var(--color-blue-700);
-  --primary-foreground: var(--color-blue-50);
-  --sidebar-primary: var(--color-blue-600);
-  --sidebar-primary-foreground: var(--color-blue-50);
-  --chart-1: var(--color-blue-300);
-  --chart-2: var(--color-blue-500);
-  --chart-3: var(--color-blue-600);
-  --chart-4: var(--color-blue-700);
-  --chart-5: var(--color-blue-800);
-  --radius: 0.65rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.235 0.015 65);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.235 0.015 65);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.235 0.015 65);
-  --secondary: oklch(0.98 0.001 286.375);
-  --secondary-foreground: oklch(0.4 0.015 65);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.141 0.005 285.823);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.623 0.214 259.815);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.235 0.015 65);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.623 0.214 259.815);
+  /* Valisse Brand Palette */
+  --radius: 1rem;
+  --background: oklch(97.5% 0.008 80);   /* eggshell #F7F4EE */
+  --foreground: oklch(14% 0.01 60);       /* dark #1A1714 */
+  --card: oklch(100% 0 0);
+  --card-foreground: oklch(14% 0.01 60);
+  --popover: oklch(100% 0 0);
+  --popover-foreground: oklch(14% 0.01 60);
+  --primary: oklch(52% 0.10 12);          /* dusty rose */
+  --primary-foreground: oklch(100% 0 0);
+  --secondary: oklch(93% 0.01 80);        /* beige #EDE9E0 */
+  --secondary-foreground: oklch(30% 0.01 60);
+  --muted: oklch(93% 0.01 80);
+  --muted-foreground: oklch(55% 0.02 60);
+  --accent: oklch(95% 0.012 80);          /* warm cream */
+  --accent-foreground: oklch(35% 0.06 12);
+  --destructive: oklch(55% 0.2 25);
+  --destructive-foreground: oklch(100% 0 0);
+  --border: oklch(88% 0.01 80);           /* #E2DDD6 */
+  --input: oklch(88% 0.01 80);
+  --ring: oklch(52% 0.10 12);
+  --chart-1: oklch(52% 0.10 12);
+  --chart-2: oklch(62% 0.08 12);
+  --chart-3: oklch(72% 0.06 12);
+  --chart-4: oklch(80% 0.05 80);
+  --chart-5: oklch(85% 0.03 80);
+  --sidebar: oklch(97.5% 0.008 80);
+  --sidebar-foreground: oklch(14% 0.01 60);
+  --sidebar-primary: oklch(52% 0.10 12);
+  --sidebar-primary-foreground: oklch(100% 0 0);
+  --sidebar-accent: oklch(95% 0.012 80);
+  --sidebar-accent-foreground: oklch(35% 0.06 12);
+  --sidebar-border: oklch(88% 0.01 80);
+  --sidebar-ring: oklch(52% 0.10 12);
 }
 
-.dark {
-  --primary: var(--color-blue-700);
-  --primary-foreground: var(--color-blue-50);
-  --sidebar-primary: var(--color-blue-500);
-  --sidebar-primary-foreground: var(--color-blue-50);
+.dark { /* Valisse dark mode */
+  --primary: oklch(62% 0.10 12);
+  --primary-foreground: oklch(100% 0 0);
+  --sidebar-primary: oklch(62% 0.10 12);
+  --sidebar-primary-foreground: oklch(100% 0 0);
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.85 0.005 65);
   --card: oklch(0.21 0.006 285.885);
@@ -118,7 +119,11 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', system-ui, sans-serif;
+  }
+  h1, h2, h3, .font-display {
+    font-family: 'Cormorant Garamond', Georgia, serif;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -134,6 +139,32 @@
 }
 
 @layer components {
+  /* Valisse pill button */
+  .btn-valisse {
+    @apply bg-primary text-primary-foreground rounded-full px-6 py-2.5 text-sm font-medium
+           shadow-sm transition-all duration-200 hover:opacity-90 active:scale-95;
+  }
+  .btn-valisse-outline {
+    @apply border border-primary text-primary bg-transparent rounded-full px-6 py-2.5 text-sm font-medium
+           transition-all duration-200 hover:bg-accent active:scale-95;
+  }
+  /* Masonry grid */
+  .masonry-grid { columns: 2; column-gap: 0.75rem; }
+  .masonry-item { break-inside: avoid; margin-bottom: 0.75rem; }
+  /* Mobile container */
+  .mobile-container { @apply max-w-md mx-auto min-h-screen relative; }
+  /* Scrollbar hide */
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  /* Image overlay */
+  .img-overlay { background: linear-gradient(to top, rgba(26,23,20,0.65) 0%, transparent 60%); }
+  /* Page animation */
+  .page-enter { animation: fadeSlideUp 0.22s ease-out forwards; }
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
   /**
    * Custom container utility that centers content and adds responsive padding.
    *
