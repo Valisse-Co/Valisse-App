@@ -157,7 +157,12 @@ export default function TechDashboard() {
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   {posts.slice(0, 6).map(({ post }) => (
-                    <div key={post.id} className="aspect-square rounded-xl overflow-hidden bg-muted">
+                    <motion.div
+                      key={post.id}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => navigate(`/post/${post.id}?preview=1`)}
+                      className="aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer relative group"
+                    >
                       {post.imageUrls?.[0] ? (
                         <img src={post.imageUrls[0]} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -165,7 +170,8 @@ export default function TechDashboard() {
                           <span className="text-xl">💅</span>
                         </div>
                       )}
-                    </div>
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-xl" />
+                    </motion.div>
                   ))}
                 </div>
               </div>
@@ -214,6 +220,9 @@ export default function TechDashboard() {
                         <span className="flex items-center gap-1"><TrendingUp size={11} />{pa?.bookingsFromPost ?? 0}</span>
                       </div>
                       <div className="flex gap-2 mt-2">
+                        <button onClick={() => navigate(`/post/${post.id}?preview=1`)} className="flex items-center gap-1 text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                          <Eye size={10} /> Client View
+                        </button>
                         <button onClick={() => navigate(`/edit-post/${post.id}`)} className="flex items-center gap-1 text-xs text-primary">
                           <Edit2 size={11} /> Edit
                         </button>

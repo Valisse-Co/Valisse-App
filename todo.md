@@ -76,3 +76,10 @@
 
 ## Messages Empty State Fix
 - [x] Show role-aware empty state in Messages: nail tech sees "Communicate with clients" copy, client sees "Book a nail tech" copy
+
+## Client View Preview for Nail Techs
+- [x] PostDetail: detect ?preview=1 query param and show "Client View" banner at top
+- [x] PostDetail: show all tags (style, shape, color) in client view
+- [x] PostDetail: rename "Book This Look" to "Book With [Tech Name]" when in preview mode
+- [x] PostDetail: add "More from this artist" section with 3-6 other posts from same tech
+- [x] TechDashboard Posts tab: tapping a post navigates to /post/:id?preview=1

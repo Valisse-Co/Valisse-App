@@ -1,7 +1,7 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight } from "lucide-react";
+import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -12,9 +12,17 @@ interface Props { postId: number }
 export default function PostDetail({ postId }: Props) {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const isPreview = new URLSearchParams(search).get("preview") === "1";
 
   const { data, isLoading } = trpc.posts.getById.useQuery({ postId });
   const utils = trpc.useUtils();
+
+  // "More from this artist" — load other posts by the same tech
+  const { data: morePosts } = trpc.posts.techPosts.useQuery(
+    { techId: data?.post?.techId ?? 0 },
+    { enabled: !!data?.post?.techId }
+  );
 
   const toggleSave = trpc.posts.toggleSave.useMutation({
     onSuccess: (res) => {
@@ -39,13 +47,27 @@ export default function PostDetail({ postId }: Props) {
 
   const { post, tech, ratingStats } = data;
   const imageUrl = post.imageUrls?.[0];
+  const techName = tech?.businessName || tech?.name || "this artist";
+
+  // "More from this artist" — exclude current post, cap at 6
+  const moreFromArtist = (morePosts ?? [])
+    .filter(({ post: p }: any) => p.id !== postId && p.status === "published")
+    .slice(0, 6);
 
   const handleBook = () => {
+    if (isPreview) {
+      toast.info("This is a preview — clients will be taken to your booking page.");
+      return;
+    }
     if (!isAuthenticated) { toast.error("Sign in to book"); return; }
     navigate(`/book/${tech?.id}?postId=${postId}`);
   };
 
   const handleMessage = () => {
+    if (isPreview) {
+      toast.info("This is a preview — clients will open a chat with you.");
+      return;
+    }
     if (!isAuthenticated) { toast.error("Sign in to message"); return; }
     if (!tech) return;
     getOrCreateConv.mutate({ techId: tech.id });
@@ -53,6 +75,15 @@ export default function PostDetail({ postId }: Props) {
 
   return (
     <div className="min-h-screen bg-background page-enter">
+
+      {/* ── Client View banner (nail tech preview only) ── */}
+      {isPreview && (
+        <div className="sticky top-0 z-50 flex items-center justify-center gap-2 bg-primary/90 backdrop-blur-sm text-white text-xs font-medium py-2 px-4">
+          <Eye size={13} />
+          <span>Client View — this is exactly what clients see</span>
+        </div>
+      )}
+
       {/* Hero image */}
       <div className="relative">
         {imageUrl ? (
@@ -75,20 +106,22 @@ export default function PostDetail({ postId }: Props) {
         </button>
 
         {/* Action buttons — save is the primary engagement action */}
-        <div className="absolute top-12 right-4 flex flex-col gap-2">
-          <button
-            onClick={() => isAuthenticated ? toggleSave.mutate({ postId }) : toast.error("Sign in to save")}
-            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
-          >
-            <Bookmark size={18} />
-          </button>
-          <button
-            onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success("Link copied!"); }}
-            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
-          >
-            <Share2 size={18} />
-          </button>
-        </div>
+        {!isPreview && (
+          <div className="absolute top-12 right-4 flex flex-col gap-2">
+            <button
+              onClick={() => isAuthenticated ? toggleSave.mutate({ postId }) : toast.error("Sign in to save")}
+              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
+            >
+              <Bookmark size={18} />
+            </button>
+            <button
+              onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success("Link copied!"); }}
+              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
+            >
+              <Share2 size={18} />
+            </button>
+          </div>
+        )}
 
         {/* Multiple images indicator */}
         {post.imageUrls?.length > 1 && (
@@ -131,7 +164,7 @@ export default function PostDetail({ postId }: Props) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-3 mb-6 cursor-pointer"
-            onClick={() => navigate(`/tech/${tech.id}`)}
+            onClick={() => !isPreview && navigate(`/tech/${tech.id}`)}
           >
             <Avatar className="w-14 h-14 border-2 border-border">
               <AvatarImage src={tech.avatarUrl ?? undefined} />
@@ -140,7 +173,7 @@ export default function PostDetail({ postId }: Props) {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-foreground">{tech.businessName || tech.name}</p>
+              <p className="font-semibold text-foreground">{techName}</p>
               {tech.location && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <MapPin size={11} />{tech.location}
@@ -154,8 +187,43 @@ export default function PostDetail({ postId }: Props) {
                 </div>
               )}
             </div>
-            <ChevronRight size={18} className="text-muted-foreground" />
+            {!isPreview && <ChevronRight size={18} className="text-muted-foreground" />}
           </motion.div>
+        )}
+
+        {/* ── More from this artist ── */}
+        {moreFromArtist.length > 0 && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-foreground">More from {techName}</h3>
+              {!isPreview && tech && (
+                <button
+                  onClick={() => navigate(`/tech/${tech.id}`)}
+                  className="text-xs text-primary font-medium"
+                >
+                  View all
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {moreFromArtist.map(({ post: p }: any) => (
+                <motion.div
+                  key={p.id}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => navigate(`/post/${p.id}${isPreview ? "?preview=1" : ""}`)}
+                  className="aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer"
+                >
+                  {p.imageUrls?.[0] ? (
+                    <img src={p.imageUrls[0]} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-[#E6F5F1] to-[#D0EDE6] flex items-center justify-center">
+                      <span className="text-xl">💅</span>
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
@@ -173,7 +241,7 @@ export default function PostDetail({ postId }: Props) {
             onClick={handleBook}
             className="flex-1 btn-valisse py-3.5 text-sm font-semibold"
           >
-            Book This Look
+            {isPreview ? `Book With ${techName}` : "Book This Look"}
           </button>
         </div>
       </div>
