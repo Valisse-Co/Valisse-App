@@ -119,7 +119,15 @@ export async function getPostById(postId: number) {
 export async function getDiscoverFeed(
   limit = 20,
   offset = 0,
-  filters?: { style?: string; shape?: string; color?: string }
+  filters?: {
+    style?: string;
+    shape?: string;
+    color?: string;
+    distanceMiles?: number;
+    userLat?: number;
+    userLng?: number;
+    soonestAvailable?: boolean;
+  }
 ) {
   const db = await getDb();
   if (!db) return [];
@@ -128,7 +136,8 @@ export async function getDiscoverFeed(
   if (filters?.shape) conditions.push(eq(posts.shape, filters.shape));
   if (filters?.color) conditions.push(eq(posts.color, filters.color));
 
-  return db
+  // Fetch base results with tech lat/lng included
+  const rows = await db
     .select({
       post: posts,
       tech: {
@@ -137,6 +146,8 @@ export async function getDiscoverFeed(
         businessName: users.businessName,
         avatarUrl: users.avatarUrl,
         location: users.location,
+        lat: users.lat,
+        lng: users.lng,
       },
       analytics: postAnalytics,
     })
@@ -145,8 +156,68 @@ export async function getDiscoverFeed(
     .leftJoin(postAnalytics, eq(posts.id, postAnalytics.postId))
     .where(and(...conditions))
     .orderBy(desc(posts.isPromoted), desc(posts.createdAt))
-    .limit(limit)
-    .offset(offset);
+    .limit(500); // over-fetch so we can filter/sort in JS
+
+  // ── Distance filter (Haversine) ──────────────────────────────────────────
+  let results = rows;
+  if (
+    filters?.distanceMiles &&
+    filters.userLat !== undefined &&
+    filters.userLng !== undefined
+  ) {
+    const R = 3958.8; // Earth radius in miles
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const uLat = filters.userLat;
+    const uLng = filters.userLng;
+    const maxMi = filters.distanceMiles;
+    results = results.filter(({ tech }) => {
+      if (tech?.lat == null || tech?.lng == null) return false;
+      const dLat = toRad(tech.lat - uLat);
+      const dLng = toRad(tech.lng - uLng);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(uLat)) * Math.cos(toRad(tech.lat)) * Math.sin(dLng / 2) ** 2;
+      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return dist <= maxMi;
+    });
+  }
+
+  // ── Soonest available sort ───────────────────────────────────────────────
+  if (filters?.soonestAvailable) {
+    // Fetch upcoming availability for all techs in the result set
+    const techIds = Array.from(new Set(results.map((r) => r.tech?.id).filter((id): id is number => id != null)));
+    const now = new Date();
+    // Get availability rows for these techs
+    const availRows = techIds.length
+      ? await db
+          .select({ techId: availability.techId, dayOfWeek: availability.dayOfWeek, startTime: availability.startTime })
+          .from(availability)
+          .where(and(sql`${availability.techId} IN (${sql.join(techIds.map((id) => sql`${id}`), sql`, `)})`, eq(availability.isActive, true)))
+      : [];
+    // Also check last-minute slots
+    const slotRows = techIds.length
+      ? await db
+          .select({ techId: lastMinuteSlots.techId, slotDate: lastMinuteSlots.slotDate })
+          .from(lastMinuteSlots)
+          .where(and(sql`${lastMinuteSlots.techId} IN (${sql.join(techIds.map((id) => sql`${id}`), sql`, `)})`, gt(lastMinuteSlots.slotDate, now)))
+      : [];
+    // Build a "has upcoming availability" set
+    const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const todayIdx = now.getDay();
+    const techHasSlot = new Set<number>();
+    for (const row of availRows) {
+      // dayOfWeek is stored as int (0=Sun…6=Sat)
+      if ((row.dayOfWeek as number) >= todayIdx) techHasSlot.add(row.techId);
+    }
+    for (const row of slotRows) techHasSlot.add(row.techId);
+    // Sort: techs with upcoming slots first
+    results = [
+      ...results.filter((r) => r.tech?.id && techHasSlot.has(r.tech.id)),
+      ...results.filter((r) => !r.tech?.id || !techHasSlot.has(r.tech.id)),
+    ];
+  }
+
+  return results.slice(offset, offset + limit);
 }
 
 export async function getTechPosts(techId: number) {

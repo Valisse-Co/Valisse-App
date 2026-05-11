@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Sparkles, Scissors } from "lucide-react";
+import { ChevronRight, Sparkles, Scissors, LocateFixed } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const STYLE_OPTIONS = ["Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
@@ -31,6 +31,24 @@ export default function Onboarding() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [priceRange, setPriceRange] = useState("");
   const [phone, setPhone] = useState("");
+  const [geoLat, setGeoLat] = useState<number | undefined>();
+  const [geoLng, setGeoLng] = useState<number | undefined>();
+  const [locating, setLocating] = useState(false);
+
+  const detectLocation = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoLat(pos.coords.latitude);
+        setGeoLng(pos.coords.longitude);
+        setLocating(false);
+        toast.success("Location detected!");
+      },
+      () => { setLocating(false); toast.error("Could not detect location."); },
+      { timeout: 8000 }
+    );
+  };
 
   const completeOnboarding = trpc.users.completeOnboarding.useMutation({
     onSuccess: () => {
@@ -51,6 +69,8 @@ export default function Onboarding() {
       stylePreferences: selectedStyles,
       colorPreferences: selectedColors,
       location: location || undefined,
+      lat: geoLat,
+      lng: geoLng,
       businessName: businessName || undefined,
       bio: bio || undefined,
       services: selectedServices,
@@ -208,6 +228,15 @@ export default function Onboarding() {
                 onChange={e => setLocation(e.target.value)}
                 className="rounded-xl h-12"
               />
+              <button
+                type="button"
+                onClick={detectLocation}
+                disabled={locating}
+                className="flex items-center gap-2 text-sm text-primary font-medium"
+              >
+                <LocateFixed size={14} className={locating ? "animate-pulse" : ""} />
+                {locating ? "Detecting location…" : geoLat ? "Location detected ✓" : "Detect my location"}
+              </button>
               <button onClick={handleFinish} disabled={completeOnboarding.isPending} className="btn-valisse py-4 w-full mt-auto">
                 {completeOnboarding.isPending ? "Setting up..." : "Start Discovering"}
               </button>

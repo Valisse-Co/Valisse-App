@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `users` ADD `lat` float; ALTER TABLE `users` ADD `lng` float;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 39zy4Xriz7sgVfL.e79b92e2bbb7 --database f5fDK6NnMqbHPKTgeCgLZS --execute ALTER TABLE `users` ADD `lat` float; ALTER TABLE `users` ADD `lng` float;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 775
+}

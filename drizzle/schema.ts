@@ -33,6 +33,9 @@ export const users = mysqlTable("users", {
   services: json("services").$type<string[]>(),
   priceRange: varchar("priceRange", { length: 32 }),
   instagramHandle: varchar("instagramHandle", { length: 64 }),
+  // Geolocation for proximity filtering
+  lat: float("lat"),
+  lng: float("lng"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

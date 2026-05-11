@@ -83,3 +83,16 @@
 - [x] PostDetail: rename "Book This Look" to "Book With [Tech Name]" when in preview mode
 - [x] PostDetail: add "More from this artist" section with 3-6 other posts from same tech
 - [x] TechDashboard Posts tab: tapping a post navigates to /post/:id?preview=1
+
+## Discover Filters: Distance + Soonest Available
+- [x] Schema: add lat/lng columns to users table
+- [x] Backend: feed procedure accepts distanceMiles and soonestAvailable params
+- [x] Backend: proximity filtering using Haversine formula on tech lat/lng
+- [x] Backend: soonestAvailable sort — techs with upcoming availability slots ranked first
+- [x] Frontend: Distance filter chips (5mi, 10mi, 25mi, 50+mi) with browser geolocation
+- [x] Frontend: Soonest Available toggle filter chip
+- [x] Frontend: combine new filters with existing style/shape/color filters
+
+## Discover Filters — Follow-up Gaps
+- [x] Profile/onboarding: save lat/lng when tech sets their location (geocode text location on profile save)
+- [x] Discover: gracefully show techs without lat/lng when distance filter is active (show note or fallback)

@@ -95,6 +95,8 @@ const usersRouter = router({
         userType: z.enum(["client", "nail_tech"]).optional(),
         onboardingCompleted: z.boolean().optional(),
         avatarUrl: z.string().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -116,6 +118,8 @@ const usersRouter = router({
         services: z.array(z.string()).optional(),
         priceRange: z.string().optional(),
         phone: z.string().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -147,6 +151,10 @@ const postsRouter = router({
         style: z.string().optional(),
         shape: z.string().optional(),
         color: z.string().optional(),
+        distanceMiles: z.number().optional(),
+        userLat: z.number().optional(),
+        userLng: z.number().optional(),
+        soonestAvailable: z.boolean().optional(),
       })
     )
     .query(async ({ input }) => {
@@ -154,6 +162,10 @@ const postsRouter = router({
         style: input.style,
         shape: input.shape,
         color: input.color,
+        distanceMiles: input.distanceMiles,
+        userLat: input.userLat,
+        userLng: input.userLng,
+        soonestAvailable: input.soonestAvailable,
       });
     }),
 
