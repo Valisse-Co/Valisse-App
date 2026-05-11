@@ -121,7 +121,7 @@ export default function Saved() {
                   {post.imageUrls?.[0] ? (
                     <img src={post.imageUrls[0]} alt="" className="w-full object-cover" style={{ aspectRatio: "3/4" }} />
                   ) : (
-                    <div className="w-full bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1]" style={{ aspectRatio: "3/4" }}>
+                    <div className="w-full bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1]" style={{ aspectRatio: "3/4" }}>
                       <div className="w-full h-full flex items-center justify-center"><span className="text-4xl">💅</span></div>
                     </div>
                   )}

@@ -48,7 +48,7 @@ const PLANS = [
     price: "$249",
     period: "per year",
     icon: <Crown size={20} />,
-    color: "border-amber-400",
+    color: "border-primary/40",
     badge: "Save 28%",
     features: [
       "Everything in Pro",
@@ -103,8 +103,8 @@ export default function Subscription() {
         {subscription && (
           <div className={cn(
             "flex items-center gap-2 px-4 py-3 rounded-2xl mb-6 text-sm",
-            subscription.status === "active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
-            subscription.status === "trial" ? "bg-amber-50 text-amber-700 border border-amber-200" :
+            subscription.status === "active" ? "bg-primary/10 text-primary border border-primary/20" :
+            subscription.status === "trial" ? "bg-accent text-accent-foreground border border-border" :
             "bg-muted text-muted-foreground border border-border"
           )}>
             <Zap size={15} />
@@ -138,7 +138,7 @@ export default function Subscription() {
               {plan.badge && (
                 <div className={cn(
                   "absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-semibold",
-                  plan.id === "monthly" ? "bg-primary text-white" : "bg-amber-400 text-white"
+                  plan.id === "monthly" ? "bg-primary text-white" : "bg-primary/80 text-white"
                 )}>
                   {plan.badge}
                 </div>
@@ -149,7 +149,7 @@ export default function Subscription() {
                   <div className={cn(
                     "w-10 h-10 rounded-xl flex items-center justify-center",
                     plan.id === "monthly" ? "bg-primary/10 text-primary" :
-                    plan.id === "growth" ? "bg-amber-50 text-amber-600" :
+                    plan.id === "growth" ? "bg-accent text-accent-foreground" :
                     "bg-muted text-muted-foreground"
                   )}>
                     {plan.icon}
@@ -182,7 +182,7 @@ export default function Subscription() {
                   plan.disabled || (subscription?.status === "active" && subscription.tier === plan.id)
                     ? "bg-muted text-muted-foreground cursor-default"
                     : plan.id === "monthly" ? "btn-valisse"
-                    : "bg-amber-400 text-white hover:bg-amber-500"
+                    : "bg-primary/80 text-white hover:bg-primary"
                 )}
               >
                 {activate.isPending ? "Activating..." :

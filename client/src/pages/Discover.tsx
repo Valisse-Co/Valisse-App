@@ -208,7 +208,7 @@ function PostCard({ post, tech, analytics, liked, onLike, onSave, onClick }: any
       {imageUrl ? (
         <img src={imageUrl} alt={post.caption ?? "nail art"} className="w-full object-cover" style={{ aspectRatio: "3/4" }} />
       ) : (
-        <div className="w-full bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1]" style={{ aspectRatio: "3/4" }}>
+        <div className="w-full bg-gradient-to-br from-[#E6F5F1] to-[#D0EDE6]" style={{ aspectRatio: "3/4" }}>
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-4xl">💅</span>
           </div>
@@ -237,7 +237,7 @@ function PostCard({ post, tech, analytics, liked, onLike, onSave, onClick }: any
           onClick={(e) => onLike(post.id, e)}
           className={cn(
             "w-8 h-8 rounded-full backdrop-blur-sm flex items-center justify-center transition-all",
-            liked ? "bg-red-500/80 text-white" : "bg-black/30 text-white"
+            liked ? "bg-primary/90 text-white" : "bg-black/30 text-white"
           )}
         >
           <Heart size={14} fill={liked ? "currentColor" : "none"} />

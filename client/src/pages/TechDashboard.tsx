@@ -85,9 +85,9 @@ export default function TechDashboard() {
         {subscription && (
           <div className={cn(
             "flex items-center gap-2 px-3 py-2 rounded-xl text-xs",
-            subscription.status === "trial" ? "bg-amber-50 text-amber-700 border border-amber-200" :
-            subscription.status === "active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
-            "bg-red-50 text-red-700 border border-red-200"
+            subscription.status === "trial" ? "bg-accent text-accent-foreground border border-border" :
+            subscription.status === "active" ? "bg-primary/10 text-primary border border-primary/20" :
+            "bg-muted text-muted-foreground border border-border"
           )}>
             <Zap size={12} />
             <span className="font-medium capitalize">{subscription.status === "trial" ? "Free Trial" : subscription.tier}</span>
@@ -126,10 +126,10 @@ export default function TechDashboard() {
             {/* Analytics cards */}
             <div className="grid grid-cols-2 gap-3">
               <StatCard icon={<Eye size={18} className="text-primary" />} label="Total Views" value={analytics?.totalViews ?? 0} />
-              <StatCard icon={<Heart size={18} className="text-rose-500" />} label="Total Likes" value={analytics?.totalLikes ?? 0} />
-              <StatCard icon={<TrendingUp size={18} className="text-emerald-600" />} label="Bookings" value={analytics?.totalBookings ?? 0} />
+              <StatCard icon={<Heart size={18} className="text-primary" />} label="Total Likes" value={analytics?.totalLikes ?? 0} />
+              <StatCard icon={<TrendingUp size={18} className="text-primary" />} label="Bookings" value={analytics?.totalBookings ?? 0} />
               <StatCard
-                icon={<BarChart2 size={18} className="text-violet-500" />}
+                icon={<BarChart2 size={18} className="text-primary" />}
                 label="Booking Rate"
                 value={`${analytics?.bookingRate ?? 0}%`}
               />
@@ -161,7 +161,7 @@ export default function TechDashboard() {
                       {post.imageUrls?.[0] ? (
                         <img src={post.imageUrls[0]} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1] flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
                           <span className="text-xl">💅</span>
                         </div>
                       )}
@@ -196,7 +196,7 @@ export default function TechDashboard() {
                       {post.imageUrls?.[0] ? (
                         <img src={post.imageUrls[0]} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1] flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
                           <span className="text-2xl">💅</span>
                         </div>
                       )}
@@ -205,7 +205,7 @@ export default function TechDashboard() {
                       <div className="flex items-start justify-between">
                         <p className="text-sm font-medium truncate">{post.caption || "Untitled"}</p>
                         <span className={cn("text-xs px-2 py-0.5 rounded-full capitalize ml-2 flex-shrink-0",
-                          post.status === "published" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+                          post.status === "published" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                         )}>{post.status}</span>
                       </div>
                       <div className="flex gap-3 mt-2 text-xs text-muted-foreground">

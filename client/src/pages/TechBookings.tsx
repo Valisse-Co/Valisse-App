@@ -9,11 +9,11 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  confirmed: "bg-emerald-100 text-emerald-700",
-  declined: "bg-red-100 text-red-700",
-  cancelled: "bg-gray-100 text-gray-600",
-  completed: "bg-blue-100 text-blue-700",
+  pending: "bg-accent text-accent-foreground border border-border",
+  confirmed: "bg-primary/10 text-primary border border-primary/20",
+  declined: "bg-muted text-muted-foreground border border-border",
+  cancelled: "bg-muted text-muted-foreground border border-border",
+  completed: "bg-accent text-accent-foreground border border-border",
 };
 
 export default function TechBookings() {

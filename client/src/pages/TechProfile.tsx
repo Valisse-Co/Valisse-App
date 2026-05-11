@@ -53,7 +53,7 @@ export default function TechProfile({ techId }: Props) {
       {/* Header */}
       <div className="relative">
         {/* Cover gradient */}
-        <div className="h-32 bg-gradient-to-br from-[#E6F5F1] via-[#F7F4EE] to-[#F0E8E6]" />
+        <div className="h-32 bg-gradient-to-br from-[#0F8F6F]/20 via-[#E6F5F1] to-[#D0EDE6]" />
 
         <button
           onClick={() => navigate(-1 as any)}
@@ -103,7 +103,7 @@ export default function TechProfile({ techId }: Props) {
           )}
           {ratingStats && ratingStats.count > 0 && (
             <span className="flex items-center gap-1 text-sm">
-              <Star size={13} className="text-amber-400 fill-amber-400" />
+              <Star size={13} className="text-yellow-500 fill-yellow-500" />
               <span className="font-medium">{ratingStats.average.toFixed(1)}</span>
               <span className="text-muted-foreground">({ratingStats.count} reviews)</span>
             </span>
@@ -189,7 +189,7 @@ export default function TechProfile({ techId }: Props) {
                   {post.imageUrls?.[0] ? (
                     <img src={post.imageUrls[0]} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1] flex items-center justify-center">
+                    <div className="w-full h-full bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
                       <span className="text-2xl">💅</span>
                     </div>
                   )}
@@ -218,7 +218,7 @@ export default function TechProfile({ techId }: Props) {
                     <p className="text-sm font-medium">{client?.name ?? "Client"}</p>
                     <div className="flex gap-0.5">
                       {Array.from({ length: 5 }).map((_, i) => (
-                        <Star key={i} size={11} className={cn(i < review.rating ? "text-amber-400 fill-amber-400" : "text-muted")} />
+                        <Star key={i} size={11} className={cn(i < review.rating ? "text-yellow-500 fill-yellow-500" : "text-muted")} />
                       ))}
                     </div>
                   </div>

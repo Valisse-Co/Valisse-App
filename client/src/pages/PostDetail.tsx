@@ -57,7 +57,7 @@ export default function PostDetail({ postId }: Props) {
         {imageUrl ? (
           <img src={imageUrl} alt="nail art" className="w-full object-cover" style={{ maxHeight: "70vh" }} />
         ) : (
-          <div className="w-full h-96 bg-gradient-to-br from-[#F0E8E6] to-[#E6F5F1] flex items-center justify-center">
+          <div className="w-full h-96 bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
             <span className="text-6xl">💅</span>
           </div>
         )}
@@ -153,7 +153,7 @@ export default function PostDetail({ postId }: Props) {
               )}
               {ratingStats && ratingStats.count > 0 && (
                 <div className="flex items-center gap-1 mt-0.5">
-                  <Star size={11} className="text-amber-400 fill-amber-400" />
+                  <Star size={11} className="text-yellow-500 fill-yellow-500" />
                   <span className="text-xs font-medium">{ratingStats.average.toFixed(1)}</span>
                   <span className="text-xs text-muted-foreground">({ratingStats.count})</span>
                 </div>
