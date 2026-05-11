@@ -56,3 +56,10 @@
 - [x] Sweep all page files for hardcoded pink/red/blush Tailwind classes and replace with emerald
 - [x] Update buttons, CTAs, active nav states, icons, highlights to emerald
 - [x] Verify no pink/red accents remain anywhere in the UI
+
+## TechBookings Page Rebuild
+- [x] Backend: tRPC procedure for today's bookings (filtered by current date)
+- [x] Backend: tRPC procedures for weekly schedule (get/set working days, hours, breaks, blocks)
+- [x] Frontend: Today tab — vertical timeline of today's appointments with client name, time, service, status
+- [x] Frontend: Schedule tab — weekly availability editor (working days toggle, hours per day, breaks, blocked time)
+- [x] Clean minimal layout, fast to edit, no clutter

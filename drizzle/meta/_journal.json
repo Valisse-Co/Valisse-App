@@ -15,6 +15,13 @@
       "when": 1778283671601,
       "tag": "0001_curved_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778472581760,
+      "tag": "0002_little_argent",
+      "breakpoints": true
     }
   ]
 }

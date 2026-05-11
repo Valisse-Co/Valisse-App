@@ -140,9 +140,24 @@ export const availability = mysqlTable("availability", {
   startTime: varchar("startTime", { length: 8 }).notNull(), // "09:00"
   endTime: varchar("endTime", { length: 8 }).notNull(),     // "17:00"
   isActive: boolean("isActive").default(true).notNull(),
+  breakStart: varchar("breakStart", { length: 8 }),  // "12:00" optional
+  breakEnd: varchar("breakEnd", { length: 8 }),      // "13:00" optional
 });
 
 export type Availability = typeof availability.$inferSelect;
+
+// ─── Schedule Blocks (blocked-off time) ──────────────────────────────────────
+export const scheduleBlocks = mysqlTable("schedule_blocks", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull(),
+  blockDate: timestamp("blockDate").notNull(),
+  startTime: varchar("startTime", { length: 8 }).notNull(),
+  endTime: varchar("endTime", { length: 8 }).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
 
 // ─── Last-Minute Slots ────────────────────────────────────────────────────────
 export const lastMinuteSlots = mysqlTable("last_minute_slots", {

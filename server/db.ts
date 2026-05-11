@@ -19,6 +19,7 @@ import {
   posts,
   reviews,
   savedPosts,
+  scheduleBlocks,
   subscriptions,
   users,
 } from "../drizzle/schema";
@@ -308,6 +309,94 @@ export async function getTechBookings(techId: number) {
     .leftJoin(users, eq(bookings.clientId, users.id))
     .where(eq(bookings.techId, techId))
     .orderBy(desc(bookings.scheduledAt));
+}
+
+export async function getTodayBookings(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  return db
+    .select({ booking: bookings, client: users })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.clientId, users.id))
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        gt(bookings.scheduledAt, startOfDay),
+        lt(bookings.scheduledAt, endOfDay)
+      )
+    )
+    .orderBy(bookings.scheduledAt);
+}
+
+export async function getWeeklySchedule(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(availability).where(eq(availability.techId, techId)).orderBy(availability.dayOfWeek);
+}
+
+export async function setWeeklySchedule(
+  techId: number,
+  schedule: Array<{
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isActive: boolean;
+    breakStart?: string | null;
+    breakEnd?: string | null;
+  }>
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(availability).where(eq(availability.techId, techId));
+  if (schedule.length > 0) {
+    await db.insert(availability).values(
+      schedule.map(s => ({
+        techId,
+        dayOfWeek: s.dayOfWeek,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        isActive: s.isActive,
+        breakStart: s.breakStart ?? null,
+        breakEnd: s.breakEnd ?? null,
+      }))
+    );
+  }
+}
+
+export async function getScheduleBlocks(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(scheduleBlocks)
+    .where(eq(scheduleBlocks.techId, techId))
+    .orderBy(scheduleBlocks.blockDate);
+}
+
+export async function createScheduleBlock(
+  techId: number,
+  block: { blockDate: Date; startTime: string; endTime: string; reason?: string }
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(scheduleBlocks).values({
+    techId,
+    blockDate: block.blockDate,
+    startTime: block.startTime,
+    endTime: block.endTime,
+    reason: block.reason ?? null,
+  });
+}
+
+export async function deleteScheduleBlock(blockId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(scheduleBlocks)
+    .where(and(eq(scheduleBlocks.id, blockId), eq(scheduleBlocks.techId, techId)));
 }
 
 export async function updateBookingStatus(

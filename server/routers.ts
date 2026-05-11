@@ -40,6 +40,12 @@ import {
   markNotificationsRead,
   sendMessage,
   setTechAvailability,
+  getTodayBookings,
+  getWeeklySchedule,
+  setWeeklySchedule,
+  getScheduleBlocks,
+  createScheduleBlock,
+  deleteScheduleBlock,
   toggleFollow,
   toggleLike,
   toggleSave,
@@ -312,6 +318,7 @@ const bookingsRouter = router({
 
   clientBookings: protectedProcedure.query(async ({ ctx }) => getClientBookings(ctx.user.id)),
   techBookings: protectedProcedure.query(async ({ ctx }) => getTechBookings(ctx.user.id)),
+  todayBookings: protectedProcedure.query(async ({ ctx }) => getTodayBookings(ctx.user.id)),
 
   updateStatus: protectedProcedure
     .input(
@@ -347,6 +354,56 @@ const availabilityRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await setTechAvailability(ctx.user.id, input.slots);
+      return { success: true };
+    }),
+
+  weeklySchedule: protectedProcedure.query(async ({ ctx }) => getWeeklySchedule(ctx.user.id)),
+
+  setWeeklySchedule: protectedProcedure
+    .input(
+      z.object({
+        schedule: z.array(
+          z.object({
+            dayOfWeek: z.number().min(0).max(6),
+            startTime: z.string(),
+            endTime: z.string(),
+            isActive: z.boolean(),
+            breakStart: z.string().nullable().optional(),
+            breakEnd: z.string().nullable().optional(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await setWeeklySchedule(ctx.user.id, input.schedule);
+      return { success: true };
+    }),
+
+  blocks: protectedProcedure.query(async ({ ctx }) => getScheduleBlocks(ctx.user.id)),
+
+  addBlock: protectedProcedure
+    .input(
+      z.object({
+        blockDate: z.number(), // UTC ms timestamp
+        startTime: z.string(),
+        endTime: z.string(),
+        reason: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await createScheduleBlock(ctx.user.id, {
+        blockDate: new Date(input.blockDate),
+        startTime: input.startTime,
+        endTime: input.endTime,
+        reason: input.reason,
+      });
+      return { success: true };
+    }),
+
+  removeBlock: protectedProcedure
+    .input(z.object({ blockId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteScheduleBlock(input.blockId, ctx.user.id);
       return { success: true };
     }),
 });
