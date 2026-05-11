@@ -73,3 +73,6 @@
 - [x] Update post card icons to bookmark style (not heart)
 - [x] Remove getUserLikes / toggleLike from routers (or hide from UI)
 - [x] Verify postAnalytics.saves is the source of truth for save counts
+
+## Messages Empty State Fix
+- [x] Show role-aware empty state in Messages: nail tech sees "Communicate with clients" copy, client sees "Book a nail tech" copy

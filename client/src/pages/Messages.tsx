@@ -40,11 +40,25 @@ export default function Messages() {
             </div>
           ))
         ) : !conversations || conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="flex flex-col items-center justify-center py-20 gap-4 px-8">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
               <MessageCircle size={24} className="text-muted-foreground" />
             </div>
-            <p className="text-muted-foreground text-sm text-center">No conversations yet.<br />Book a nail tech to start chatting!</p>
+            {user?.userType === "nail_tech" ? (
+              <>
+                <p className="text-foreground text-sm font-medium text-center">Communicate with clients to book appointments here.</p>
+                <p className="text-muted-foreground text-xs text-center leading-relaxed">
+                  Respond to inquiries, confirm availability,<br />and turn messages into bookings.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-foreground text-sm font-medium text-center">No conversations yet.</p>
+                <p className="text-muted-foreground text-xs text-center leading-relaxed">
+                  Find a nail tech you love and tap <strong>Message</strong><br />to start a conversation.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           conversations.map(({ conversation }) => {
