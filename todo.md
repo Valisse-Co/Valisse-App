@@ -96,3 +96,15 @@
 ## Discover Filters — Follow-up Gaps
 - [x] Profile/onboarding: save lat/lng when tech sets their location (geocode text location on profile save)
 - [x] Discover: gracefully show techs without lat/lng when distance filter is active (show note or fallback)
+
+## Dual-Account Authentication System
+- [x] Schema: add activeMode column to users table (enum: client | nail_tech)
+- [x] Backend: switchMode procedure (toggle activeMode between client/nail_tech)
+- [x] Backend: becomeNailTech procedure (upgrade client to dual-role)
+- [x] Frontend: Login page — email/password UI, Google/Apple buttons, Sign Up / Forgot Password
+- [x] Frontend: Onboarding — role selection as first step (Client / Nail Tech)
+- [x] Frontend: Account Switcher component — Client Mode / Nail Tech Mode toggle in AppLayout
+- [x] Frontend: Settings page — Become a Nail Tech flow, Logout, account info
+- [x] Frontend: AppLayout reads activeMode and shows correct nav (client vs tech)
+- [x] Frontend: Seamless mode switch — no reload, instant nav change
+- [x] Frontend: Logout clears session and returns to Login page

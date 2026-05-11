@@ -29,6 +29,13 @@
       "when": 1778475288962,
       "tag": "0003_milky_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1778528736931,
+      "tag": "0004_wealthy_starhawk",
+      "breakpoints": true
     }
   ]
 }

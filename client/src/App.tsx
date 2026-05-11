@@ -19,6 +19,8 @@ import CreatePost from "./pages/CreatePost";
 import TechBookings from "./pages/TechBookings";
 import Subscription from "./pages/Subscription";
 import AppLayout from "./components/AppLayout";
+import Login from "./pages/Login";
+import Settings from "./pages/Settings";
 import { useAuth } from "./_core/hooks/useAuth";
 
 function Router() {
@@ -80,6 +82,10 @@ function Router() {
       <Route path="/subscription">
         <AppLayout><Subscription /></AppLayout>
       </Route>
+      <Route path="/settings">
+        <AppLayout><Settings /></AppLayout>
+      </Route>
+      <Route path="/login" component={Login} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

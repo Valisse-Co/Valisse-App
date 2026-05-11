@@ -33,6 +33,9 @@ export const users = mysqlTable("users", {
   services: json("services").$type<string[]>(),
   priceRange: varchar("priceRange", { length: 32 }),
   instagramHandle: varchar("instagramHandle", { length: 64 }),
+  // Dual-role account system
+  hasDualRole: boolean("hasDualRole").default(false).notNull(),
+  activeMode: mysqlEnum("activeMode", ["client", "nail_tech"]).default("client").notNull(),
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),

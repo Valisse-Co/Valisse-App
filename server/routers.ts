@@ -139,6 +139,41 @@ const usersRouter = router({
   getFollowerCount: publicProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => getFollowerCount(input.userId)),
+
+  // Dual-role: switch between client and nail_tech mode
+  switchMode: protectedProcedure
+    .input(z.object({ mode: z.enum(["client", "nail_tech"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const user = ctx.user;
+      // Can only switch to nail_tech if they have dual role or are already a nail_tech
+      if (input.mode === "nail_tech" && user.userType !== "nail_tech" && !user.hasDualRole) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You need a nail tech account to switch to this mode." });
+      }
+      await updateUserProfile(user.id, { activeMode: input.mode } as any);
+      return { success: true, activeMode: input.mode };
+    }),
+
+  // Dual-role: upgrade a client account to also have a nail tech profile
+  becomeNailTech: protectedProcedure
+    .input(
+      z.object({
+        businessName: z.string().optional(),
+        bio: z.string().optional(),
+        services: z.array(z.string()).optional(),
+        priceRange: z.string().optional(),
+        phone: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await updateUserProfile(ctx.user.id, {
+        ...input,
+        userType: "nail_tech",
+        hasDualRole: true,
+        activeMode: "nail_tech",
+      } as any);
+      await getOrCreateSubscription(ctx.user.id);
+      return { success: true };
+    }),
 });
 
 // ─── Posts ────────────────────────────────────────────────────────────────────
