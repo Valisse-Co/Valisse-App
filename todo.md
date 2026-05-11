@@ -63,3 +63,13 @@
 - [x] Frontend: Today tab — vertical timeline of today's appointments with client name, time, service, status
 - [x] Frontend: Schedule tab — weekly availability editor (working days toggle, hours per day, breaks, blocked time)
 - [x] Clean minimal layout, fast to edit, no clutter
+
+## Remove Likes → Saves as Primary Metric
+- [x] Remove like button and like count from Discover feed post cards
+- [x] Remove like button and like count from PostDetail page
+- [x] Remove like count from TechProfile page
+- [x] Update analytics dashboard: replace likes metric with saves metric
+- [x] Update analytics: save count per post, total saves per profile
+- [x] Update post card icons to bookmark style (not heart)
+- [x] Remove getUserLikes / toggleLike from routers (or hide from UI)
+- [x] Verify postAnalytics.saves is the source of truth for save counts

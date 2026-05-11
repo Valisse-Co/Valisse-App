@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, Heart, SlidersHorizontal, X, Search } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -12,7 +12,7 @@ const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"
 const COLORS = ["All", "Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold"];
 
 export default function Discover() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [showFilters, setShowFilters] = useState(false);
   const [activeStyle, setActiveStyle] = useState("All");
@@ -25,36 +25,26 @@ export default function Discover() {
     color: activeColor !== "All" ? activeColor : undefined,
   }), [activeStyle, activeShape, activeColor]);
 
-  const { data: feed, isLoading, refetch } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
-  const postIds = useMemo(() => feed?.map(f => f.post.id) ?? [], [feed]);
-  const { data: userLikes } = trpc.posts.userLikes.useQuery(
-    { postIds },
-    { enabled: isAuthenticated && postIds.length > 0 }
+  const { data: feed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
+
+  // Track which posts the user has saved (for filled bookmark state)
+  const { data: userSaves } = trpc.collections.savedPosts.useQuery(
+    undefined,
+    { enabled: isAuthenticated }
   );
-  const likedSet = useMemo(() => new Set((userLikes ?? []).map(l => l.postId)), [userLikes]);
+  const savedSet = useMemo(
+    () => new Set((userSaves ?? []).map((s: any) => s.savedPost?.postId ?? s.post?.id)),
+    [userSaves]
+  );
 
   const utils = trpc.useUtils();
-  const toggleLike = trpc.posts.toggleLike.useMutation({
-    onMutate: async ({ postId }) => {
-      // optimistic update
-    },
-    onSuccess: () => {
-      utils.posts.feed.invalidate();
-      utils.posts.userLikes.invalidate();
-    },
-  });
   const toggleSave = trpc.posts.toggleSave.useMutation({
     onSuccess: (data) => {
       toast.success(data.saved ? "Saved to collection" : "Removed from saved");
       utils.collections.savedPosts.invalidate();
+      utils.posts.feed.invalidate(); // refresh save counts on cards
     },
   });
-
-  const handleLike = (postId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isAuthenticated) { toast.error("Sign in to like posts"); return; }
-    toggleLike.mutate({ postId });
-  };
 
   const handleSave = (postId: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,7 +52,7 @@ export default function Discover() {
     toggleSave.mutate({ postId });
   };
 
-  // Split feed into two columns
+  // Split feed into two columns (masonry)
   const leftCol = feed?.filter((_, i) => i % 2 === 0) ?? [];
   const rightCol = feed?.filter((_, i) => i % 2 === 1) ?? [];
 
@@ -144,12 +134,19 @@ export default function Discover() {
       )}
 
       {/* Feed Grid */}
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-3 pb-24">
         {isLoading ? (
-          <div className="masonry-grid">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className={cn("masonry-item rounded-2xl bg-muted animate-pulse", i % 3 === 0 ? "h-64" : "h-48")} />
-            ))}
+          <div className="flex gap-3">
+            <div className="flex-1 flex flex-col gap-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-64" : "h-48")} />
+              ))}
+            </div>
+            <div className="flex-1 flex flex-col gap-3 mt-6">
+              {[1, 2, 3].map(i => (
+                <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-48" : "h-64")} />
+              ))}
+            </div>
           </div>
         ) : feed?.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -168,8 +165,7 @@ export default function Discover() {
                   post={post}
                   tech={tech}
                   analytics={analytics}
-                  liked={likedSet.has(post.id)}
-                  onLike={handleLike}
+                  saved={savedSet.has(post.id)}
                   onSave={handleSave}
                   onClick={() => navigate(`/post/${post.id}`)}
                 />
@@ -183,8 +179,7 @@ export default function Discover() {
                   post={post}
                   tech={tech}
                   analytics={analytics}
-                  liked={likedSet.has(post.id)}
-                  onLike={handleLike}
+                  saved={savedSet.has(post.id)}
                   onSave={handleSave}
                   onClick={() => navigate(`/post/${post.id}`)}
                 />
@@ -197,7 +192,7 @@ export default function Discover() {
   );
 }
 
-function PostCard({ post, tech, analytics, liked, onLike, onSave, onClick }: any) {
+function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
   const imageUrl = post.imageUrls?.[0];
   return (
     <motion.div
@@ -229,26 +224,25 @@ function PostCard({ post, tech, analytics, liked, onLike, onSave, onClick }: any
       <div className="absolute bottom-0 left-0 right-0 p-2.5">
         <p className="text-white text-xs font-medium truncate">{tech?.businessName || tech?.name || "Nail Tech"}</p>
         {post.location && <p className="text-white/70 text-[10px] truncate">{post.location}</p>}
+        {/* Save count as social proof */}
+        {analytics?.saves > 0 && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <Bookmark size={10} className="text-white/70 fill-white/70" />
+            <span className="text-white/70 text-[10px]">{analytics.saves}</span>
+          </div>
+        )}
       </div>
 
-      {/* Action buttons */}
-      <div className="absolute top-2 right-2 flex flex-col gap-1.5">
-        <button
-          onClick={(e) => onLike(post.id, e)}
-          className={cn(
-            "w-8 h-8 rounded-full backdrop-blur-sm flex items-center justify-center transition-all",
-            liked ? "bg-primary/90 text-white" : "bg-black/30 text-white"
-          )}
-        >
-          <Heart size={14} fill={liked ? "currentColor" : "none"} />
-        </button>
-        <button
-          onClick={(e) => onSave(post.id, e)}
-          className="w-8 h-8 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
-        >
-          <Bookmark size={14} />
-        </button>
-      </div>
+      {/* Save button — single primary action */}
+      <button
+        onClick={(e) => onSave(post.id, e)}
+        className={cn(
+          "absolute top-2 right-2 w-9 h-9 rounded-full backdrop-blur-sm flex items-center justify-center transition-all shadow-sm",
+          saved ? "bg-primary text-white" : "bg-black/30 text-white"
+        )}
+      >
+        <Bookmark size={15} fill={saved ? "currentColor" : "none"} />
+      </button>
     </motion.div>
   );
 }

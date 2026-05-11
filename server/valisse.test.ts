@@ -147,7 +147,7 @@ describe("analytics router", () => {
       const analytics = await caller.analytics.techAnalytics();
       expect(analytics).toBeDefined();
       expect(typeof analytics.totalViews).toBe("number");
-      expect(typeof analytics.totalLikes).toBe("number");
+      expect(typeof analytics.totalSaves).toBe("number");
       expect(typeof analytics.bookingRate).toBe("number");
     } catch (e: any) {
       // DB not available in test env

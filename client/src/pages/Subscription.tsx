@@ -34,7 +34,7 @@ const PLANS = [
     features: [
       "Unlimited posts",
       "Featured profile placement",
-      "Advanced analytics (views, likes, booking rate)",
+      "Advanced analytics (views, saves, booking rate)",
       "Last-minute slot notifications",
       "SMS booking reminders",
       "Priority support",

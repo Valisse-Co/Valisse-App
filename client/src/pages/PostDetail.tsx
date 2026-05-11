@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { ArrowLeft, Heart, Bookmark, Share2, Star, MapPin, ChevronRight } from "lucide-react";
+import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -16,11 +16,12 @@ export default function PostDetail({ postId }: Props) {
   const { data, isLoading } = trpc.posts.getById.useQuery({ postId });
   const utils = trpc.useUtils();
 
-  const toggleLike = trpc.posts.toggleLike.useMutation({
-    onSuccess: () => utils.posts.getById.invalidate({ postId }),
-  });
   const toggleSave = trpc.posts.toggleSave.useMutation({
-    onSuccess: (res) => toast.success(res.saved ? "Saved!" : "Removed from saved"),
+    onSuccess: (res) => {
+      toast.success(res.saved ? "Saved!" : "Removed from saved");
+      utils.posts.getById.invalidate({ postId });
+      utils.posts.feed.invalidate();
+    },
   });
   const getOrCreateConv = trpc.messaging.getOrCreateConversation.useMutation({
     onSuccess: (conv) => navigate(`/chat/${conv.id}`),
@@ -73,14 +74,8 @@ export default function PostDetail({ postId }: Props) {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Action buttons */}
+        {/* Action buttons — save is the primary engagement action */}
         <div className="absolute top-12 right-4 flex flex-col gap-2">
-          <button
-            onClick={() => isAuthenticated ? toggleLike.mutate({ postId }) : toast.error("Sign in to like")}
-            className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
-          >
-            <Heart size={18} />
-          </button>
           <button
             onClick={() => isAuthenticated ? toggleSave.mutate({ postId }) : toast.error("Sign in to save")}
             className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"

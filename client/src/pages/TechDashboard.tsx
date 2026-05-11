@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Heart, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -126,7 +126,7 @@ export default function TechDashboard() {
             {/* Analytics cards */}
             <div className="grid grid-cols-2 gap-3">
               <StatCard icon={<Eye size={18} className="text-primary" />} label="Total Views" value={analytics?.totalViews ?? 0} />
-              <StatCard icon={<Heart size={18} className="text-primary" />} label="Total Likes" value={analytics?.totalLikes ?? 0} />
+              <StatCard icon={<Bookmark size={18} className="text-primary" />} label="Total Saves" value={analytics?.totalSaves ?? 0} />
               <StatCard icon={<TrendingUp size={18} className="text-primary" />} label="Bookings" value={analytics?.totalBookings ?? 0} />
               <StatCard
                 icon={<BarChart2 size={18} className="text-primary" />}
@@ -210,7 +210,7 @@ export default function TechDashboard() {
                       </div>
                       <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Eye size={11} />{pa?.views ?? 0}</span>
-                        <span className="flex items-center gap-1"><Heart size={11} />{pa?.likes ?? 0}</span>
+                        <span className="flex items-center gap-1"><Bookmark size={11} />{pa?.saves ?? 0}</span>
                         <span className="flex items-center gap-1"><TrendingUp size={11} />{pa?.bookingsFromPost ?? 0}</span>
                       </div>
                       <div className="flex gap-2 mt-2">
