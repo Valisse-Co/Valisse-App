@@ -1,0 +1,1 @@
+ALTER TABLE `availability` ADD `bufferMinutes` int DEFAULT 0 NOT NULL;

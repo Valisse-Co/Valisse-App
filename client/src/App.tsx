@@ -58,7 +58,7 @@ function Router() {
         <AppLayout><Bookings /></AppLayout>
       </Route>
       <Route path="/book/:techId">
-        {(params) => <AppLayout><BookingFlow techId={Number(params.techId)} /></AppLayout>}
+        {() => <AppLayout><BookingFlow /></AppLayout>}
       </Route>
       <Route path="/messages">
         <AppLayout><Messages /></AppLayout>

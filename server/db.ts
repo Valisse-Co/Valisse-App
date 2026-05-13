@@ -735,3 +735,182 @@ export async function markNotificationsRead(userId: number) {
   if (!db) return;
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.userId, userId));
 }
+
+// ─── Available Slots Computation ──────────────────────────────────────────────
+/**
+ * Compute all time slots for a given tech on a given date, taking into account:
+ *  - Working hours (availability table)
+ *  - Break times
+ *  - Buffer minutes between appointments
+ *  - Existing confirmed/pending bookings
+ *  - Blocked-off schedule blocks
+ *  - Selected appointment duration
+ *
+ * Returns an array of { time: "HH:MM", available: boolean }
+ */
+export async function getAvailableSlots(
+  techId: number,
+  dateStr: string,   // "YYYY-MM-DD" in local time
+  durationMinutes: number
+): Promise<Array<{ time: string; available: boolean }>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Parse the requested date
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const requestedDate = new Date(year, month - 1, day);
+  const dayOfWeek = requestedDate.getDay(); // 0=Sun…6=Sat
+
+  // 1. Get the tech's availability rule for this day
+  const avRows = await db
+    .select()
+    .from(availability)
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek), eq(availability.isActive, true)))
+    .limit(1);
+
+  if (avRows.length === 0) return []; // tech doesn't work this day
+
+  const av = avRows[0];
+  const bufferMins = av.bufferMinutes ?? 0;
+
+  // Helper: "HH:MM" → minutes since midnight
+  const toMins = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const toTime = (mins: number) => {
+    const h = Math.floor(mins / 60).toString().padStart(2, "0");
+    const m = (mins % 60).toString().padStart(2, "0");
+    return `${h}:${m}`;
+  };
+
+  const workStart = toMins(av.startTime);
+  const workEnd = toMins(av.endTime);
+  const breakStart = av.breakStart ? toMins(av.breakStart) : null;
+  const breakEnd = av.breakEnd ? toMins(av.breakEnd) : null;
+
+  // 2. Build "blocked intervals" from existing bookings on this date
+  const dayStart = new Date(year, month - 1, day, 0, 0, 0);
+  const dayEnd = new Date(year, month - 1, day, 23, 59, 59);
+
+  const existingBookings = await db
+    .select({ scheduledAt: bookings.scheduledAt, duration: bookings.duration, status: bookings.status })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        gt(bookings.scheduledAt, dayStart),
+        lt(bookings.scheduledAt, dayEnd),
+        sql`${bookings.status} IN ('pending', 'confirmed')`
+      )
+    );
+
+  // 3. Build blocked intervals from schedule_blocks on this date
+  const blocks = await db
+    .select({ startTime: scheduleBlocks.startTime, endTime: scheduleBlocks.endTime })
+    .from(scheduleBlocks)
+    .where(
+      and(
+        eq(scheduleBlocks.techId, techId),
+        gt(scheduleBlocks.blockDate, dayStart),
+        lt(scheduleBlocks.blockDate, dayEnd)
+      )
+    );
+
+  // Combine all blocked intervals (in minutes since midnight)
+  type Interval = { start: number; end: number };
+  const blocked: Interval[] = [];
+
+  for (const b of existingBookings) {
+    const startMins = b.scheduledAt.getHours() * 60 + b.scheduledAt.getMinutes();
+    const endMins = startMins + (b.duration ?? 60) + bufferMins;
+    blocked.push({ start: startMins, end: endMins });
+  }
+
+  for (const bl of blocks) {
+    blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime) });
+  }
+
+  // Add break as a blocked interval
+  if (breakStart !== null && breakEnd !== null) {
+    blocked.push({ start: breakStart, end: breakEnd });
+  }
+
+  // 4. Generate candidate slots every 30 minutes within working hours
+  const slots: Array<{ time: string; available: boolean }> = [];
+  const slotInterval = 30; // minutes between slot starts
+
+  for (let t = workStart; t + durationMinutes <= workEnd; t += slotInterval) {
+    const slotEnd = t + durationMinutes;
+    // Check if this slot overlaps any blocked interval
+    const isBlocked = blocked.some(
+      (iv) => t < iv.end && slotEnd > iv.start
+    );
+    // Also skip slots in the past (for today)
+    const now = new Date();
+    const isToday =
+      now.getFullYear() === year &&
+      now.getMonth() === month - 1 &&
+      now.getDate() === day;
+    const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+    const isPast = isToday && t <= nowMins;
+
+    slots.push({ time: toTime(t), available: !isBlocked && !isPast });
+  }
+
+  return slots;
+}
+
+/**
+ * Create a booking only if the slot is still free (prevents double-booking).
+ * Throws if the slot is already taken.
+ */
+export async function createBookingWithConflictCheck(data: InsertBooking): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const scheduledAt = data.scheduledAt;
+  const durationMins = data.duration ?? 60;
+  const techId = data.techId;
+
+  // Check for overlapping bookings
+  const slotStart = scheduledAt;
+  const slotEnd = new Date(scheduledAt.getTime() + durationMins * 60 * 1000);
+
+  // Get buffer for this tech on this day
+  const dayOfWeek = scheduledAt.getDay();
+  const avRows = await db
+    .select({ bufferMinutes: availability.bufferMinutes })
+    .from(availability)
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek)))
+    .limit(1);
+  const bufferMins = avRows[0]?.bufferMinutes ?? 0;
+
+  // Window to check: from (slotStart - maxBuffer) to slotEnd
+  const checkFrom = new Date(slotStart.getTime() - bufferMins * 60 * 1000 - 1);
+  const checkTo = new Date(slotEnd.getTime() + bufferMins * 60 * 1000 + 1);
+
+  const conflicts = await db
+    .select({ id: bookings.id, scheduledAt: bookings.scheduledAt, duration: bookings.duration })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        gt(bookings.scheduledAt, checkFrom),
+        lt(bookings.scheduledAt, checkTo),
+        sql`${bookings.status} IN ('pending', 'confirmed')`
+      )
+    );
+
+  // Check actual overlap
+  for (const c of conflicts) {
+    const cStart = c.scheduledAt.getTime();
+    const cEnd = cStart + (c.duration ?? 60) * 60 * 1000 + bufferMins * 60 * 1000;
+    if (slotStart.getTime() < cEnd && slotEnd.getTime() > cStart) {
+      throw new Error("This time slot is no longer available. Please choose another.");
+    }
+  }
+
+  const [result] = await db.insert(bookings).values(data);
+  return (result as any).insertId as number;
+}

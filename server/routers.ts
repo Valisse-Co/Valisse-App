@@ -54,6 +54,8 @@ import {
   updatePost,
   updateSubscription,
   updateUserProfile,
+  getAvailableSlots,
+  createBookingWithConflictCheck,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -327,6 +329,18 @@ const collectionsRouter = router({
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────
 const bookingsRouter = router({
+  availableSlots: publicProcedure
+    .input(
+      z.object({
+        techId: z.number(),
+        date: z.string(), // "YYYY-MM-DD"
+        duration: z.number().default(60),
+      })
+    )
+    .query(async ({ input }) =>
+      getAvailableSlots(input.techId, input.date, input.duration)
+    ),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -339,7 +353,7 @@ const bookingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const bookingId = await createBooking({
+      const bookingId = await createBookingWithConflictCheck({
         clientId: ctx.user.id,
         techId: input.techId,
         postId: input.postId ?? null,

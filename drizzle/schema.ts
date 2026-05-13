@@ -148,6 +148,7 @@ export const availability = mysqlTable("availability", {
   isActive: boolean("isActive").default(true).notNull(),
   breakStart: varchar("breakStart", { length: 8 }),  // "12:00" optional
   breakEnd: varchar("breakEnd", { length: 8 }),      // "13:00" optional
+  bufferMinutes: int("bufferMinutes").default(0).notNull(), // gap between appointments
 });
 
 export type Availability = typeof availability.$inferSelect;

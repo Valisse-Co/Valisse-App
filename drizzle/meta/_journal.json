@@ -36,6 +36,13 @@
       "when": 1778528736931,
       "tag": "0004_wealthy_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1778642874401,
+      "tag": "0005_wide_kid_colt",
+      "breakpoints": true
     }
   ]
 }

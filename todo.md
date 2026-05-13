@@ -108,3 +108,14 @@
 - [x] Frontend: AppLayout reads activeMode and shows correct nav (client vs tech)
 - [x] Frontend: Seamless mode switch — no reload, instant nav change
 - [x] Frontend: Logout clears session and returns to Login page
+
+## Booking Flow Rebuild — Real Availability
+- [x] Schema: add bufferMinutes column to availability table
+- [x] Backend: getAvailableSlots procedure — computes open slots from working hours, existing bookings, blocked times, buffer gaps, and selected duration
+- [x] Backend: prevent double bookings at creation time (validate slot is still free)
+- [x] Frontend: BookingFlow step 1 — service selection with duration (1h / 1.5h / 2h)
+- [x] Frontend: BookingFlow step 2 — calendar date picker (only shows working days)
+- [x] Frontend: BookingFlow step 3 — time slot grid: available (selectable) vs unavailable (greyed out)
+- [x] Frontend: real-time slot refresh (refetch on date/duration change, no full reload)
+- [x] Frontend: smooth transitions between steps
+- [x] Frontend: BookingFlow step 4 — confirm screen
