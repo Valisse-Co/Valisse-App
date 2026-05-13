@@ -6,10 +6,9 @@ import { ArrowLeft, ImagePlus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { STYLE_TAG_GROUPS, MAX_STYLE_TAGS } from "@shared/const";
 
-const STYLES = ["Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
 const SHAPES = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin", "Ballerina"];
 const COLORS = ["Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold", "Multicolor"];
 
@@ -23,7 +22,7 @@ export default function CreatePost({ postId }: Props) {
 
   const [images, setImages] = useState<{ file?: File; preview: string; url?: string }[]>([]);
   const [caption, setCaption] = useState("");
-  const [style, setStyle] = useState("");
+  const [styleTags, setStyleTags] = useState<string[]>([]);
   const [shape, setShape] = useState("");
   const [color, setColor] = useState("");
   const [location, setLocation] = useState(user?.location ?? "");
@@ -38,7 +37,16 @@ export default function CreatePost({ postId }: Props) {
     if (!found) return;
     const { post } = found;
     setCaption(post.caption ?? "");
-    setStyle(post.style ?? "");
+    // Support both old single-style and new multi-style
+    const rawStyle = post.style ?? "";
+    if (rawStyle) {
+      try {
+        const parsed = JSON.parse(rawStyle);
+        setStyleTags(Array.isArray(parsed) ? parsed : [rawStyle]);
+      } catch {
+        setStyleTags([rawStyle]);
+      }
+    }
     setShape(post.shape ?? "");
     setColor(post.color ?? "");
     setLocation(post.location ?? "");
@@ -56,6 +64,17 @@ export default function CreatePost({ postId }: Props) {
     onError: () => toast.error("Failed to update post"),
   });
 
+  const toggleStyleTag = (tag: string) => {
+    setStyleTags(prev => {
+      if (prev.includes(tag)) return prev.filter(t => t !== tag);
+      if (prev.length >= MAX_STYLE_TAGS) {
+        toast.error(`Max ${MAX_STYLE_TAGS} style tags per post`);
+        return prev;
+      }
+      return [...prev, tag];
+    });
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length + images.length > 5) { toast.error("Max 5 images per post"); return; }
@@ -70,6 +89,8 @@ export default function CreatePost({ postId }: Props) {
   const handlePublish = async () => {
     if (images.length === 0) { toast.error("Add at least one image"); return; }
     setUploading(true);
+    // Serialize style tags as JSON array string for backward compat
+    const styleValue = styleTags.length > 0 ? JSON.stringify(styleTags) : undefined;
     try {
       const uploadedUrls: string[] = [];
       for (const img of images) {
@@ -83,7 +104,7 @@ export default function CreatePost({ postId }: Props) {
         await updatePost.mutateAsync({
           postId,
           caption: caption || undefined,
-          style: style || undefined,
+          style: styleValue,
           shape: shape || undefined,
           color: color || undefined,
           location: location || undefined,
@@ -93,7 +114,7 @@ export default function CreatePost({ postId }: Props) {
         await createPost.mutateAsync({
           imageUrls: uploadedUrls,
           caption: caption || undefined,
-          style: style || undefined,
+          style: styleValue,
           shape: shape || undefined,
           color: color || undefined,
           location: location || undefined,
@@ -161,24 +182,92 @@ export default function CreatePost({ postId }: Props) {
           <Textarea placeholder="Describe this nail look..." value={caption} onChange={e => setCaption(e.target.value)} className="rounded-xl resize-none" rows={3} />
         </div>
 
-        {/* Tags */}
-        {[
-          { label: "Style", options: STYLES, value: style, set: setStyle },
-          { label: "Shape", options: SHAPES, value: shape, set: setShape },
-          { label: "Color", options: COLORS, value: color, set: setColor },
-        ].map(({ label, options, value, set }) => (
-          <div key={label}>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">{label}</p>
-            <div className="flex flex-wrap gap-2">
-              {options.map(o => (
-                <button key={o} onClick={() => set(value === o ? "" : o)}
-                  className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
-                    value === o ? "bg-primary text-white border-primary" : "bg-card border-border text-foreground"
-                  )}>{o}</button>
+        {/* Style Tags — grouped, multi-select, max 3 */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Style</p>
+            <span className={cn(
+              "text-xs font-medium transition-colors",
+              styleTags.length === MAX_STYLE_TAGS ? "text-primary" : "text-muted-foreground"
+            )}>
+              {styleTags.length}/{MAX_STYLE_TAGS} selected
+            </span>
+          </div>
+
+          {/* Selected tags summary */}
+          {styleTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {styleTags.map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => toggleStyleTag(tag)}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-white text-xs font-medium"
+                >
+                  {tag}
+                  <X size={10} />
+                </button>
               ))}
             </div>
+          )}
+
+          {/* Grouped tag list */}
+          <div className="space-y-4">
+            {STYLE_TAG_GROUPS.map(({ group, tags }) => (
+              <div key={group}>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">{group}</p>
+                <div className="flex flex-wrap gap-2">
+                  {tags.map(tag => {
+                    const selected = styleTags.includes(tag);
+                    const maxed = !selected && styleTags.length >= MAX_STYLE_TAGS;
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => toggleStyleTag(tag)}
+                        disabled={maxed}
+                        className={cn(
+                          "px-3 py-1.5 rounded-full text-xs border transition-all",
+                          selected
+                            ? "bg-primary text-white border-primary"
+                            : maxed
+                              ? "bg-card border-border text-muted-foreground/40 cursor-not-allowed"
+                              : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
+                        )}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
+
+        {/* Shape */}
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Shape</p>
+          <div className="flex flex-wrap gap-2">
+            {SHAPES.map(o => (
+              <button key={o} onClick={() => setShape(shape === o ? "" : o)}
+                className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
+                  shape === o ? "bg-primary text-white border-primary" : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
+                )}>{o}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Color */}
+        <div>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Color</p>
+          <div className="flex flex-wrap gap-2">
+            {COLORS.map(o => (
+              <button key={o} onClick={() => setColor(color === o ? "" : o)}
+                className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
+                  color === o ? "bg-primary text-white border-primary" : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
+                )}>{o}</button>
+            ))}
+          </div>
+        </div>
 
         {/* Location */}
         <div>

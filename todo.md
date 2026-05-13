@@ -128,3 +128,10 @@
 ## Buffer Time — Clarification
 - [x] Buffer time is a single global setting applied to all working days (not per-day) — simpler UX, consistent with how most booking apps work
 - [x] getAvailableSlots in db.ts reads bufferMinutes from availability rows and subtracts it from slot windows — verified by grep (line 774, 883-887)
+
+## Style Tag System Upgrade
+- [x] Shared STYLE_TAGS constant with 4 groups: Everyday, Themed, Seasonal, Holidays
+- [x] New tags: Nude, Vintage, Disney, Seasonal Nails, Christmas, Halloween, Valentine's Day, Fourth of July, Thanksgiving, New Year's, Easter
+- [x] CreatePost: grouped chip selector, 3-tag max, emerald selected state, no custom entry
+- [x] Discover: grouped multi-select style filter chips, combine with all existing filters
+- [x] Feed ranking: score posts by matching style tag count + recency + saves

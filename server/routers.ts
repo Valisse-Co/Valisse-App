@@ -185,7 +185,8 @@ const postsRouter = router({
       z.object({
         limit: z.number().default(20),
         offset: z.number().default(0),
-        style: z.string().optional(),
+        style: z.string().optional(),          // legacy single-style compat
+        styles: z.array(z.string()).optional(), // multi-select
         shape: z.string().optional(),
         color: z.string().optional(),
         distanceMiles: z.number().optional(),
@@ -195,8 +196,12 @@ const postsRouter = router({
       })
     )
     .query(async ({ input }) => {
+      // Merge single and multi-select style inputs
+      const styles = input.styles && input.styles.length > 0
+        ? input.styles
+        : input.style ? [input.style] : undefined;
       return getDiscoverFeed(input.limit, input.offset, {
-        style: input.style,
+        styles,
         shape: input.shape,
         color: input.color,
         distanceMiles: input.distanceMiles,

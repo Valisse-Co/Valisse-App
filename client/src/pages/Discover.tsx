@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -6,8 +6,8 @@ import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed } fr
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import { STYLE_TAG_GROUPS } from "@shared/const";
 
-const STYLES = ["All", "Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
 const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"];
 const COLORS = ["All", "Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold"];
 const DISTANCE_OPTIONS = [
@@ -17,11 +17,16 @@ const DISTANCE_OPTIONS = [
   { label: "50+ mi", value: 9999 },
 ];
 
+// Flat "All" + all group tags for the quick horizontal scroll row
+const QUICK_STYLE_CHIPS = ["All", ...STYLE_TAG_GROUPS[0].tags, ...STYLE_TAG_GROUPS[1].tags];
+
 export default function Discover() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [showFilters, setShowFilters] = useState(false);
-  const [activeStyle, setActiveStyle] = useState("All");
+
+  // Multi-select style tags
+  const [activeStyles, setActiveStyles] = useState<string[]>([]);
   const [activeShape, setActiveShape] = useState("All");
   const [activeColor, setActiveColor] = useState("All");
   const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
@@ -30,12 +35,15 @@ export default function Discover() {
   const [userLng, setUserLng] = useState<number | undefined>();
   const [locating, setLocating] = useState(false);
 
-  // Request geolocation when distance filter is activated
+  const toggleStyleTag = (tag: string) => {
+    if (tag === "All") { setActiveStyles([]); return; }
+    setActiveStyles(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
   const requestLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error("Geolocation is not supported by your browser.");
-      return;
-    }
+    if (!navigator.geolocation) { toast.error("Geolocation not supported."); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -44,41 +52,30 @@ export default function Discover() {
         setLocating(false);
         toast.success("Location detected!");
       },
-      () => {
-        setLocating(false);
-        toast.error("Could not detect location. Please allow location access.");
-      },
+      () => { setLocating(false); toast.error("Could not detect location. Please allow access."); },
       { timeout: 8000 }
     );
   };
 
   const handleDistanceSelect = (miles: number) => {
-    if (distanceMiles === miles) {
-      // deselect
-      setDistanceMiles(null);
-      return;
-    }
+    if (distanceMiles === miles) { setDistanceMiles(null); return; }
     setDistanceMiles(miles);
     if (!userLat || !userLng) requestLocation();
   };
 
   const filters = useMemo(() => ({
-    style: activeStyle !== "All" ? activeStyle : undefined,
+    styles: activeStyles.length > 0 ? activeStyles : undefined,
     shape: activeShape !== "All" ? activeShape : undefined,
     color: activeColor !== "All" ? activeColor : undefined,
     distanceMiles: distanceMiles && userLat && userLng ? distanceMiles : undefined,
     userLat: distanceMiles && userLat ? userLat : undefined,
     userLng: distanceMiles && userLng ? userLng : undefined,
     soonestAvailable: soonestAvailable || undefined,
-  }), [activeStyle, activeShape, activeColor, distanceMiles, userLat, userLng, soonestAvailable]);
+  }), [activeStyles, activeShape, activeColor, distanceMiles, userLat, userLng, soonestAvailable]);
 
   const { data: feed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
 
-  // Track which posts the user has saved (for filled bookmark state)
-  const { data: userSaves } = trpc.collections.savedPosts.useQuery(
-    undefined,
-    { enabled: isAuthenticated }
-  );
+  const { data: userSaves } = trpc.collections.savedPosts.useQuery(undefined, { enabled: isAuthenticated });
   const savedSet = useMemo(
     () => new Set((userSaves ?? []).map((s: any) => s.savedPost?.postId ?? s.post?.id)),
     [userSaves]
@@ -100,7 +97,7 @@ export default function Discover() {
   };
 
   const clearAll = () => {
-    setActiveStyle("All");
+    setActiveStyles([]);
     setActiveShape("All");
     setActiveColor("All");
     setDistanceMiles(null);
@@ -108,13 +105,12 @@ export default function Discover() {
   };
 
   const hasActiveFilters =
-    activeStyle !== "All" ||
+    activeStyles.length > 0 ||
     activeShape !== "All" ||
     activeColor !== "All" ||
     distanceMiles !== null ||
     soonestAvailable;
 
-  // Split feed into two columns (masonry)
   const leftCol = feed?.filter((_, i) => i % 2 === 0) ?? [];
   const rightCol = feed?.filter((_, i) => i % 2 === 1) ?? [];
 
@@ -135,47 +131,51 @@ export default function Discover() {
           >
             <SlidersHorizontal size={13} />
             Filters
-            {hasActiveFilters && (
-              <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5" />
-            )}
+            {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5" />}
           </button>
         </div>
 
-        {/* Quick style chips */}
+        {/* Quick style chips — horizontal scroll */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
-          {STYLES.map(s => (
-            <button
-              key={s}
-              onClick={() => setActiveStyle(s)}
-              className={cn(
-                "flex-shrink-0 px-3 py-1 rounded-full text-xs border transition-all duration-150",
-                activeStyle === s
-                  ? "bg-primary text-white border-primary"
-                  : "bg-card border-border text-muted-foreground"
-              )}
-            >{s}</button>
-          ))}
+          {QUICK_STYLE_CHIPS.map(s => {
+            const isAll = s === "All";
+            const active = isAll ? activeStyles.length === 0 : activeStyles.includes(s);
+            return (
+              <button
+                key={s}
+                onClick={() => toggleStyleTag(s)}
+                className={cn(
+                  "flex-shrink-0 px-3 py-1 rounded-full text-xs border transition-all duration-150",
+                  active
+                    ? "bg-primary text-white border-primary"
+                    : "bg-card border-border text-muted-foreground"
+                )}
+              >{s}</button>
+            );
+          })}
         </div>
 
-        {/* Active filter pills row */}
-        {(distanceMiles !== null || soonestAvailable) && (
+        {/* Active filter pills */}
+        {(distanceMiles !== null || soonestAvailable || activeStyles.length > 1) && (
           <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
+            {activeStyles.slice(1).map(tag => (
+              <span key={tag} className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                {tag}
+                <button onClick={() => toggleStyleTag(tag)}><X size={10} /></button>
+              </span>
+            ))}
             {distanceMiles !== null && (
               <span className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 <MapPin size={10} />
                 {distanceMiles >= 9999 ? "50+ mi" : `${distanceMiles} mi`}
-                <button onClick={() => setDistanceMiles(null)} className="ml-0.5">
-                  <X size={10} />
-                </button>
+                <button onClick={() => setDistanceMiles(null)}><X size={10} /></button>
               </span>
             )}
             {soonestAvailable && (
               <span className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 <Clock size={10} />
                 Soonest Available
-                <button onClick={() => setSoonestAvailable(false)} className="ml-0.5">
-                  <X size={10} />
-                </button>
+                <button onClick={() => setSoonestAvailable(false)}><X size={10} /></button>
               </span>
             )}
           </div>
@@ -191,20 +191,46 @@ export default function Discover() {
             exit={{ height: 0, opacity: 0 }}
             className="bg-card border-b border-border px-4 py-4 space-y-5 overflow-hidden"
           >
-            {/* Distance filter */}
+            {/* Style — grouped multi-select */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Style</p>
+                {activeStyles.length > 0 && (
+                  <button onClick={() => setActiveStyles([])} className="text-xs text-primary">Clear</button>
+                )}
+              </div>
+              <div className="space-y-3">
+                {STYLE_TAG_GROUPS.map(({ group, tags }) => (
+                  <div key={group}>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">{group}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tags.map(tag => {
+                        const active = activeStyles.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            onClick={() => toggleStyleTag(tag)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-full text-xs border transition-all",
+                              active
+                                ? "bg-primary text-white border-primary"
+                                : "bg-background border-border text-foreground hover:border-primary hover:text-primary"
+                            )}
+                          >{tag}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Distance */}
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Distance</p>
-                {locating && (
-                  <span className="text-xs text-primary flex items-center gap-1">
-                    <LocateFixed size={10} className="animate-pulse" /> Detecting…
-                  </span>
-                )}
-                {userLat && !locating && (
-                  <span className="text-xs text-primary flex items-center gap-1">
-                    <LocateFixed size={10} /> Location set
-                  </span>
-                )}
+                {locating && <span className="text-xs text-primary flex items-center gap-1"><LocateFixed size={10} className="animate-pulse" /> Detecting…</span>}
+                {userLat && !locating && <span className="text-xs text-primary flex items-center gap-1"><LocateFixed size={10} /> Location set</span>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {DISTANCE_OPTIONS.map(opt => (
@@ -218,16 +244,12 @@ export default function Discover() {
                         : "bg-background border-border text-foreground"
                     )}
                   >
-                    <MapPin size={10} />
-                    {opt.label}
+                    <MapPin size={10} />{opt.label}
                   </button>
                 ))}
               </div>
               {distanceMiles !== null && !userLat && !locating && (
-                <button
-                  onClick={requestLocation}
-                  className="mt-2 text-xs text-primary flex items-center gap-1"
-                >
+                <button onClick={requestLocation} className="mt-2 text-xs text-primary flex items-center gap-1">
                   <LocateFixed size={11} /> Allow location to enable distance filter
                 </button>
               )}
@@ -240,17 +262,12 @@ export default function Discover() {
                 onClick={() => setSoonestAvailable(!soonestAvailable)}
                 className={cn(
                   "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border transition-all",
-                  soonestAvailable
-                    ? "bg-primary text-white border-primary"
-                    : "bg-background border-border text-foreground"
+                  soonestAvailable ? "bg-primary text-white border-primary" : "bg-background border-border text-foreground"
                 )}
               >
-                <Clock size={11} />
-                Soonest Available
+                <Clock size={11} />Soonest Available
               </button>
-              <p className="text-[10px] text-muted-foreground mt-1.5">
-                Prioritizes nail techs with open appointments this week
-              </p>
+              <p className="text-[10px] text-muted-foreground mt-1.5">Prioritizes nail techs with open appointments this week</p>
             </div>
 
             {/* Shape */}
@@ -280,10 +297,7 @@ export default function Discover() {
             </div>
 
             {hasActiveFilters && (
-              <button
-                onClick={clearAll}
-                className="text-xs text-muted-foreground flex items-center gap-1"
-              >
+              <button onClick={clearAll} className="text-xs text-muted-foreground flex items-center gap-1">
                 <X size={12} /> Clear all filters
               </button>
             )}
@@ -296,14 +310,10 @@ export default function Discover() {
         {isLoading ? (
           <div className="flex gap-3">
             <div className="flex-1 flex flex-col gap-3">
-              {[1, 2, 3].map(i => (
-                <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-64" : "h-48")} />
-              ))}
+              {[1, 2, 3].map(i => <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-64" : "h-48")} />)}
             </div>
             <div className="flex-1 flex flex-col gap-3 mt-6">
-              {[1, 2, 3].map(i => (
-                <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-48" : "h-64")} />
-              ))}
+              {[1, 2, 3].map(i => <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-48" : "h-64")} />)}
             </div>
           </div>
         ) : feed?.length === 0 ? (
@@ -320,32 +330,18 @@ export default function Discover() {
           </div>
         ) : (
           <div className="flex gap-3">
-            {/* Left column */}
             <div className="flex-1 flex flex-col gap-3">
               {leftCol.map(({ post, tech, analytics }) => (
-                <PostCard
-                  key={post.id}
-                  post={post}
-                  tech={tech}
-                  analytics={analytics}
-                  saved={savedSet.has(post.id)}
-                  onSave={handleSave}
-                  onClick={() => navigate(`/post/${post.id}`)}
-                />
+                <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                  saved={savedSet.has(post.id)} onSave={handleSave}
+                  onClick={() => navigate(`/post/${post.id}`)} />
               ))}
             </div>
-            {/* Right column */}
             <div className="flex-1 flex flex-col gap-3 mt-6">
               {rightCol.map(({ post, tech, analytics }) => (
-                <PostCard
-                  key={post.id}
-                  post={post}
-                  tech={tech}
-                  analytics={analytics}
-                  saved={savedSet.has(post.id)}
-                  onSave={handleSave}
-                  onClick={() => navigate(`/post/${post.id}`)}
-                />
+                <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                  saved={savedSet.has(post.id)} onSave={handleSave}
+                  onClick={() => navigate(`/post/${post.id}`)} />
               ))}
             </div>
           </div>
@@ -373,21 +369,17 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         </div>
       )}
 
-      {/* Promoted badge */}
       {post.isPromoted && (
         <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full">
           Promoted
         </div>
       )}
 
-      {/* Overlay */}
       <div className="absolute inset-0 img-overlay" />
 
-      {/* Bottom info */}
       <div className="absolute bottom-0 left-0 right-0 p-2.5">
         <p className="text-white text-xs font-medium truncate">{tech?.businessName || tech?.name || "Nail Tech"}</p>
         {post.location && <p className="text-white/70 text-[10px] truncate">{post.location}</p>}
-        {/* Save count as social proof */}
         {analytics?.saves > 0 && (
           <div className="flex items-center gap-1 mt-0.5">
             <Bookmark size={10} className="text-white/70 fill-white/70" />
@@ -396,7 +388,6 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         )}
       </div>
 
-      {/* Save button — single primary action */}
       <button
         onClick={(e) => onSave(post.id, e)}
         className={cn(

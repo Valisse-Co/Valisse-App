@@ -120,7 +120,8 @@ export async function getDiscoverFeed(
   limit = 20,
   offset = 0,
   filters?: {
-    style?: string;
+    style?: string;   // legacy compat
+    styles?: string[]; // multi-select
     shape?: string;
     color?: string;
     distanceMiles?: number;
@@ -132,7 +133,12 @@ export async function getDiscoverFeed(
   const db = await getDb();
   if (!db) return [];
   const conditions = [eq(posts.status, "published")];
-  if (filters?.style) conditions.push(eq(posts.style, filters.style));
+  // Style filter: multi-select OR single style (legacy)
+  const activeStyles = filters?.styles && filters.styles.length > 0
+    ? filters.styles
+    : filters?.style ? [filters.style] : [];
+  // We do NOT push a DB WHERE for styles here — we handle it in JS scoring below
+  // (post.style may be a JSON array of tags, so SQL equality won't work for multi-tag posts)
   if (filters?.shape) conditions.push(eq(posts.shape, filters.shape));
   if (filters?.color) conditions.push(eq(posts.color, filters.color));
 
@@ -217,7 +223,41 @@ export async function getDiscoverFeed(
     ];
   }
 
-  return results.slice(offset, offset + limit);
+  // ── Relevance scoring: style tag match count + saves + recency ─────────────
+  // Score = (matching style tag count * 10) + (saves weight) + (recency decay)
+  const now2 = Date.now();
+  const ONE_DAY_MS = 86_400_000;
+
+  const scored = results.map((r) => {
+    // Style match: count how many of the selected style tags appear in this post's tags
+    let styleScore = 0;
+    if (activeStyles.length > 0 && r.post.style) {
+      let postTags: string[] = [];
+      try {
+        const parsed = JSON.parse(r.post.style);
+        postTags = Array.isArray(parsed) ? parsed : [r.post.style];
+      } catch {
+        postTags = [r.post.style];
+      }
+      const matchCount = activeStyles.filter(t => postTags.includes(t)).length;
+      styleScore = matchCount * 10; // 10 pts per matching tag
+    }
+    // Saves weight (logarithmic so viral posts don't dominate completely)
+    const saves = r.analytics?.saves ?? 0;
+    const savesScore = saves > 0 ? Math.log2(saves + 1) * 2 : 0;
+    // Recency decay: posts from last 7 days get a bonus, older posts decay
+    const ageMs = now2 - (r.post.createdAt?.getTime() ?? 0);
+    const ageDays = ageMs / ONE_DAY_MS;
+    const recencyScore = Math.max(0, 7 - ageDays); // 0-7 bonus, 0 after 7 days
+    // Promoted posts always float to top
+    const promotedBonus = r.post.isPromoted ? 100 : 0;
+    return { ...r, _score: promotedBonus + styleScore + savesScore + recencyScore };
+  });
+
+  // Sort by score descending
+  scored.sort((a, b) => b._score - a._score);
+
+  return scored.slice(offset, offset + limit).map(({ _score: _s, ...rest }) => rest);
 }
 
 export async function getTechPosts(techId: number) {
