@@ -207,6 +207,7 @@ type DaySchedule = {
   breakStart: string;
   breakEnd: string;
   hasBreak: boolean;
+  bufferMinutes: number;
 };
 
 function DayRow({ day, onChange }: { day: DaySchedule; onChange: (u: DaySchedule) => void }) {
@@ -337,6 +338,15 @@ function DayRow({ day, onChange }: { day: DaySchedule; onChange: (u: DaySchedule
 }
 
 // ─── Schedule Tab ─────────────────────────────────────────────────────────────
+const BUFFER_OPTIONS = [
+  { label: "No buffer", value: 0 },
+  { label: "10 min", value: 10 },
+  { label: "15 min", value: 15 },
+  { label: "30 min", value: 30 },
+  { label: "45 min", value: 45 },
+  { label: "60 min", value: 60 },
+];
+
 const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
   dayOfWeek: i,
   isActive: i >= 1 && i <= 5,
@@ -345,6 +355,7 @@ const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
   breakStart: "12:00",
   breakEnd: "13:00",
   hasBreak: false,
+  bufferMinutes: 15,
 }));
 
 function ScheduleTab() {
@@ -358,6 +369,7 @@ function ScheduleTab() {
   const utils = trpc.useUtils();
 
   const [schedule, setSchedule] = useState<DaySchedule[]>(DEFAULT_SCHEDULE);
+  const [globalBuffer, setGlobalBuffer] = useState(15);
   const [dirty, setDirty] = useState(false);
 
   // Block form state
@@ -382,8 +394,12 @@ function ScheduleTab() {
           breakStart: saved.breakStart ?? def.breakStart,
           breakEnd: saved.breakEnd ?? def.breakEnd,
           hasBreak,
+          bufferMinutes: saved.bufferMinutes ?? 15,
         };
       });
+      // Use the buffer from the first active saved day as the global value
+      const firstSaved = savedSchedule.find(s => s.isActive);
+      if (firstSaved?.bufferMinutes != null) setGlobalBuffer(firstSaved.bufferMinutes);
       setSchedule(merged);
     }
   }, [savedSchedule]);
@@ -429,6 +445,7 @@ function ScheduleTab() {
         isActive: d.isActive,
         breakStart: d.hasBreak ? d.breakStart : null,
         breakEnd: d.hasBreak ? d.breakEnd : null,
+        bufferMinutes: globalBuffer,
       })),
     });
   };
@@ -493,6 +510,38 @@ function ScheduleTab() {
         {schedule.map(day => (
           <DayRow key={day.dayOfWeek} day={day} onChange={updated => handleChange(day.dayOfWeek, updated)} />
         ))}
+      </div>
+
+      {/* ── Buffer Time ── */}
+      <div className="mb-6 bg-card border border-border rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Buffer Time</p>
+            <p className="text-xs text-muted-foreground">Cleanup time between appointments</p>
+          </div>
+          <Clock size={16} className="text-muted-foreground" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {BUFFER_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { setGlobalBuffer(opt.value); setDirty(true); }}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                globalBuffer === opt.value
+                  ? "bg-primary text-white border-primary"
+                  : "bg-background border-border text-muted-foreground hover:border-primary hover:text-primary"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {globalBuffer > 0 && (
+          <p className="text-xs text-muted-foreground mt-3">
+            A {globalBuffer}-minute gap will be reserved after each appointment.
+          </p>
+        )}
       </div>
 
       {/* ── Blocked-off time ── */}

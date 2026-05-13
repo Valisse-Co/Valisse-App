@@ -417,6 +417,7 @@ export async function setWeeklySchedule(
     isActive: boolean;
     breakStart?: string | null;
     breakEnd?: string | null;
+    bufferMinutes?: number | null;
   }>
 ) {
   const db = await getDb();
@@ -432,6 +433,7 @@ export async function setWeeklySchedule(
         isActive: s.isActive,
         breakStart: s.breakStart ?? null,
         breakEnd: s.breakEnd ?? null,
+        bufferMinutes: s.bufferMinutes ?? 0,
       }))
     );
   }

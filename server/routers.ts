@@ -431,6 +431,7 @@ const availabilityRouter = router({
             isActive: z.boolean(),
             breakStart: z.string().nullable().optional(),
             breakEnd: z.string().nullable().optional(),
+            bufferMinutes: z.number().min(0).max(120).nullable().optional(),
           })
         ),
       })

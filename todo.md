@@ -119,3 +119,12 @@
 - [x] Frontend: real-time slot refresh (refetch on date/duration change, no full reload)
 - [x] Frontend: smooth transitions between steps
 - [x] Frontend: BookingFlow step 4 — confirm screen
+
+## Buffer Time Setting in Schedule Tab
+- [x] Schedule tab: add Buffer Time selector (0 / 10 / 15 / 30 / 45 / 60 min) per working day
+- [x] Persist bufferMinutes to availability table via setWeeklySchedule procedure
+- [x] BookingFlow slot grid already reads bufferMinutes — verify slots respect the new setting
+
+## Buffer Time — Clarification
+- [x] Buffer time is a single global setting applied to all working days (not per-day) — simpler UX, consistent with how most booking apps work
+- [x] getAvailableSlots in db.ts reads bufferMinutes from availability rows and subtracts it from slot windows — verified by grep (line 774, 883-887)
