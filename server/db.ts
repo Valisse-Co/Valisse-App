@@ -794,7 +794,7 @@ export async function getAvailableSlots(
   techId: number,
   dateStr: string,   // "YYYY-MM-DD" in local time
   durationMinutes: number
-): Promise<Array<{ time: string; available: boolean }>> {
+): Promise<Array<{ time: string; available: boolean; reason: string | undefined }>> {
   const db = await getDb();
   if (!db) return [];
 
@@ -860,29 +860,29 @@ export async function getAvailableSlots(
     );
 
   // Combine all blocked intervals (in minutes since midnight)
-  type Interval = { start: number; end: number };
+  type Interval = { start: number; end: number; reason: string };
   const blocked: Interval[] = [];
 
   for (const b of existingBookings) {
     const startMins = b.scheduledAt.getHours() * 60 + b.scheduledAt.getMinutes();
     const endMins = startMins + (b.duration ?? 60) + bufferMins;
-    blocked.push({ start: startMins, end: endMins });
+    blocked.push({ start: startMins, end: endMins, reason: "booked" });
   }
 
   for (const bl of blocks) {
-    blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime) });
+    blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime), reason: "blocked" });
   }
 
   // Add break as a blocked interval
   if (breakStart !== null && breakEnd !== null) {
-    blocked.push({ start: breakStart, end: breakEnd });
+    blocked.push({ start: breakStart, end: breakEnd, reason: "break" });
   }
 
   // 4. Generate candidate slots every 15 minutes within working hours.
   //    We show ALL slots in the window (available + unavailable) so the client
   //    can see the full schedule. Slots that don't fit the duration, overlap a
   //    blocked interval, or are in the past are marked available=false.
-  const slots: Array<{ time: string; available: boolean }> = [];
+  const slots: Array<{ time: string; available: boolean; reason: string | undefined }> = [];
   const slotInterval = 15; // 15-minute grid
 
   const now = new Date();
@@ -908,13 +908,148 @@ export async function getAvailableSlots(
     // Slot is in the past (today only)
     const isPast = isToday && t <= nowMins;
 
+    let reason: string | undefined;
+    if (isPast) reason = "past";
+    else if (doesntFit) reason = "outside_hours";
+    else if (isBlocked) {
+      const blocker = blocked.find(iv => t < iv.end && (t + durationMinutes) > iv.start);
+      reason = blocker?.reason ?? "booked";
+    }
+
     slots.push({
       time: toTime(t),
       available: !doesntFit && !isBlocked && !isPast,
+      reason,
     });
   }
 
   return slots;
+}
+
+/**
+ * Returns a set of date strings ("YYYY-MM-DD") in the given month that have
+ * at least one bookable slot for the given duration.
+ * Used by the calendar to distinguish "working but fully booked" days from
+ * "working with open slots" days.
+ */
+export async function getMonthBookableStatus(
+  techId: number,
+  year: number,
+  month: number, // 1-indexed
+  durationMinutes: number
+): Promise<Record<string, boolean>> {
+  const db = await getDb();
+  if (!db) return {};
+
+  // Get all active availability rules for this tech
+  const avRows = await db
+    .select()
+    .from(availability)
+    .where(and(eq(availability.techId, techId), eq(availability.isActive, true)));
+
+  if (avRows.length === 0) return {};
+
+  const workingDowSet = new Set(avRows.map(a => a.dayOfWeek));
+
+  // Build date range for the month
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  // Collect working dates in this month
+  const workingDates: string[] = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(year, month - 1, d);
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (dateStr < todayStr) continue;
+    if (workingDowSet.has(date.getDay())) workingDates.push(dateStr);
+  }
+
+  if (workingDates.length === 0) return {};
+
+  // Fetch all bookings in this month for this tech
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
+  const monthEnd   = new Date(year, month, 0, 23, 59, 59);
+  const existingBookings = await db
+    .select({ scheduledAt: bookings.scheduledAt, duration: bookings.duration })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        gt(bookings.scheduledAt, monthStart),
+        lt(bookings.scheduledAt, monthEnd),
+        sql`${bookings.status} IN ('pending', 'confirmed')`
+      )
+    );
+
+  // Fetch schedule blocks in this month
+  const blocks = await db
+    .select({ blockDate: scheduleBlocks.blockDate, startTime: scheduleBlocks.startTime, endTime: scheduleBlocks.endTime })
+    .from(scheduleBlocks)
+    .where(
+      and(
+        eq(scheduleBlocks.techId, techId),
+        gt(scheduleBlocks.blockDate, monthStart),
+        lt(scheduleBlocks.blockDate, monthEnd)
+      )
+    );
+
+  const toMins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
+  const result: Record<string, boolean> = {};
+
+  for (const dateStr of workingDates) {
+    const [y, mo, day] = dateStr.split("-").map(Number);
+    const dow = new Date(y, mo - 1, day).getDay();
+    const av = avRows.find(a => a.dayOfWeek === dow);
+    if (!av) { result[dateStr] = false; continue; }
+
+    const bufferMins = av.bufferMinutes ?? 0;
+    const workStart = toMins(av.startTime);
+    const workEnd = toMins(av.endTime);
+    const breakStart = av.breakStart ? toMins(av.breakStart) : null;
+    const breakEnd = av.breakEnd ? toMins(av.breakEnd) : null;
+
+    type Interval = { start: number; end: number };
+    const blocked: Interval[] = [];
+
+    for (const b of existingBookings) {
+      const bDate = b.scheduledAt;
+      if (bDate.getFullYear() === y && bDate.getMonth() === mo - 1 && bDate.getDate() === day) {
+        const s = bDate.getHours() * 60 + bDate.getMinutes();
+        blocked.push({ start: s, end: s + (b.duration ?? 60) + bufferMins });
+      }
+    }
+
+    for (const bl of blocks) {
+      const bDate = bl.blockDate;
+      if (bDate.getFullYear() === y && bDate.getMonth() === mo - 1 && bDate.getDate() === day) {
+        blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime) });
+      }
+    }
+
+    if (breakStart !== null && breakEnd !== null) {
+      blocked.push({ start: breakStart, end: breakEnd });
+    }
+
+    const now = new Date();
+    const isToday = now.getFullYear() === y && now.getMonth() === mo - 1 && now.getDate() === day;
+    const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+
+    let hasOpen = false;
+    for (let t = workStart; t < workEnd; t += 15) {
+      const slotEnd = t + durationMinutes;
+      if (slotEnd > workEnd) continue;
+      if (isToday && t <= nowMins) continue;
+      if (blocked.some(iv => t < iv.end && slotEnd > iv.start)) continue;
+      hasOpen = true;
+      break;
+    }
+
+    result[dateStr] = hasOpen;
+  }
+
+  return result;
 }
 
 /**

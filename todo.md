@@ -149,5 +149,5 @@
 - [x] Fix BookingFlow calendar to show all days in tech schedule, highlight available ones
 - [x] Fix BookingFlow time picker to show all 15-min slots in the day's window, gray out unavailable ones
 - [x] Ensure duration-fit check: slot is available only if [startTime + duration] fits within the availability window and doesn't overlap existing bookings
-- [ ] Add slot reason field to getAvailableSlots (booked / break / outside_hours / past) for richer UI feedback
-- [ ] Calendar: pre-fetch per-date slot counts so fully-booked days appear grayed out
+- [x] Add slot reason field to getAvailableSlots (booked / break / outside_hours / past) for richer UI feedback
+- [x] Calendar: pre-fetch per-date slot counts so fully-booked days appear grayed out

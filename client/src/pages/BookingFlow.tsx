@@ -107,6 +107,19 @@ export default function BookingFlow() {
     { enabled: !!selectedDate && !!selectedService && techId > 0, staleTime: 0 }
   );
 
+  // Fetch per-date bookable status for the current calendar month so the
+  // calendar can distinguish "working but fully booked" from "open" days.
+  const monthStatusQuery = trpc.bookings.monthBookableStatus.useQuery(
+    {
+      techId,
+      year: calMonth.year,
+      month: calMonth.month + 1, // convert 0-indexed to 1-indexed
+      duration: selectedService?.duration ?? 60,
+    },
+    { enabled: techId > 0 && !!selectedService, staleTime: 60_000 }
+  );
+  const monthStatus = monthStatusQuery.data ?? {};
+
   // ── Mutations ────────────────────────────────────────────────────────────
   const utils = trpc.useUtils();
   const createBooking = trpc.bookings.create.useMutation({
@@ -130,7 +143,18 @@ export default function BookingFlow() {
     const str = toDateStr(calMonth.year, calMonth.month, day);
     if (str < todayStr) return false;
     const dow = new Date(calMonth.year, calMonth.month, day).getDay();
-    return workingDays.has(dow);
+    if (!workingDays.has(dow)) return false;
+    // If monthStatus has loaded, only allow days with open slots
+    if (Object.keys(monthStatus).length > 0) return monthStatus[str] === true;
+    return true; // optimistic until loaded
+  }
+
+  function isFullyBooked(day: number) {
+    const str = toDateStr(calMonth.year, calMonth.month, day);
+    const dow = new Date(calMonth.year, calMonth.month, day).getDay();
+    if (!workingDays.has(dow)) return false;
+    if (str < todayStr) return false;
+    return Object.keys(monthStatus).length > 0 && monthStatus[str] === false;
   }
 
   // Returns the working hours label for a day cell tooltip
@@ -346,24 +370,40 @@ export default function BookingFlow() {
                     const str = toDateStr(calMonth.year, calMonth.month, day);
                     const sel = selectedDate === str;
                     const ok  = isSelectable(day);
+                    const fullyBooked = isFullyBooked(day);
                     const isT = str === todayStr;
                     const hours = getDayHours(day);
+                    const isPastDay = str < todayStr;
+                    const isWorking = workingDays.has(new Date(calMonth.year, calMonth.month, day).getDay());
                     return (
                       <div key={day} className="flex flex-col items-center gap-0.5">
                         <button
                           disabled={!ok}
-                          onClick={() => { setSelectedDate(str); setSelectedTime(null); }}
-                          title={ok && hours ? `${hours}` : undefined}
+                          onClick={() => { if (ok) { setSelectedDate(str); setSelectedTime(null); } }}
+                          title={
+                            sel ? "Selected" :
+                            ok && hours ? `Open ${hours}` :
+                            fullyBooked ? "Fully booked" :
+                            isPastDay ? "Past" :
+                            !isWorking ? "Not available" : undefined
+                          }
                           className={`
                             w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-all
-                            ${sel ? "bg-primary text-white shadow-sm"
-                              : ok  ? "text-foreground hover:bg-primary/10 cursor-pointer"
-                                    : "text-muted-foreground/30 cursor-not-allowed"}
+                            ${sel
+                              ? "bg-primary text-white shadow-sm"
+                              : ok
+                              ? "text-foreground hover:bg-primary/10 cursor-pointer"
+                              : fullyBooked
+                              ? "text-muted-foreground/50 cursor-not-allowed line-through decoration-muted-foreground/30"
+                              : "text-muted-foreground/30 cursor-not-allowed"}
                             ${isT && !sel ? "ring-1 ring-primary/40" : ""}
                           `}
                         >{day}</button>
                         {ok && !sel && (
                           <span className="w-1 h-1 rounded-full bg-primary/50" />
+                        )}
+                        {fullyBooked && (
+                          <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
                         )}
                       </div>
                     );
@@ -371,17 +411,17 @@ export default function BookingFlow() {
                 </div>
               </Card>
               {/* Calendar legend */}
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <span className="w-1 h-1 rounded-full bg-primary/50 inline-block" />
-                  Available day
+                  Open slots
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-primary inline-flex items-center justify-center text-white text-[9px]">1</span>
-                  Selected
+                  <span className="w-1 h-1 rounded-full bg-muted-foreground/30 inline-block" />
+                  Fully booked
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground/30 text-xs">15</span>
+                  <span className="text-muted-foreground/30 text-xs line-through">15</span>
                   Unavailable
                 </span>
               </div>
@@ -445,28 +485,37 @@ export default function BookingFlow() {
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-2">
-                    {slotsQuery.data.map(slot => (
-                      <button
-                        key={slot.time}
-                        disabled={!slot.available}
-                        onClick={() => slot.available && setSelectedTime(slot.time)}
-                        className={`
-                          py-3 px-2 rounded-xl text-sm font-medium text-center transition-all
-                          ${!slot.available
-                            ? "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
-                            : selectedTime === slot.time
-                            ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
-                            : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
-                        `}
-                      >
-                        {slot.time}
-                        {!slot.available && (
-                          <span className="block text-[9px] text-muted-foreground/40 mt-0.5 leading-none">
-                            —
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                    {slotsQuery.data.map(slot => {
+                      const reasonLabel =
+                        slot.reason === "booked" ? "Booked" :
+                        slot.reason === "break" ? "Break" :
+                        slot.reason === "blocked" ? "Blocked" :
+                        slot.reason === "outside_hours" ? "End of shift" :
+                        slot.reason === "past" ? "Past" : undefined;
+                      return (
+                        <button
+                          key={slot.time}
+                          disabled={!slot.available}
+                          onClick={() => slot.available && setSelectedTime(slot.time)}
+                          title={!slot.available && reasonLabel ? reasonLabel : undefined}
+                          className={`
+                            py-3 px-2 rounded-xl text-sm font-medium text-center transition-all
+                            ${!slot.available
+                              ? "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
+                              : selectedTime === slot.time
+                              ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
+                              : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
+                          `}
+                        >
+                          {slot.time}
+                          {!slot.available && reasonLabel && (
+                            <span className="block text-[9px] text-muted-foreground/40 mt-0.5 leading-none truncate">
+                              {reasonLabel}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
                     <span className="flex items-center gap-1.5">

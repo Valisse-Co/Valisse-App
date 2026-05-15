@@ -55,6 +55,7 @@ import {
   updateSubscription,
   updateUserProfile,
   getAvailableSlots,
+  getMonthBookableStatus,
   createBookingWithConflictCheck,
 } from "./db";
 import { storagePut } from "./storage";
@@ -344,6 +345,21 @@ const bookingsRouter = router({
     )
     .query(async ({ input }) =>
       getAvailableSlots(input.techId, input.date, input.duration)
+    ),
+
+  // Returns { "YYYY-MM-DD": true/false } for all working days in the given month.
+  // true = has at least one open slot; false = working day but fully booked.
+  monthBookableStatus: publicProcedure
+    .input(
+      z.object({
+        techId: z.number(),
+        year: z.number(),
+        month: z.number(), // 1-indexed
+        duration: z.number().default(60),
+      })
+    )
+    .query(async ({ input }) =>
+      getMonthBookableStatus(input.techId, input.year, input.month, input.duration)
     ),
 
   create: protectedProcedure
