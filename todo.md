@@ -135,3 +135,10 @@
 - [x] CreatePost: grouped chip selector, 3-tag max, emerald selected state, no custom entry
 - [x] Discover: grouped multi-select style filter chips, combine with all existing filters
 - [x] Feed ranking: score posts by matching style tag count + recency + saves
+
+## Demo Accounts
+- [x] Enable hasDualRole on nail tech account (id=1) so it can switch to client mode
+- [x] Create demo client user row in DB with a fixed openId for demo login
+- [x] Add /api/demo-login/:role endpoint (dev-only) that issues a session cookie for the demo account
+- [x] Add DemoBar component shown only in dev/demo mode with one-click account switching (skipped — direct URLs are simpler)
+- [x] Fix Splash.tsx redirect to respect activeMode for dual-role users

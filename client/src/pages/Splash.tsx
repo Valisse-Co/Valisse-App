@@ -13,10 +13,14 @@ export default function Splash() {
     if (isAuthenticated && user) {
       if (!user.onboardingCompleted) {
         navigate("/onboarding");
-      } else if (user.userType === "nail_tech") {
-        navigate("/dashboard");
       } else {
-        navigate("/discover");
+        // For dual-role users, respect their activeMode; otherwise use userType
+        const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
+        if (effectiveMode === "nail_tech") {
+          navigate("/dashboard");
+        } else {
+          navigate("/discover");
+        }
       }
     }
   }, [user, loading, isAuthenticated]);

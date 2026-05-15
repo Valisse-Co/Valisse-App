@@ -22,6 +22,7 @@ import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import { useAuth } from "./_core/hooks/useAuth";
+import { DemoBar } from "./components/DemoBar";
 
 function Router() {
   const { user, loading } = useAuth();
@@ -99,6 +100,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <DemoBar />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
