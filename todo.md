@@ -142,3 +142,12 @@
 - [x] Add /api/demo-login/:role endpoint (dev-only) that issues a session cookie for the demo account
 - [x] Add DemoBar component shown only in dev/demo mode with one-click account switching (skipped — direct URLs are simpler)
 - [x] Fix Splash.tsx redirect to respect activeMode for dual-role users
+
+## Availability & Booking Calendar Fix
+- [x] Audit availability schema, db helpers, and getAvailableSlots logic
+- [x] Fix getAvailableSlots to return ALL slots (available + unavailable) with a status field
+- [x] Fix BookingFlow calendar to show all days in tech schedule, highlight available ones
+- [x] Fix BookingFlow time picker to show all 15-min slots in the day's window, gray out unavailable ones
+- [x] Ensure duration-fit check: slot is available only if [startTime + duration] fits within the availability window and doesn't overlap existing bookings
+- [ ] Add slot reason field to getAvailableSlots (booked / break / outside_hours / past) for richer UI feedback
+- [ ] Calendar: pre-fetch per-date slot counts so fully-booked days appear grayed out

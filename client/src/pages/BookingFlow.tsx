@@ -83,14 +83,20 @@ export default function BookingFlow() {
     { techId },
     { enabled: techId > 0 }
   );
-  const workingDays = useMemo(() => {
-    if (!availabilityQuery.data) return new Set<number>();
-    return new Set(
-      (availabilityQuery.data as any[])
-        .filter((a: any) => a.isActive)
-        .map((a: any) => Number(a.dayOfWeek))
-    );
+  // Build a map of dayOfWeek → availability row for richer calendar info
+  const availabilityByDay = useMemo(() => {
+    const map = new Map<number, any>();
+    if (!availabilityQuery.data) return map;
+    for (const a of availabilityQuery.data as any[]) {
+      if (a.isActive) map.set(Number(a.dayOfWeek), a);
+    }
+    return map;
   }, [availabilityQuery.data]);
+
+  const workingDays = useMemo(
+    () => new Set(availabilityByDay.keys()),
+    [availabilityByDay]
+  );
 
   const slotsQuery = trpc.bookings.availableSlots.useQuery(
     {
@@ -125,6 +131,14 @@ export default function BookingFlow() {
     if (str < todayStr) return false;
     const dow = new Date(calMonth.year, calMonth.month, day).getDay();
     return workingDays.has(dow);
+  }
+
+  // Returns the working hours label for a day cell tooltip
+  function getDayHours(day: number): string | null {
+    const dow = new Date(calMonth.year, calMonth.month, day).getDay();
+    const av = availabilityByDay.get(dow);
+    if (!av) return null;
+    return `${av.startTime}–${av.endTime}`;
   }
 
   function handleConfirm() {
@@ -285,8 +299,11 @@ export default function BookingFlow() {
               <div>
                 <h1 className="text-xl font-serif font-semibold text-foreground">Pick a date</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Available days are highlighted ·{" "}
-                  <span className="text-foreground font-medium">{selectedService?.label}</span>
+                  {availabilityQuery.isLoading
+                    ? "Loading schedule…"
+                    : workingDays.size === 0
+                    ? "This nail tech hasn't set their schedule yet."
+                    : <>Available days are highlighted · <span className="text-foreground font-medium">{selectedService?.label}</span></>}
                 </p>
               </div>
               <Card className="p-4 rounded-2xl border-border">
@@ -330,23 +347,44 @@ export default function BookingFlow() {
                     const sel = selectedDate === str;
                     const ok  = isSelectable(day);
                     const isT = str === todayStr;
+                    const hours = getDayHours(day);
                     return (
-                      <button
-                        key={day}
-                        disabled={!ok}
-                        onClick={() => { setSelectedDate(str); setSelectedTime(null); }}
-                        className={`
-                          mx-auto w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-all
-                          ${sel ? "bg-primary text-white shadow-sm"
-                            : ok  ? "text-foreground hover:bg-primary/10 cursor-pointer"
-                                  : "text-muted-foreground/30 cursor-not-allowed"}
-                          ${isT && !sel ? "ring-1 ring-primary/40" : ""}
-                        `}
-                      >{day}</button>
+                      <div key={day} className="flex flex-col items-center gap-0.5">
+                        <button
+                          disabled={!ok}
+                          onClick={() => { setSelectedDate(str); setSelectedTime(null); }}
+                          title={ok && hours ? `${hours}` : undefined}
+                          className={`
+                            w-9 h-9 flex items-center justify-center rounded-full text-sm font-medium transition-all
+                            ${sel ? "bg-primary text-white shadow-sm"
+                              : ok  ? "text-foreground hover:bg-primary/10 cursor-pointer"
+                                    : "text-muted-foreground/30 cursor-not-allowed"}
+                            ${isT && !sel ? "ring-1 ring-primary/40" : ""}
+                          `}
+                        >{day}</button>
+                        {ok && !sel && (
+                          <span className="w-1 h-1 rounded-full bg-primary/50" />
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               </Card>
+              {/* Calendar legend */}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1 h-1 rounded-full bg-primary/50 inline-block" />
+                  Available day
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-primary inline-flex items-center justify-center text-white text-[9px]">1</span>
+                  Selected
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground/30 text-xs">15</span>
+                  Unavailable
+                </span>
+              </div>
               {selectedDate && (
                 <div className="flex items-center gap-2 text-sm text-primary font-medium">
                   <Calendar className="w-4 h-4" />
@@ -364,8 +402,32 @@ export default function BookingFlow() {
                 <p className="text-sm text-muted-foreground mt-1">
                   {selectedDate ? formatDateStr(selectedDate) : ""} ·{" "}
                   <span className="text-foreground">{selectedService?.label}</span>
+                  {selectedService && (
+                    <span className="text-muted-foreground"> · {selectedService.duration} min</span>
+                  )}
                 </p>
               </div>
+
+              {/* Working hours banner for the selected day */}
+              {selectedDate && (() => {
+                const dow = new Date(
+                  Number(selectedDate.split("-")[0]),
+                  Number(selectedDate.split("-")[1]) - 1,
+                  Number(selectedDate.split("-")[2])
+                ).getDay();
+                const av = availabilityByDay.get(dow);
+                return av ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/5 border border-primary/15 text-xs text-primary">
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Open {av.startTime}–{av.endTime}
+                      {av.breakStart && av.breakEnd ? ` · Break ${av.breakStart}–${av.breakEnd}` : ""}
+                      {av.bufferMinutes > 0 ? ` · ${av.bufferMinutes}-min buffer between appointments` : ""}
+                    </span>
+                  </div>
+                ) : null;
+              })()}
+
               {slotsQuery.isLoading ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -374,8 +436,10 @@ export default function BookingFlow() {
               ) : !slotsQuery.data || slotsQuery.data.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
                   <Calendar className="w-8 h-8 text-muted-foreground/40" />
-                  <p className="text-sm font-medium text-foreground">No slots on this date</p>
-                  <p className="text-xs text-muted-foreground">Please go back and choose a different day.</p>
+                  <p className="text-sm font-medium text-foreground">No time slots found</p>
+                  <p className="text-xs text-muted-foreground">
+                    This day may not be in the tech's schedule. Go back and choose a highlighted date.
+                  </p>
                   <Button variant="outline" size="sm" onClick={() => setStep(1)}>Change Date</Button>
                 </div>
               ) : (
@@ -385,28 +449,45 @@ export default function BookingFlow() {
                       <button
                         key={slot.time}
                         disabled={!slot.available}
-                        onClick={() => setSelectedTime(slot.time)}
+                        onClick={() => slot.available && setSelectedTime(slot.time)}
                         className={`
                           py-3 px-2 rounded-xl text-sm font-medium text-center transition-all
                           ${!slot.available
-                            ? "bg-muted/40 text-muted-foreground/40 cursor-not-allowed line-through"
+                            ? "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
                             : selectedTime === slot.time
-                            ? "bg-primary text-white shadow-sm"
-                            : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5"}
+                            ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
+                            : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
                         `}
-                      >{slot.time}</button>
+                      >
+                        {slot.time}
+                        {!slot.available && (
+                          <span className="block text-[9px] text-muted-foreground/40 mt-0.5 leading-none">
+                            —
+                          </span>
+                        )}
+                      </button>
                     ))}
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2">
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded bg-card border border-border inline-block" />
                       Available
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded bg-muted/40 inline-block" />
-                      Unavailable
+                      <span className="w-3 h-3 rounded bg-muted/30 inline-block" />
+                      Booked / unavailable
                     </span>
                   </div>
+                  {slotsQuery.data.every(s => !s.available) && (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-muted-foreground">
+                        All slots are booked for this day.
+                      </p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => setStep(1)}>
+                        Choose a different date
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </div>

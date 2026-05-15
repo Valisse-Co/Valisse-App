@@ -878,26 +878,40 @@ export async function getAvailableSlots(
     blocked.push({ start: breakStart, end: breakEnd });
   }
 
-  // 4. Generate candidate slots every 30 minutes within working hours
+  // 4. Generate candidate slots every 15 minutes within working hours.
+  //    We show ALL slots in the window (available + unavailable) so the client
+  //    can see the full schedule. Slots that don't fit the duration, overlap a
+  //    blocked interval, or are in the past are marked available=false.
   const slots: Array<{ time: string; available: boolean }> = [];
-  const slotInterval = 30; // minutes between slot starts
+  const slotInterval = 15; // 15-minute grid
 
-  for (let t = workStart; t + durationMinutes <= workEnd; t += slotInterval) {
+  const now = new Date();
+  const isToday =
+    now.getFullYear() === year &&
+    now.getMonth() === month - 1 &&
+    now.getDate() === day;
+  const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+
+  // Iterate every 15 mins across the FULL working window so unavailable slots
+  // are still visible (grayed out) in the UI.
+  for (let t = workStart; t < workEnd; t += slotInterval) {
     const slotEnd = t + durationMinutes;
-    // Check if this slot overlaps any blocked interval
+
+    // Slot doesn't fit before end of shift
+    const doesntFit = slotEnd > workEnd;
+
+    // Slot overlaps a blocked interval (booking, schedule block, or break)
     const isBlocked = blocked.some(
       (iv) => t < iv.end && slotEnd > iv.start
     );
-    // Also skip slots in the past (for today)
-    const now = new Date();
-    const isToday =
-      now.getFullYear() === year &&
-      now.getMonth() === month - 1 &&
-      now.getDate() === day;
-    const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+
+    // Slot is in the past (today only)
     const isPast = isToday && t <= nowMins;
 
-    slots.push({ time: toTime(t), available: !isBlocked && !isPast });
+    slots.push({
+      time: toTime(t),
+      available: !doesntFit && !isBlocked && !isPast,
+    });
   }
 
   return slots;
