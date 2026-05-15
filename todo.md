@@ -166,7 +166,11 @@
 - [x] BookingFlow: pass clientId to availableSlots query so backend can resolve tier per client
 
 ## Client-Tier Gaps (follow-up)
-- [ ] Add clientTierUpdatedAt timestamp to availability table so getClientTierForSlot can compare recency of day-level vs time-block rules
-- [ ] Update getClientTierForSlot to use actual createdAt/updatedAt comparison for conflict resolution
-- [ ] Add updateBookingRule db helper + tRPC procedure for editing existing time-block rules
-- [ ] Schedule editor: add edit button on existing rules (opens pre-filled form)
+- [x] Add clientTierUpdatedAt timestamp to availability table so getClientTierForSlot can compare recency of day-level vs time-block rules
+- [x] Update getClientTierForSlot to use actual createdAt/updatedAt comparison for conflict resolution
+- [x] Add updateBookingRule db helper + tRPC procedure for editing existing time-block rules
+- [x] Schedule editor: add edit button on existing rules (opens pre-filled form)
+
+## Client-Tier Gaps Round 2
+- [x] Add updatedAt to booking_rules table; bump it on updateBookingRule; use it in getClientTierForSlot recency comparison
+- [x] Expand schedule editor edit form to allow changing rule date/day scope and recurring vs one-off type

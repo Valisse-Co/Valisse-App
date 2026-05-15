@@ -1,0 +1,1 @@
+ALTER TABLE `availability` ADD `clientTierUpdatedAt` timestamp DEFAULT (now()) NOT NULL;

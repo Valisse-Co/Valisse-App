@@ -62,6 +62,7 @@ import {
   getClientTierForSlot,
   createBookingRule,
   deleteBookingRule,
+  updateBookingRule,
   setAvailabilityClientTier,
 } from "./db";
 import { storagePut } from "./storage";
@@ -540,6 +541,28 @@ const availabilityRouter = router({
     .input(z.object({ ruleId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await deleteBookingRule(input.ruleId, ctx.user.id);
+      return { success: true };
+    }),
+
+  updateBookingRule: protectedProcedure
+    .input(
+      z.object({
+        ruleId: z.number(),
+        dayOfWeek: z.number().min(0).max(6).nullable().optional(),
+        specificDate: z.number().nullable().optional(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        clientTier: z.enum(["open", "returning_only"]).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ruleId, specificDate, ...rest } = input;
+      await updateBookingRule(ruleId, ctx.user.id, {
+        ...rest,
+        specificDate: specificDate !== undefined
+          ? (specificDate ? new Date(specificDate) : null)
+          : undefined,
+      });
       return { success: true };
     }),
 });

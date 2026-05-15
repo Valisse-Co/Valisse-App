@@ -151,6 +151,8 @@ export const availability = mysqlTable("availability", {
   bufferMinutes: int("bufferMinutes").default(0).notNull(), // gap between appointments
   // Client-tier restriction for the whole day (can be overridden by booking_rules)
   clientTier: mysqlEnum("clientTier", ["open", "returning_only"]).default("open").notNull(),
+  // Timestamp of the last clientTier change — used for recency-based conflict resolution
+  clientTierUpdatedAt: timestamp("clientTierUpdatedAt").defaultNow().notNull(),
 });
 
 export type Availability = typeof availability.$inferSelect;
@@ -169,6 +171,7 @@ export const bookingRules = mysqlTable("booking_rules", {
   endTime: varchar("endTime", { length: 8 }).notNull(),     // "12:00"
   clientTier: mysqlEnum("clientTier", ["open", "returning_only"]).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type BookingRule = typeof bookingRules.$inferSelect;

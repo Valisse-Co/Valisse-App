@@ -1192,6 +1192,19 @@ export async function getClientTierForSlot(
     .where(eq(bookingRules.techId, techId))
     .orderBy(desc(bookingRules.createdAt));
 
+  // Fetch the whole-day availability row for recency comparison
+  const avRows = await db
+    .select({ clientTier: availability.clientTier, clientTierUpdatedAt: availability.clientTierUpdatedAt })
+    .from(availability)
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dow), eq(availability.isActive, true)))
+    .limit(1);
+  const dayTier = avRows[0]?.clientTier ?? "open";
+  const dayTierUpdatedAt = avRows[0]?.clientTierUpdatedAt ?? new Date(0);
+
+  // Find the most recently created time-block rule that covers this slot
+  // (rules are already ordered by createdAt desc, so the first match is the most recent)
+  let matchingRule: typeof rules[0] | null = null;
+
   // 1. One-off date rules (specificDate matches dateStr)
   for (const rule of rules) {
     if (!rule.specificDate) continue;
@@ -1200,27 +1213,34 @@ export async function getClientTierForSlot(
     if (rDateStr !== dateStr) continue;
     const rStart = toMins(rule.startTime);
     const rEnd   = toMins(rule.endTime);
-    if (slotMins >= rStart && slotMins < rEnd) return rule.clientTier;
+    if (slotMins >= rStart && slotMins < rEnd) { matchingRule = rule; break; }
   }
 
-  // 2. Recurring day-of-week rules
-  for (const rule of rules) {
-    if (rule.specificDate !== null) continue;
-    if (rule.dayOfWeek !== dow) continue;
-    const rStart = toMins(rule.startTime);
-    const rEnd   = toMins(rule.endTime);
-    if (slotMins >= rStart && slotMins < rEnd) return rule.clientTier;
+  // 2. Recurring day-of-week rules (only if no one-off rule matched)
+  if (!matchingRule) {
+    for (const rule of rules) {
+      if (rule.specificDate !== null) continue;
+      if (rule.dayOfWeek !== dow) continue;
+      const rStart = toMins(rule.startTime);
+      const rEnd   = toMins(rule.endTime);
+      if (slotMins >= rStart && slotMins < rEnd) { matchingRule = rule; break; }
+    }
   }
 
-  // 3. Whole-day tier from availability row
-  const avRows = await db
-    .select({ clientTier: availability.clientTier })
-    .from(availability)
-    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dow), eq(availability.isActive, true)))
-    .limit(1);
-  if (avRows[0]?.clientTier) return avRows[0].clientTier;
+  // 3. Recency-based conflict resolution:
+  //    Use the rule's updatedAt (or createdAt if never edited) as the effective
+  //    "last applied" timestamp. Compare against the day-level clientTierUpdatedAt.
+  //    The most recently applied change wins.
+  if (matchingRule) {
+    const ruleTimestamp = matchingRule.updatedAt ?? matchingRule.createdAt ?? new Date(0);
+    // Time-block rule wins if it was last modified AFTER the day-level tier was last set.
+    if (ruleTimestamp >= dayTierUpdatedAt) return matchingRule.clientTier;
+    // Day-level tier was set more recently — it overrides the time-block rule.
+    return dayTier;
+  }
 
-  return "open";
+  // 4. No time-block rule matched — use the whole-day tier
+  return dayTier;
 }
 
 export async function createBookingRule(data: InsertBookingRule) {
@@ -1236,8 +1256,22 @@ export async function deleteBookingRule(id: number, techId: number) {
   await db.delete(bookingRules).where(and(eq(bookingRules.id, id), eq(bookingRules.techId, techId)));
 }
 
+export async function updateBookingRule(
+  id: number,
+  techId: number,
+  data: Partial<Pick<InsertBookingRule, "startTime" | "endTime" | "clientTier" | "dayOfWeek" | "specificDate">>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .update(bookingRules)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(bookingRules.id, id), eq(bookingRules.techId, techId)));
+}
+
 /**
  * Update the clientTier on an availability (whole-day) row.
+ * Also stamps clientTierUpdatedAt so recency-based conflict resolution works.
  */
 export async function setAvailabilityClientTier(
   techId: number,
@@ -1248,6 +1282,6 @@ export async function setAvailabilityClientTier(
   if (!db) throw new Error("DB unavailable");
   await db
     .update(availability)
-    .set({ clientTier })
+    .set({ clientTier, clientTierUpdatedAt: new Date() })
     .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek)));
 }

@@ -240,12 +240,14 @@ function DayRow({
   rules,
   onAddRule,
   onRemoveRule,
+  onUpdateRule,
 }: {
   day: DaySchedule;
   onChange: (u: DaySchedule) => void;
   rules: BookingRule[];
   onAddRule: (rule: { dayOfWeek: number | null; specificDate: number | null; startTime: string; endTime: string; clientTier: ClientTier }) => void;
   onRemoveRule: (id: number) => void;
+  onUpdateRule: (id: number, data: { startTime?: string; endTime?: string; clientTier?: ClientTier; dayOfWeek?: number | null; specificDate?: number | null }) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showRuleForm, setShowRuleForm] = useState(false);
@@ -254,6 +256,12 @@ function DayRow({
   const [ruleEnd, setRuleEnd] = useState("12:00");
   const [ruleTier, setRuleTier] = useState<ClientTier | "">("" as ClientTier | "");
   const [ruleDate, setRuleDate] = useState("");
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const [editTier, setEditTier] = useState<ClientTier>("open");
+  const [editRuleType, setEditRuleType] = useState<"recurring" | "oneoff">("recurring");
+  const [editRuleDate, setEditRuleDate] = useState("");
 
   return (
     <div className={cn(
@@ -420,24 +428,116 @@ function DayRow({
                 {rules.length > 0 && (
                   <div className="space-y-1.5 mb-2">
                     {rules.map(rule => (
-                      <div key={rule.id} className="flex items-center gap-2 bg-muted/40 rounded-xl px-3 py-2">
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-medium text-foreground">{rule.startTime}–{rule.endTime}</span>
-                          <span className={cn("ml-2 text-[11px] font-medium", TIER_COLORS[rule.clientTier])}>
-                            {TIER_LABELS[rule.clientTier]}
-                          </span>
-                          {rule.specificDate && (
-                            <span className="ml-1 text-[10px] text-muted-foreground">
-                              ({new Date(rule.specificDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} only)
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => onRemoveRule(rule.id)}
-                          className="text-muted-foreground hover:text-destructive transition-colors p-0.5"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                      <div key={rule.id} className="bg-muted/40 rounded-xl px-3 py-2 space-y-2">
+                        {editingRuleId === rule.id ? (
+                          // ── Inline edit form ──
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <label className="text-[10px] text-muted-foreground mb-0.5 block">Start</label>
+                                <select value={editStart} onChange={e => setEditStart(e.target.value)}
+                                  className="w-full text-xs bg-background border border-border rounded-lg px-2 py-1.5">
+                                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-[10px] text-muted-foreground mb-0.5 block">End</label>
+                                <select value={editEnd} onChange={e => setEditEnd(e.target.value)}
+                                  className="w-full text-xs bg-background border border-border rounded-lg px-2 py-1.5">
+                                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              {(["open", "returning_only"] as ClientTier[]).map(t => (
+                                <button key={t} onClick={() => setEditTier(t)}
+                                  className={cn("flex-1 text-[11px] font-medium py-1.5 rounded-lg border transition-all",
+                                    editTier === t ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground")}>
+                                  {TIER_LABELS[t]}
+                                </button>
+                              ))}
+                            </div>
+                            {/* Rule scope: recurring vs one-off */}
+                            <div className="flex gap-2">
+                              {(["recurring", "oneoff"] as const).map(t => (
+                                <button key={t} onClick={() => setEditRuleType(t)}
+                                  className={cn("flex-1 text-[11px] font-medium py-1.5 rounded-lg border transition-all",
+                                    editRuleType === t ? "bg-primary/10 text-primary border-primary/30" : "bg-background border-border text-muted-foreground")}>
+                                  {t === "recurring" ? "Every week" : "One-off date"}
+                                </button>
+                              ))}
+                            </div>
+                            {editRuleType === "oneoff" && (
+                              <div>
+                                <label className="text-[10px] text-muted-foreground mb-0.5 block">Date</label>
+                                <input type="date" value={editRuleDate} onChange={e => setEditRuleDate(e.target.value)}
+                                  className="w-full text-xs bg-background border border-border rounded-lg px-2 py-1.5" />
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <button onClick={() => {
+                                const specificDate = editRuleType === "oneoff" && editRuleDate
+                                  ? new Date(editRuleDate).getTime()
+                                  : null;
+                                const dayOfWeek = editRuleType === "recurring" ? day.dayOfWeek : null;
+                                onUpdateRule(rule.id, {
+                                  startTime: editStart,
+                                  endTime: editEnd,
+                                  clientTier: editTier,
+                                  // Always send both fields so the backend can clear the unused one
+                                  dayOfWeek: editRuleType === "recurring" ? day.dayOfWeek : null,
+                                  specificDate: editRuleType === "oneoff" && editRuleDate
+                                    ? new Date(editRuleDate).getTime()
+                                    : null,
+                                });
+                                setEditingRuleId(null);
+                              }} className="flex-1 text-[11px] font-medium py-1.5 rounded-lg bg-primary text-white">
+                                Save
+                              </button>
+                              <button onClick={() => setEditingRuleId(null)}
+                                className="flex-1 text-[11px] font-medium py-1.5 rounded-lg border border-border text-muted-foreground">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          // ── Rule display row ──
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs font-medium text-foreground">{rule.startTime}–{rule.endTime}</span>
+                              <span className={cn("ml-2 text-[11px] font-medium", TIER_COLORS[rule.clientTier])}>
+                                {TIER_LABELS[rule.clientTier]}
+                              </span>
+                              {rule.specificDate && (
+                                <span className="ml-1 text-[10px] text-muted-foreground">
+                                  ({new Date(rule.specificDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} only)
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => {
+                                setEditingRuleId(rule.id);
+                                setEditStart(rule.startTime);
+                                setEditEnd(rule.endTime);
+                                setEditTier(rule.clientTier);
+                                setEditRuleType(rule.specificDate ? "oneoff" : "recurring");
+                                setEditRuleDate(rule.specificDate
+                                  ? new Date(rule.specificDate).toISOString().split("T")[0]
+                                  : "");
+                              }}
+                              className="text-muted-foreground hover:text-primary transition-colors p-0.5"
+                              title="Edit rule"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button
+                              onClick={() => onRemoveRule(rule.id)}
+                              className="text-muted-foreground hover:text-destructive transition-colors p-0.5"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -654,6 +754,14 @@ function ScheduleTab() {
     },
   });
 
+  const updateBookingRule = trpc.availability.updateBookingRule.useMutation({
+    onSuccess: () => {
+      utils.availability.bookingRules.invalidate();
+      toast.success("Rule updated");
+    },
+    onError: () => toast.error("Failed to update rule"),
+  });
+
   const saveSchedule = trpc.availability.setWeeklySchedule.useMutation({
     onSuccess: () => {
       utils.availability.weeklySchedule.invalidate();
@@ -776,6 +884,7 @@ function ScheduleTab() {
               rules={dayRules}
               onAddRule={rule => addBookingRule.mutate(rule)}
               onRemoveRule={id => removeBookingRule.mutate({ ruleId: id })}
+              onUpdateRule={(id, data) => updateBookingRule.mutate({ ruleId: id, ...data })}
             />
           );
         })}

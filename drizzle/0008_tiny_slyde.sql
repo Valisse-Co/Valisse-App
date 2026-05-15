@@ -1,0 +1,1 @@
+ALTER TABLE `booking_rules` ADD `updatedAt` timestamp DEFAULT (now()) NOT NULL;
