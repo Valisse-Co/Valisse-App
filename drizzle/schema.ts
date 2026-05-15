@@ -149,9 +149,30 @@ export const availability = mysqlTable("availability", {
   breakStart: varchar("breakStart", { length: 8 }),  // "12:00" optional
   breakEnd: varchar("breakEnd", { length: 8 }),      // "13:00" optional
   bufferMinutes: int("bufferMinutes").default(0).notNull(), // gap between appointments
+  // Client-tier restriction for the whole day (can be overridden by booking_rules)
+  clientTier: mysqlEnum("clientTier", ["open", "returning_only"]).default("open").notNull(),
 });
 
 export type Availability = typeof availability.$inferSelect;
+
+// ─── Booking Rules (client-tier restrictions on time blocks) ─────────────────
+// These override the day-level clientTier on the availability row.
+// Specificity + recency: the most recently created rule for a given time window wins.
+export const bookingRules = mysqlTable("booking_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull(),
+  // Recurring rule: applies every week on this day-of-week (0=Sun…6=Sat)
+  dayOfWeek: int("dayOfWeek"),
+  // One-off rule: applies only on this specific date (overrides recurring if more recent)
+  specificDate: timestamp("specificDate"),
+  startTime: varchar("startTime", { length: 8 }).notNull(), // "09:00"
+  endTime: varchar("endTime", { length: 8 }).notNull(),     // "12:00"
+  clientTier: mysqlEnum("clientTier", ["open", "returning_only"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type BookingRule = typeof bookingRules.$inferSelect;
+export type InsertBookingRule = typeof bookingRules.$inferInsert;
 
 // ─── Schedule Blocks (blocked-off time) ──────────────────────────────────────
 export const scheduleBlocks = mysqlTable("schedule_blocks", {

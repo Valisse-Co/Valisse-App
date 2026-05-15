@@ -151,3 +151,22 @@
 - [x] Ensure duration-fit check: slot is available only if [startTime + duration] fits within the availability window and doesn't overlap existing bookings
 - [x] Add slot reason field to getAvailableSlots (booked / break / outside_hours / past) for richer UI feedback
 - [x] Calendar: pre-fetch per-date slot counts so fully-booked days appear grayed out
+
+## Client-Tier Booking Restrictions
+- [x] Schema: add clientTier enum ('open' | 'returning_only') to availability table (whole-day recurring)
+- [x] Schema: create booking_rules table for time-block-level and one-off date restrictions (techId, dayOfWeek nullable, specificDate nullable, startTime, endTime, clientTier, createdAt)
+- [x] Migration: generate and apply SQL for both schema changes
+- [x] Backend: getClientTierForSlot(techId, dateStr, timeStr) — resolves effective tier using specificity+recency rules
+- [x] Backend: tRPC procedures — setDayTier, bookingRules, addBookingRule, removeBookingRule
+- [x] Backend: isReturningClient(clientId, techId) — checks for at least one completed booking
+- [x] Backend: enforce tier in getAvailableSlots — mark slots restricted with reason='returning_only' when client is new
+- [x] Schedule editor UI: add clientTier selector (Open to All / Returning Only) on each availability day row
+- [x] Schedule editor UI: add time-block rule panel — tech can add/edit/delete time-block rules per day (recurring or one-off date)
+- [x] BookingFlow client view: gray out restricted slots with label "Returning clients only"
+- [x] BookingFlow: pass clientId to availableSlots query so backend can resolve tier per client
+
+## Client-Tier Gaps (follow-up)
+- [ ] Add clientTierUpdatedAt timestamp to availability table so getClientTierForSlot can compare recency of day-level vs time-block rules
+- [ ] Update getClientTierForSlot to use actual createdAt/updatedAt comparison for conflict resolution
+- [ ] Add updateBookingRule db helper + tRPC procedure for editing existing time-block rules
+- [ ] Schedule editor: add edit button on existing rules (opens pre-filled form)

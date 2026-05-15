@@ -199,6 +199,8 @@ function TodayTab() {
 }
 
 // ─── Day Row ──────────────────────────────────────────────────────────────────
+type ClientTier = "open" | "returning_only";
+
 type DaySchedule = {
   dayOfWeek: number;
   isActive: boolean;
@@ -208,10 +210,50 @@ type DaySchedule = {
   breakEnd: string;
   hasBreak: boolean;
   bufferMinutes: number;
+  clientTier: ClientTier;
 };
 
-function DayRow({ day, onChange }: { day: DaySchedule; onChange: (u: DaySchedule) => void }) {
+const TIER_LABELS: Record<ClientTier, string> = {
+  open: "Open to all",
+  returning_only: "Returning clients only",
+};
+
+const TIER_COLORS: Record<ClientTier, string> = {
+  open: "text-primary",
+  returning_only: "text-amber-600 dark:text-amber-400",
+};
+
+type BookingRule = {
+  id: number;
+  techId: number;
+  dayOfWeek: number | null;
+  specificDate: Date | null;
+  startTime: string;
+  endTime: string;
+  clientTier: ClientTier;
+  createdAt: Date;
+};
+
+function DayRow({
+  day,
+  onChange,
+  rules,
+  onAddRule,
+  onRemoveRule,
+}: {
+  day: DaySchedule;
+  onChange: (u: DaySchedule) => void;
+  rules: BookingRule[];
+  onAddRule: (rule: { dayOfWeek: number | null; specificDate: number | null; startTime: string; endTime: string; clientTier: ClientTier }) => void;
+  onRemoveRule: (id: number) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [ruleType, setRuleType] = useState<"recurring" | "oneoff">("recurring");
+  const [ruleStart, setRuleStart] = useState("09:00");
+  const [ruleEnd, setRuleEnd] = useState("12:00");
+  const [ruleTier, setRuleTier] = useState<ClientTier | "">("" as ClientTier | "");
+  const [ruleDate, setRuleDate] = useState("");
 
   return (
     <div className={cn(
@@ -329,6 +371,190 @@ function DayRow({ day, onChange }: { day: DaySchedule; onChange: (u: DaySchedule
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* ── Whole-day client tier ── */}
+              <div className="pt-1 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Who can book this day?</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Default for the whole day (can be overridden by time blocks below)</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {(["open", "returning_only"] as ClientTier[]).map(tier => (
+                    <button
+                      key={tier}
+                      onClick={() => onChange({ ...day, clientTier: tier })}
+                      className={cn(
+                        "flex-1 py-2 px-3 rounded-xl text-xs font-medium border transition-all text-left",
+                        day.clientTier === tier
+                          ? tier === "open"
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-amber-50 dark:bg-amber-900/20 border-amber-400 text-amber-700 dark:text-amber-300"
+                          : "bg-background border-border text-muted-foreground hover:border-primary/50"
+                      )}
+                    >
+                      {tier === "open" ? (
+                        <><span className="block font-semibold">Open to all</span><span className="text-[10px] opacity-70">Anyone can book</span></>
+                      ) : (
+                        <><span className="block font-semibold">Returning only</span><span className="text-[10px] opacity-70">Must have a past completed visit</span></>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Time-block rules ── */}
+              <div className="pt-1 border-t border-border/50">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-foreground">Time-block overrides</p>
+                  <button
+                    onClick={() => setShowRuleForm(v => !v)}
+                    className="flex items-center gap-1 text-[11px] text-primary font-medium"
+                  >
+                    <Plus size={11} /> Add rule
+                  </button>
+                </div>
+
+                {/* Existing rules for this day */}
+                {rules.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {rules.map(rule => (
+                      <div key={rule.id} className="flex items-center gap-2 bg-muted/40 rounded-xl px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-medium text-foreground">{rule.startTime}–{rule.endTime}</span>
+                          <span className={cn("ml-2 text-[11px] font-medium", TIER_COLORS[rule.clientTier])}>
+                            {TIER_LABELS[rule.clientTier]}
+                          </span>
+                          {rule.specificDate && (
+                            <span className="ml-1 text-[10px] text-muted-foreground">
+                              ({new Date(rule.specificDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} only)
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => onRemoveRule(rule.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors p-0.5"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add rule form */}
+                <AnimatePresence>
+                  {showRuleForm && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="bg-muted/30 rounded-xl p-3 space-y-2.5 border border-border/50">
+                        {/* Recurring vs one-off toggle */}
+                        <div className="flex gap-2">
+                          {(["recurring", "oneoff"] as const).map(t => (
+                            <button
+                              key={t}
+                              onClick={() => setRuleType(t)}
+                              className={cn(
+                                "flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                                ruleType === t ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground"
+                              )}
+                            >
+                              {t === "recurring" ? "Every " + DAYS[day.dayOfWeek] : "Specific date"}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Specific date picker (one-off only) */}
+                        {ruleType === "oneoff" && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground w-10 flex-shrink-0">Date</span>
+                            <input
+                              type="date"
+                              value={ruleDate}
+                              onChange={e => setRuleDate(e.target.value)}
+                              className="flex-1 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground"
+                            />
+                          </div>
+                        )}
+
+                        {/* Time window */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-10 flex-shrink-0">From</span>
+                          <select
+                            value={ruleStart}
+                            onChange={e => setRuleStart(e.target.value)}
+                            className="flex-1 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground"
+                          >
+                            {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                          <span className="text-xs text-muted-foreground">to</span>
+                          <select
+                            value={ruleEnd}
+                            onChange={e => setRuleEnd(e.target.value)}
+                            className="flex-1 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground"
+                          >
+                            {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+
+                        {/* Tier selector */}
+                        <div className="flex gap-2">
+                          {(["open", "returning_only"] as ClientTier[]).map(tier => (
+                            <button
+                              key={tier}
+                              onClick={() => setRuleTier(tier)}
+                              className={cn(
+                                "flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                                ruleTier === tier
+                                  ? tier === "open"
+                                    ? "bg-primary text-white border-primary"
+                                    : "bg-amber-500 text-white border-amber-500"
+                                  : "bg-background border-border text-muted-foreground"
+                              )}
+                            >
+                              {TIER_LABELS[tier]}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={() => setShowRuleForm(false)}
+                            className="flex-1 py-1.5 rounded-lg text-xs border border-border text-muted-foreground"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            disabled={!ruleTier}
+                            onClick={() => {
+                              if (!ruleTier) return;
+                              onAddRule({
+                                dayOfWeek: ruleType === "recurring" ? day.dayOfWeek : null,
+                                specificDate: ruleType === "oneoff" && ruleDate ? new Date(ruleDate).getTime() : null,
+                                startTime: ruleStart,
+                                endTime: ruleEnd,
+                                clientTier: ruleTier as ClientTier,
+                              });
+                              setShowRuleForm(false);
+                              setRuleTier("");
+                              setRuleDate("");
+                            }}
+                            className="flex-1 py-1.5 rounded-lg text-xs bg-primary text-white disabled:opacity-40"
+                          >
+                            Save rule
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </motion.div>
         )}
@@ -356,6 +582,7 @@ const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
   breakEnd: "13:00",
   hasBreak: false,
   bufferMinutes: 15,
+  clientTier: "open" as ClientTier,
 }));
 
 function ScheduleTab() {
@@ -364,6 +591,9 @@ function ScheduleTab() {
     undefined, { enabled: isAuthenticated }
   );
   const { data: blocksData, isLoading: blocksLoading } = trpc.availability.blocks.useQuery(
+    undefined, { enabled: isAuthenticated }
+  );
+  const { data: bookingRulesData } = trpc.availability.bookingRules.useQuery(
     undefined, { enabled: isAuthenticated }
   );
   const utils = trpc.useUtils();
@@ -395,6 +625,7 @@ function ScheduleTab() {
           breakEnd: saved.breakEnd ?? def.breakEnd,
           hasBreak,
           bufferMinutes: saved.bufferMinutes ?? 15,
+          clientTier: (saved.clientTier ?? "open") as ClientTier,
         };
       });
       // Use the buffer from the first active saved day as the global value
@@ -403,6 +634,25 @@ function ScheduleTab() {
       setSchedule(merged);
     }
   }, [savedSchedule]);
+
+  const setDayTier = trpc.availability.setDayTier.useMutation({
+    onSuccess: () => utils.availability.weeklySchedule.invalidate(),
+  });
+
+  const addBookingRule = trpc.availability.addBookingRule.useMutation({
+    onSuccess: () => {
+      utils.availability.bookingRules.invalidate();
+      toast.success("Rule saved");
+    },
+    onError: () => toast.error("Failed to save rule"),
+  });
+
+  const removeBookingRule = trpc.availability.removeBookingRule.useMutation({
+    onSuccess: () => {
+      utils.availability.bookingRules.invalidate();
+      toast.success("Rule removed");
+    },
+  });
 
   const saveSchedule = trpc.availability.setWeeklySchedule.useMutation({
     onSuccess: () => {
@@ -432,7 +682,12 @@ function ScheduleTab() {
   });
 
   const handleChange = (dayOfWeek: number, updated: DaySchedule) => {
-    setSchedule(prev => prev.map(d => d.dayOfWeek === dayOfWeek ? updated : d));
+    // If clientTier changed, persist it immediately (independent of the main save)
+    const prev = schedule.find(d => d.dayOfWeek === dayOfWeek);
+    if (prev && prev.clientTier !== updated.clientTier) {
+      setDayTier.mutate({ dayOfWeek, clientTier: updated.clientTier });
+    }
+    setSchedule(prev2 => prev2.map(d => d.dayOfWeek === dayOfWeek ? updated : d));
     setDirty(true);
   };
 
@@ -507,9 +762,23 @@ function ScheduleTab() {
 
       {/* Day rows */}
       <div className="space-y-2 mb-6">
-        {schedule.map(day => (
-          <DayRow key={day.dayOfWeek} day={day} onChange={updated => handleChange(day.dayOfWeek, updated)} />
-        ))}
+        {schedule.map(day => {
+          // Rules for this day: recurring rules for this dayOfWeek + one-off rules whose date falls on this day-of-week
+          const dayRules = (bookingRulesData ?? []).filter(
+            r => r.dayOfWeek === day.dayOfWeek ||
+              (r.specificDate !== null && new Date(r.specificDate).getDay() === day.dayOfWeek)
+          ) as BookingRule[];
+          return (
+            <DayRow
+              key={day.dayOfWeek}
+              day={day}
+              onChange={updated => handleChange(day.dayOfWeek, updated)}
+              rules={dayRules}
+              onAddRule={rule => addBookingRule.mutate(rule)}
+              onRemoveRule={id => removeBookingRule.mutate({ ruleId: id })}
+            />
+          );
+        })}
       </div>
 
       {/* ── Buffer Time ── */}

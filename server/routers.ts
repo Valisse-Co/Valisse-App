@@ -57,6 +57,12 @@ import {
   getAvailableSlots,
   getMonthBookableStatus,
   createBookingWithConflictCheck,
+  isReturningClient,
+  getBookingRulesForTech,
+  getClientTierForSlot,
+  createBookingRule,
+  deleteBookingRule,
+  setAvailabilityClientTier,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -343,8 +349,8 @@ const bookingsRouter = router({
         duration: z.number().default(60),
       })
     )
-    .query(async ({ input }) =>
-      getAvailableSlots(input.techId, input.date, input.duration)
+    .query(async ({ ctx, input }) =>
+      getAvailableSlots(input.techId, input.date, input.duration, ctx.user?.id)
     ),
 
   // Returns { "YYYY-MM-DD": true/false } for all working days in the given month.
@@ -487,6 +493,53 @@ const availabilityRouter = router({
     .input(z.object({ blockId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await deleteScheduleBlock(input.blockId, ctx.user.id);
+      return { success: true };
+    }),
+
+  // ── Day-level client tier ──────────────────────────────────────────────────
+  setDayTier: protectedProcedure
+    .input(
+      z.object({
+        dayOfWeek: z.number().min(0).max(6),
+        clientTier: z.enum(["open", "returning_only"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await setAvailabilityClientTier(ctx.user.id, input.dayOfWeek, input.clientTier);
+      return { success: true };
+    }),
+
+  // ── Time-block booking rules ───────────────────────────────────────────────
+  bookingRules: protectedProcedure.query(async ({ ctx }) =>
+    getBookingRulesForTech(ctx.user.id)
+  ),
+
+  addBookingRule: protectedProcedure
+    .input(
+      z.object({
+        dayOfWeek: z.number().min(0).max(6).nullable().optional(),
+        specificDate: z.number().nullable().optional(), // UTC ms timestamp
+        startTime: z.string(),
+        endTime: z.string(),
+        clientTier: z.enum(["open", "returning_only"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const id = await createBookingRule({
+        techId: ctx.user.id,
+        dayOfWeek: input.dayOfWeek ?? null,
+        specificDate: input.specificDate ? new Date(input.specificDate) : null,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        clientTier: input.clientTier,
+      });
+      return { id };
+    }),
+
+  removeBookingRule: protectedProcedure
+    .input(z.object({ ruleId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteBookingRule(input.ruleId, ctx.user.id);
       return { success: true };
     }),
 });

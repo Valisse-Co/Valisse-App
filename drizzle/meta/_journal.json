@@ -43,6 +43,13 @@
       "when": 1778642874401,
       "tag": "0005_wide_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1778865014686,
+      "tag": "0006_black_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

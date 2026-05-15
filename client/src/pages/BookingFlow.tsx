@@ -486,12 +486,14 @@ export default function BookingFlow() {
                 <>
                   <div className="grid grid-cols-3 gap-2">
                     {slotsQuery.data.map(slot => {
+                      const isReturningOnly = slot.reason === "returning_only";
                       const reasonLabel =
                         slot.reason === "booked" ? "Booked" :
                         slot.reason === "break" ? "Break" :
                         slot.reason === "blocked" ? "Blocked" :
                         slot.reason === "outside_hours" ? "End of shift" :
-                        slot.reason === "past" ? "Past" : undefined;
+                        slot.reason === "past" ? "Past" :
+                        isReturningOnly ? "Returning clients" : undefined;
                       return (
                         <button
                           key={slot.time}
@@ -501,7 +503,9 @@ export default function BookingFlow() {
                           className={`
                             py-3 px-2 rounded-xl text-sm font-medium text-center transition-all
                             ${!slot.available
-                              ? "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
+                              ? isReturningOnly
+                                ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600/60 dark:text-amber-400/60 cursor-not-allowed border border-amber-200 dark:border-amber-800/40"
+                                : "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
                               : selectedTime === slot.time
                               ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
                               : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
@@ -509,7 +513,7 @@ export default function BookingFlow() {
                         >
                           {slot.time}
                           {!slot.available && reasonLabel && (
-                            <span className="block text-[9px] text-muted-foreground/40 mt-0.5 leading-none truncate">
+                            <span className={`block text-[9px] mt-0.5 leading-none truncate ${isReturningOnly ? "text-amber-500/70 dark:text-amber-400/60" : "text-muted-foreground/40"}`}>
                               {reasonLabel}
                             </span>
                           )}
@@ -517,14 +521,18 @@ export default function BookingFlow() {
                       );
                     })}
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground pt-1">
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded bg-card border border-border inline-block" />
                       Available
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded bg-muted/30 inline-block" />
-                      Booked / unavailable
+                      Unavailable
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 inline-block" />
+                      Returning clients only
                     </span>
                   </div>
                   {slotsQuery.data.every(s => !s.available) && (

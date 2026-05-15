@@ -2,11 +2,13 @@ import { and, desc, eq, gt, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
+  bookingRules,
   bookings,
   collections,
   conversations,
   follows,
   InsertBooking,
+  InsertBookingRule,
   InsertMessage,
   InsertPost,
   InsertReview,
@@ -793,7 +795,8 @@ export async function markNotificationsRead(userId: number) {
 export async function getAvailableSlots(
   techId: number,
   dateStr: string,   // "YYYY-MM-DD" in local time
-  durationMinutes: number
+  durationMinutes: number,
+  clientId?: number  // optional — used to check returning-client status
 ): Promise<Array<{ time: string; available: boolean; reason: string | undefined }>> {
   const db = await getDb();
   if (!db) return [];
@@ -916,10 +919,24 @@ export async function getAvailableSlots(
       reason = blocker?.reason ?? "booked";
     }
 
+    // Client-tier check: if the slot is otherwise available, verify the client
+    // meets the tier requirement for this specific time window.
+    let tierReason: string | undefined;
+    if (!doesntFit && !isBlocked && !isPast && clientId !== undefined) {
+      const tier = await getClientTierForSlot(techId, dateStr, toTime(t));
+      if (tier === "returning_only") {
+        const isReturning = await isReturningClient(clientId, techId);
+        if (!isReturning) {
+          tierReason = "returning_only";
+        }
+      }
+    }
+
+    const finalReason = reason ?? tierReason;
     slots.push({
       time: toTime(t),
-      available: !doesntFit && !isBlocked && !isPast,
-      reason,
+      available: !doesntFit && !isBlocked && !isPast && !tierReason,
+      reason: finalReason,
     });
   }
 
@@ -1104,4 +1121,133 @@ export async function createBookingWithConflictCheck(data: InsertBooking): Promi
 
   const [result] = await db.insert(bookings).values(data);
   return (result as any).insertId as number;
+}
+
+// ─── Booking Rules (client-tier restrictions) ─────────────────────────────────
+
+/**
+ * Returns true if the client has at least one completed booking with this tech.
+ * Used to determine whether a "returning_only" slot is accessible.
+ */
+export async function isReturningClient(clientId: number, techId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.clientId, clientId),
+        eq(bookings.techId, techId),
+        sql`${bookings.status} = 'completed'`
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Fetch all booking rules for a tech, ordered by createdAt desc (newest first).
+ */
+export async function getBookingRulesForTech(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(bookingRules)
+    .where(eq(bookingRules.techId, techId))
+    .orderBy(desc(bookingRules.createdAt));
+}
+
+/**
+ * Resolve the effective clientTier for a given slot.
+ *
+ * Resolution order (most specific + most recent wins):
+ *   1. One-off date rule whose window covers the slot time (most recently created wins)
+ *   2. Recurring day-of-week rule whose window covers the slot time (most recently created wins)
+ *   3. Whole-day clientTier from the availability row
+ *   4. Default: "open"
+ *
+ * @param techId
+ * @param dateStr  "YYYY-MM-DD"
+ * @param slotTime "HH:MM" (start of the slot)
+ */
+export async function getClientTierForSlot(
+  techId: number,
+  dateStr: string,
+  slotTime: string
+): Promise<"open" | "returning_only"> {
+  const db = await getDb();
+  if (!db) return "open";
+
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const dow = new Date(year, month - 1, day).getDay();
+  const toMins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const slotMins = toMins(slotTime);
+
+  // Fetch all rules for this tech
+  const rules = await db
+    .select()
+    .from(bookingRules)
+    .where(eq(bookingRules.techId, techId))
+    .orderBy(desc(bookingRules.createdAt));
+
+  // 1. One-off date rules (specificDate matches dateStr)
+  for (const rule of rules) {
+    if (!rule.specificDate) continue;
+    const rd = rule.specificDate;
+    const rDateStr = `${rd.getFullYear()}-${String(rd.getMonth() + 1).padStart(2, "0")}-${String(rd.getDate()).padStart(2, "0")}`;
+    if (rDateStr !== dateStr) continue;
+    const rStart = toMins(rule.startTime);
+    const rEnd   = toMins(rule.endTime);
+    if (slotMins >= rStart && slotMins < rEnd) return rule.clientTier;
+  }
+
+  // 2. Recurring day-of-week rules
+  for (const rule of rules) {
+    if (rule.specificDate !== null) continue;
+    if (rule.dayOfWeek !== dow) continue;
+    const rStart = toMins(rule.startTime);
+    const rEnd   = toMins(rule.endTime);
+    if (slotMins >= rStart && slotMins < rEnd) return rule.clientTier;
+  }
+
+  // 3. Whole-day tier from availability row
+  const avRows = await db
+    .select({ clientTier: availability.clientTier })
+    .from(availability)
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dow), eq(availability.isActive, true)))
+    .limit(1);
+  if (avRows[0]?.clientTier) return avRows[0].clientTier;
+
+  return "open";
+}
+
+export async function createBookingRule(data: InsertBookingRule) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(bookingRules).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function deleteBookingRule(id: number, techId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(bookingRules).where(and(eq(bookingRules.id, id), eq(bookingRules.techId, techId)));
+}
+
+/**
+ * Update the clientTier on an availability (whole-day) row.
+ */
+export async function setAvailabilityClientTier(
+  techId: number,
+  dayOfWeek: number,
+  clientTier: "open" | "returning_only"
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .update(availability)
+    .set({ clientTier })
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek)));
 }
