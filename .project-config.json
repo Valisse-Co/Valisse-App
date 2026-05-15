@@ -1,0 +1,43 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [
+    "db",
+    "server",
+    "user"
+  ],
+  "dev_command": "pnpm run dev",
+  "env_vars": {
+    "DATABASE_URL": "mysql://39zy4Xriz7sgVfL.e79b92e2bbb7:47gS4soHSGUg69gTnGD5@gateway05.us-east-1.prod.aws.tidbcloud.com:4000/f5fDK6NnMqbHPKTgeCgLZS?ssl={\"rejectUnauthorized\":true}"
+  },
+  "experiments": [
+    "no_db_push"
+  ],
+  "git_remote": {
+    "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663596449434/f5fDK6NnMqbHPKTgeCgLZS",
+    "access_key_id": "ASIAZV3A2ECZEPLPBCPE",
+    "secret_access_key": "MchWoCJaNAMqaYwk2btXVnFoTPW83n/mqIrrhreI",
+    "session_token": "IQoJb3JpZ2luX2VjEKT//////////wEaCXVzLWVhc3QtMSJHMEUCIQCDjryrFZs/mmCPoSZ0QRpQ+LtrsfS+7ZKmBJruijG1AwIgOpQ7iG7i4Her3z4IKHMBbM7kpo4I1KF/PynsXgPvz1Iq9gMIbBAEGgw2NjUzODYwOTg4NjYiDEGG94OVZw8lC7EsRyrTA8PmbZtcV7CzAInmYQJY1gvBp0TMBRFAVYXNZQFBnUpNfuY1PXhDxKx/lefLtDxoRFKhL1y15fJTVZQfskNkFya49QbYa8Dz94DaLdKH9Q5C9s6gHiUbuwPd1vXrCuN0HgUvdFxFIV/iZfnL1dQEFytmjmGF/dHUFivLl/zxw6gG6J/H+n6C2Rkxcsg4TnkVTSI/KY8MieNw0Awwki840bI8BSSM4J/QXhjT5C9pZ0mJUeqWP8y4AeY35b7GQafs3POXYkzZ1p1HqILR3WXNGItsM3vIsF6TQWw3gbsOdEvs0hDNzsx5bJ2U0n6M3e9hLYNdGOUcxivSbthV9/bnZ+/rJWhexbRuHE13j+dU+cYzyc2gssnbMY/7+Am+ykVf38/ot5q2IWOFtEOqJlKQf7/xC6HDwGhpuj2C4sE00zzdm9I/P8zwUf5ta+injpMbYFu44S0OIIbCIKJ9pZb9mH6V/yEDJDl4MxHIcOkpkUYTjhhgtLA4EEiw7uZc8PMnx17jwXo5tGgQTRbavzVmrmf0H4g+UU+yIk2qv8NjYdnXPehHmBbitZpXNQB6sUpO3n+r96KBe4NzJcOYkEvvOOrXV0GjG1MihBmorXPu7ar+ybixMPSdmtAGOp0BZUVmCsvszly4NDgJvw9vTTozlx7BHo1sv0wmjSBTLnAEAP0KVe6JfV50Qb9OXXvVJ1RtCHnBnuuu/jC6tf08qDQvufMPVjRBWEZK3k9ObF44EJjEuHys3PdK9qUKKYIMrMJFSNgz9ESxVOpzjs5bd4vZdwCEz35B8KxvAOB9BWo8UaiWuxmwLyu5aAeD8wUEbHk69Ai5zKSIatZHCA==",
+    "expiration": "2026-05-15T15:11:48.000Z"
+  },
+  "name": "valisse",
+  "path": "/home/ubuntu/valisse",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "3AyJTpYDzC3y3EQ8FE5Vau",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "JWT_SECRET": "8g5tuPZ45nobsEwoJphx4v",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OWNER_NAME": "Ashton Earl",
+    "OWNER_OPEN_ID": "bebQ2xBqBDC6SUTQxLcmKb",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "01fc851a-e154-4737-ba3c-1e031316cc97",
+    "VITE_APP_ID": "f5fDK6NnMqbHPKTgeCgLZS",
+    "VITE_APP_LOGO": "https://files.manuscdn.com/user_upload_by_module/web_dev_logo/310519663596449434/yeQoYRxGoAzAxrwW.png",
+    "VITE_APP_TITLE": "Valisse",
+    "VITE_FRONTEND_FORGE_API_KEY": "L4L7hrVsSFr2DcVw93L2DE",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-db-user",
+  "test_command": "pnpm test"
+}
