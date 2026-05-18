@@ -3,14 +3,16 @@
  *
  * A peek-style swipe carousel for post images and videos.
  * Features:
- *  - Touch/mouse swipe with peek of next/prev item
+ *  - Touch/pointer swipe with pointer capture for reliable gesture tracking
+ *  - Peek of adjacent slides (8% visible on each side)
  *  - Dot indicators (hidden when only 1 item)
  *  - Pinch-to-zoom on images
  *  - Tap-to-play / tap-to-pause for videos
+ *  - Tap anywhere (outside swipe) fires onClick
  *  - Multi-image badge on the first frame (optional)
  *
  * Usage:
- *   <MediaCarousel urls={post.imageUrls} aspectRatio="3/4" />
+ *   <MediaCarousel urls={post.imageUrls} aspectRatio="3/4" onClick={() => navigate(`/post/${id}`)} />
  */
 
 import { useRef, useState, useCallback, useEffect } from "react";
@@ -34,7 +36,7 @@ interface MediaCarouselProps {
   className?: string;
   /** Show the multi-image badge (stack icon) on the first frame when >1 items */
   showBadge?: boolean;
-  /** Called when the user taps the media (outside swipe gesture) */
+  /** Called when the user taps the media without swiping */
   onClick?: () => void;
 }
 
@@ -43,7 +45,6 @@ interface MediaCarouselProps {
 function usePinchZoom(enabled: boolean) {
   const ref = useRef<HTMLDivElement>(null);
   const scale = useRef(1);
-  const origin = useRef({ x: 0.5, y: 0.5 });
   const lastDist = useRef<number | null>(null);
 
   useEffect(() => {
@@ -67,7 +68,6 @@ function usePinchZoom(enabled: boolean) {
         const rect = el.getBoundingClientRect();
         const cx = ((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left) / rect.width;
         const cy = ((e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top) / rect.height;
-        origin.current = { x: cx, y: cy };
         el.style.transformOrigin = `${cx * 100}% ${cy * 100}%`;
         el.style.transform = `scale(${scale.current})`;
       }
@@ -102,7 +102,6 @@ function VideoFrame({ url, active }: { url: string; active: boolean }) {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(true);
 
-  // Pause when slide becomes inactive
   useEffect(() => {
     if (!active && videoRef.current) {
       videoRef.current.pause();
@@ -136,7 +135,6 @@ function VideoFrame({ url, active }: { url: string; active: boolean }) {
         muted={muted}
         onEnded={() => setPlaying(false)}
       />
-      {/* Play / pause overlay */}
       {!playing && (
         <button
           onClick={toggle}
@@ -148,13 +146,8 @@ function VideoFrame({ url, active }: { url: string; active: boolean }) {
         </button>
       )}
       {playing && (
-        <button
-          onClick={toggle}
-          className="absolute inset-0"
-          aria-label="Pause"
-        />
+        <button onClick={toggle} className="absolute inset-0" aria-label="Pause" />
       )}
-      {/* Mute toggle */}
       <button
         onClick={toggleMute}
         className="absolute bottom-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center"
@@ -178,11 +171,13 @@ export function MediaCarousel({
   onClick,
 }: MediaCarouselProps) {
   const [current, setCurrent] = useState(0);
-  const trackRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Swipe state — all in refs so we don't re-render mid-gesture
   const startX = useRef<number | null>(null);
   const startY = useRef<number | null>(null);
-  const isDragging = useRef(false);
-  const dragDelta = useRef(0);
+  const hasSwiped = useRef(false);
+  const pointerId = useRef<number | null>(null);
 
   // Pinch-to-zoom only on image frames
   const zoomRef = usePinchZoom(!isVideo(urls[current] ?? ""));
@@ -193,38 +188,49 @@ export function MediaCarousel({
     setCurrent(Math.max(0, Math.min(count - 1, idx)));
   }, [count]);
 
-  // ── Pointer / touch swipe ──────────────────────────────────────────────────
+  // ── Pointer events with capture for reliable swipe tracking ──────────────
 
-  function onPointerDown(e: React.PointerEvent) {
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    // Only track primary pointer (ignore multi-touch for swipe)
+    if (e.button !== 0 && e.pointerType !== "touch") return;
+    // Capture so we keep receiving events even if pointer leaves the element
+    try { (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    pointerId.current = e.pointerId;
     startX.current = e.clientX;
     startY.current = e.clientY;
-    isDragging.current = false;
-    dragDelta.current = 0;
+    hasSwiped.current = false;
   }
 
-  function onPointerMove(e: React.PointerEvent) {
-    if (startX.current === null) return;
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (startX.current === null || e.pointerId !== pointerId.current) return;
     const dx = e.clientX - startX.current;
     const dy = Math.abs(e.clientY - (startY.current ?? 0));
-    // Only treat as horizontal swipe if dx > dy
-    if (Math.abs(dx) > 6 && Math.abs(dx) > dy) {
-      isDragging.current = true;
-      dragDelta.current = dx;
+    if (Math.abs(dx) > 8 && Math.abs(dx) > dy) {
+      hasSwiped.current = true;
     }
   }
 
-  function onPointerUp(e: React.PointerEvent) {
-    if (isDragging.current) {
-      e.stopPropagation();
-      if (dragDelta.current < -40) goTo(current + 1);
-      else if (dragDelta.current > 40) goTo(current - 1);
-    } else if (onClick) {
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerId !== pointerId.current) return;
+    if (hasSwiped.current && startX.current !== null) {
+      const dx = e.clientX - startX.current;
+      if (dx < -40) goTo(current + 1);
+      else if (dx > 40) goTo(current - 1);
+    } else if (!hasSwiped.current && onClick) {
+      // Pure tap — no swipe detected
       onClick();
     }
     startX.current = null;
     startY.current = null;
-    isDragging.current = false;
-    dragDelta.current = 0;
+    hasSwiped.current = false;
+    pointerId.current = null;
+  }
+
+  function onPointerCancel() {
+    startX.current = null;
+    startY.current = null;
+    hasSwiped.current = false;
+    pointerId.current = null;
   }
 
   if (!urls || urls.length === 0) {
@@ -232,39 +238,45 @@ export function MediaCarousel({
       <div
         className={cn("w-full bg-muted flex items-center justify-center", className)}
         style={{ aspectRatio }}
+        onClick={onClick}
       >
         <span className="text-muted-foreground text-xs">No media</span>
       </div>
     );
   }
 
+  // Peek layout: each slide is 88% wide, centred with 6% peeking on each side.
+  // translateX shifts by (slideWidth + gap) per step.
+  const SLIDE_PCT = count > 1 ? 88 : 100;
+  const GAP_PX = count > 1 ? 8 : 0;
+  // Offset to centre the active slide: (100 - SLIDE_PCT) / 2 = 6%
+  const CENTRE_OFFSET = count > 1 ? (100 - SLIDE_PCT) / 2 : 0;
+  const translateX = count > 1
+    ? `calc(-${current * SLIDE_PCT}% - ${current * GAP_PX}px + ${CENTRE_OFFSET}%)`
+    : "0%";
+
   return (
     <div
-      className={cn("relative w-full overflow-hidden select-none", className)}
+      ref={containerRef}
+      className={cn("relative w-full overflow-hidden select-none touch-pan-y", className)}
       style={{ aspectRatio }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
     >
       {/* ── Slide track ─────────────────────────────────────────────────── */}
-      {/* Peek: slides are 92% wide with a 4% gap on each side so adjacent frames peek in */}
       <div
-        ref={trackRef}
         className="flex h-full transition-transform duration-300 ease-out will-change-transform"
-        style={{
-          transform: count > 1
-            ? `translateX(calc(-${current * 92}% + ${current === 0 ? 4 : current === count - 1 ? -4 : 0}% + ${current * -8}px))`
-            : "translateX(0)",
-        }}
+        style={{ transform: `translateX(${translateX})` }}
       >
         {urls.map((url, i) => (
           <div
             key={i}
-            className="relative shrink-0 h-full"
+            className="relative shrink-0 h-full rounded-xl overflow-hidden"
             style={{
-              // Each slide takes 92% of container width; 4% peek on each side
-              width: count > 1 ? "calc(92% - 8px)" : "100%",
-              marginRight: count > 1 ? "8px" : "0",
+              width: `${SLIDE_PCT}%`,
+              marginRight: i < count - 1 ? `${GAP_PX}px` : 0,
             }}
           >
             {isVideo(url) ? (
@@ -308,7 +320,7 @@ export function MediaCarousel({
         </div>
       )}
 
-      {/* ── Multi-media badge (top-right) ────────────────────────────────── */}
+      {/* ── Multi-media badge ────────────────────────────────────────────── */}
       {showBadge && count > 1 && current === 0 && (
         <div className="absolute top-2 right-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 pointer-events-none">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

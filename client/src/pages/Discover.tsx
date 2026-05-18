@@ -379,14 +379,18 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
       )}
 
       {post.isPromoted && (
-        <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full">
+        <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full pointer-events-none">
           Promoted
         </div>
       )}
 
-      <div className="absolute inset-0 img-overlay" />
+      {/* Overlay and text are pointer-events-none so taps fall through to the carousel */}
+      <div className="absolute inset-0 img-overlay pointer-events-none" />
 
-      <div className="absolute bottom-0 left-0 right-0 p-2.5">
+      <div
+        className="absolute bottom-0 left-0 right-0 p-2.5 pointer-events-none"
+        onClick={onClick}
+      >
         <p className="text-white text-xs font-medium truncate">{tech?.businessName || tech?.name || "Nail Tech"}</p>
         {post.location && <p className="text-white/70 text-[10px] truncate">{post.location}</p>}
         {analytics?.saves > 0 && (
@@ -397,10 +401,11 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         )}
       </div>
 
+      {/* Bookmark button — stopPropagation so it doesn't trigger navigate */}
       <button
-        onClick={(e) => onSave(post.id, e)}
+        onClick={(e) => { e.stopPropagation(); onSave(post.id, e); }}
         className={cn(
-          "absolute top-2 right-2 w-9 h-9 rounded-full backdrop-blur-sm flex items-center justify-center transition-all shadow-sm",
+          "absolute top-2 right-2 w-9 h-9 rounded-full backdrop-blur-sm flex items-center justify-center transition-all shadow-sm z-10",
           saved ? "bg-primary text-white" : "bg-black/30 text-white"
         )}
       >
