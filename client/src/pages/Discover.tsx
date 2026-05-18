@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { STYLE_TAG_GROUPS } from "@shared/const";
+import { MediaCarousel } from "@/components/MediaCarousel";
 
 const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"];
 const COLORS = ["All", "Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold"];
@@ -352,17 +353,25 @@ export default function Discover() {
 }
 
 function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
-  const imageUrl = post.imageUrls?.[0];
+  const urls: string[] = post.imageUrls ?? [];
   return (
     <motion.div
       whileTap={{ scale: 0.97 }}
-      onClick={onClick}
       className="relative rounded-2xl overflow-hidden cursor-pointer bg-muted shadow-sm"
     >
-      {imageUrl ? (
-        <img src={imageUrl} alt={post.caption ?? "nail art"} className="w-full object-cover" style={{ aspectRatio: "3/4" }} />
+      {urls.length > 0 ? (
+        <MediaCarousel
+          urls={urls}
+          aspectRatio="3/4"
+          showBadge
+          onClick={onClick}
+        />
       ) : (
-        <div className="w-full bg-gradient-to-br from-[#E6F5F1] to-[#D0EDE6]" style={{ aspectRatio: "3/4" }}>
+        <div
+          className="w-full bg-gradient-to-br from-[#E6F5F1] to-[#D0EDE6] cursor-pointer"
+          style={{ aspectRatio: "3/4" }}
+          onClick={onClick}
+        >
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-4xl">💅</span>
           </div>

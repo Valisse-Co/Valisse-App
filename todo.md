@@ -174,3 +174,10 @@
 ## Client-Tier Gaps Round 2
 - [x] Add updatedAt to booking_rules table; bump it on updateBookingRule; use it in getClientTierForSlot recency comparison
 - [x] Expand schedule editor edit form to allow changing rule date/day scope and recurring vs one-off type
+
+## Media Carousel (Post Photos/Videos)
+- [x] Audit post media data model (images array, video field) and all render locations
+- [x] Build reusable MediaCarousel component: peek-style swipe, dot indicators, pinch-to-zoom, tap-to-play video
+- [x] Integrate MediaCarousel into feed card (thumbnail)
+- [x] Integrate MediaCarousel into post detail view
+- [x] Integrate MediaCarousel into booking flow confirmation step (post preview)

@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
+import { MediaCarousel } from "@/components/MediaCarousel";
 import {
   ArrowLeft,
   Calendar,
@@ -121,6 +122,13 @@ export default function BookingFlow() {
   const monthStatus = monthStatusQuery.data ?? {};
 
   // ── Mutations ────────────────────────────────────────────────────────────
+  // Fetch post data when booking from a post
+  const postQuery = trpc.posts.getById.useQuery(
+    { postId: postId ? Number(postId) : 0 },
+    { enabled: !!postId }
+  );
+  const postData = postQuery.data?.post;
+
   const utils = trpc.useUtils();
   const createBooking = trpc.bookings.create.useMutation({
     onSuccess: () => {
@@ -557,6 +565,21 @@ export default function BookingFlow() {
                 <h1 className="text-xl font-serif font-semibold text-foreground">Confirm booking</h1>
                 <p className="text-sm text-muted-foreground mt-1">Review your appointment details</p>
               </div>
+              {/* Post preview carousel — shown when booking from a post */}
+              {postData && (postData.imageUrls?.length ?? 0) > 0 && (
+                <div className="rounded-2xl overflow-hidden border border-border">
+                  <MediaCarousel
+                    urls={postData.imageUrls ?? []}
+                    aspectRatio="4/3"
+                    showBadge
+                  />
+                  {postData.caption && (
+                    <div className="px-3 py-2 bg-card">
+                      <p className="text-xs text-muted-foreground truncate">{postData.caption}</p>
+                    </div>
+                  )}
+                </div>
+              )}
               {tech && (
                 <Card className="p-4 rounded-2xl border-border flex items-center gap-3">
                   {tech.avatarUrl

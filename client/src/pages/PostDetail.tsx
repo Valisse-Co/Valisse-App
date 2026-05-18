@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { MediaCarousel } from "@/components/MediaCarousel";
 
 interface Props { postId: number }
 
@@ -46,7 +47,7 @@ export default function PostDetail({ postId }: Props) {
   if (!data) return <div className="p-8 text-center text-muted-foreground">Post not found</div>;
 
   const { post, tech, ratingStats } = data;
-  const imageUrl = post.imageUrls?.[0];
+  const mediaUrls: string[] = post.imageUrls ?? [];
   const techName = tech?.businessName || tech?.name || "this artist";
 
   // "More from this artist" — exclude current post, cap at 6
@@ -84,18 +85,23 @@ export default function PostDetail({ postId }: Props) {
         </div>
       )}
 
-      {/* Hero image */}
+      {/* Hero media carousel */}
       <div className="relative">
-        {imageUrl ? (
-          <img src={imageUrl} alt="nail art" className="w-full object-cover" style={{ maxHeight: "70vh" }} />
+        {mediaUrls.length > 0 ? (
+          <MediaCarousel
+            urls={mediaUrls}
+            aspectRatio="4/5"
+            showBadge={false}
+            className="w-full"
+          />
         ) : (
           <div className="w-full h-96 bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
             <span className="text-6xl">💅</span>
           </div>
         )}
 
-        {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-transparent" />
+        {/* Gradient overlay — only on top for back/action buttons */}
+        <div className="absolute top-0 left-0 right-0 h-28 bg-gradient-to-b from-black/40 to-transparent pointer-events-none" />
 
         {/* Back button */}
         <button
@@ -120,15 +126,6 @@ export default function PostDetail({ postId }: Props) {
             >
               <Share2 size={18} />
             </button>
-          </div>
-        )}
-
-        {/* Multiple images indicator */}
-        {post.imageUrls?.length > 1 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
-            {post.imageUrls.map((_: string, i: number) => (
-              <div key={i} className={cn("h-1.5 rounded-full bg-white transition-all", i === 0 ? "w-4" : "w-1.5 opacity-60")} />
-            ))}
           </div>
         )}
       </div>
