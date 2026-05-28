@@ -50,6 +50,18 @@ export default function PostDetail({ postId }: Props) {
   if (!data) return <div className="p-8 text-center text-muted-foreground">Post not found</div>;
 
   const { post, tech, ratingStats } = data;
+
+  // Block hidden posts for non-admin users
+  if (post.status === "hidden" && user?.role !== "admin") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center text-2xl">🚫</div>
+        <p className="font-semibold text-foreground">This post has been removed</p>
+        <p className="text-sm text-muted-foreground">This content is no longer available.</p>
+        <button onClick={() => navigate("/discover")} className="text-sm text-primary underline">Back to Discover</button>
+      </div>
+    );
+  }
   const mediaUrls: string[] = post.imageUrls ?? [];
   const techName = tech?.businessName || tech?.name || "this artist";
 

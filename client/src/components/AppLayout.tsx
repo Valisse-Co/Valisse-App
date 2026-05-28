@@ -9,6 +9,7 @@ import {
   PlusSquare,
   Settings,
   Bell,
+  Flag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode, useEffect, useRef } from "react";
@@ -93,7 +94,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     { label: "Settings", icon: <Settings size={22} />, href: "/settings" },
   ];
 
-  const navItems = activeMode === "nail_tech" ? techNav : clientNav;
+  // Admin nav entry — appended to whichever nav is active
+  const adminEntry: NavItem = { label: "Reports", icon: <Flag size={22} />, href: "/admin/reports" };
+  const navItems = [
+    ...(activeMode === "nail_tech" ? techNav : clientNav),
+    ...(user?.role === "admin" ? [adminEntry] : []),
+  ];
 
   return (
     <div className="mobile-container bg-background">

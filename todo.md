@@ -201,17 +201,21 @@
 - [x] Frontend: Toast pop-up when a new post notification arrives while client is in-app (30s polling)
 
 ## Report Inappropriate Content
-- [ ] Schema: post_reports table (id, postId, reporterId, reason, note, status: pending|dismissed, createdAt)
-- [ ] Schema: add isHidden boolean to posts table
-- [ ] Migration: generate and apply SQL
-- [ ] Backend: createReport helper with duplicate guard (unique constraint on reporterId+postId)
-- [ ] Backend: getReports, updateReportStatus, hidePost, deletePost helpers
-- [ ] Backend: tRPC procedures — reports.submit, reports.list (admin), reports.action (admin)
-- [ ] Backend: notify tech on report, notify owner/admin on report
-- [ ] Frontend: Report button (⋯ menu or flag icon) on PostDetail and Discover feed card
-- [ ] Frontend: Report bottom sheet — reason selector (6 options) + optional note field + submit
-- [ ] Frontend: Duplicate guard — show "Already reported" state if user has reported this post
-- [ ] Frontend: Hide reported/hidden posts from Discover feed and PostDetail for non-admin users
-- [ ] Frontend: Admin panel (/admin/reports) — list of pending reports with post preview, reason, reporter, actions (Hide Post / Dismiss / Delete Post)
-- [ ] Frontend: Admin nav entry visible only to admin role users
-- [ ] Demo: promote Ashton Earl (id=1) to admin role in DB
+- [x] Schema: post_reports table (id, postId, reporterId, reason, note, status: pending|dismissed, createdAt)
+- [x] Schema: posts table already has status='hidden' — used instead of separate isHidden field
+- [x] Migration: generated and applied SQL for post_reports table
+- [x] Backend: submitReport helper with duplicate guard (unique constraint on reporterId+postId)
+- [x] Backend: getReportsForAdmin, dismissReport, hidePostByAdmin, deletePostByAdmin helpers
+- [x] Backend: tRPC procedures — reports.submit, reports.hasReported, reports.list (admin), reports.dismiss, reports.hidePost, reports.deletePost
+- [x] Backend: notify tech on report (in-app notification), notify owner/admin on report (notifyOwner)
+- [x] Frontend: Report button (flag icon) on PostDetail and Discover feed card
+- [x] Frontend: ReportSheet bottom sheet — reason selector (6 options) + optional note field + submit
+- [x] Frontend: Duplicate guard — show "Already reported" state if user has reported this post
+- [x] Frontend: posts with status='hidden' are already excluded from feed query (status filter in getDiscoverFeed)
+- [x] Frontend: Admin panel (/admin/reports) — list of pending reports with post preview, reason, reporter, actions (Hide Post / Dismiss / Delete Post)
+- [x] Frontend: Admin nav entry visible only to admin role users (added to AppLayout)
+- [x] Demo: promoted Ashton Earl (id=1) to admin role in DB
+
+## Report Feature Gaps
+- [x] Hide hidden posts in PostDetail for non-admin users (show not found/removed state unless admin)
+- [x] Add admin-only nav entry to AppLayout linking to /admin/reports
