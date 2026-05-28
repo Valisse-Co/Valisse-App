@@ -64,6 +64,20 @@
       "when": 1778865637876,
       "tag": "0008_tiny_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1779306867964,
+      "tag": "0009_new_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1779307363965,
+      "tag": "0010_little_stryfe",
+      "breakpoints": true
     }
   ]
 }

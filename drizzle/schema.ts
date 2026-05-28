@@ -7,6 +7,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  unique,
   varchar,
 } from "drizzle-orm/mysql-core";
 
@@ -278,3 +279,16 @@ export const notifications = mysqlTable("notifications", {
 });
 
 export type Notification = typeof notifications.$inferSelect;
+
+// ─── Tech Follows (client subscribes to a tech page) ─────────────────────────
+export const techFollows = mysqlTable("tech_follows", {
+  id: int("id").autoincrement().primaryKey(),
+  clientId: int("clientId").notNull(),
+  techId: int("techId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniq: unique().on(t.clientId, t.techId),
+}));
+
+export type TechFollow = typeof techFollows.$inferSelect;
+export type InsertTechFollow = typeof techFollows.$inferInsert;

@@ -64,6 +64,14 @@ import {
   deleteBookingRule,
   updateBookingRule,
   setAvailabilityClientTier,
+  followTech,
+  unfollowTech,
+  isTechFollowed,
+  getTechFollowerCount,
+  getFollowedTechIds,
+  getUnreadNotificationCount,
+  markSingleNotificationRead,
+  notifyTechFollowers,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -201,9 +209,10 @@ const postsRouter = router({
         userLat: z.number().optional(),
         userLng: z.number().optional(),
         soonestAvailable: z.boolean().optional(),
+        subscriptionsOnly: z.boolean().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       // Merge single and multi-select style inputs
       const styles = input.styles && input.styles.length > 0
         ? input.styles
@@ -216,7 +225,8 @@ const postsRouter = router({
         userLat: input.userLat,
         userLng: input.userLng,
         soonestAvailable: input.soonestAvailable,
-      });
+        subscriptionsOnly: input.subscriptionsOnly,
+      }, ctx.user?.id);
     }),
 
   getById: publicProcedure
@@ -244,6 +254,9 @@ const postsRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
       const postId = await createPost({ ...input, techId: ctx.user.id });
+      // Fan-out new_post notifications to all followers (fire-and-forget)
+      const techName = ctx.user.businessName || ctx.user.name || "Your nail tech";
+      notifyTechFollowers(ctx.user.id, postId, techName).catch(() => {});
       return { postId };
     }),
 
@@ -390,13 +403,13 @@ const bookingsRouter = router({
         duration: input.duration,
         notes: input.notes ?? null,
       } as any);
-      await createNotification(
-        input.techId,
-        "new_booking",
-        "New Booking Request",
-        `${ctx.user.name ?? "A client"} requested a booking`,
-        bookingId
-      );
+      await createNotification({
+        userId: input.techId,
+        type: "new_booking",
+        title: "New Booking Request",
+        body: `${ctx.user.name ?? "A client"} requested a booking`,
+        relatedId: bookingId,
+      });
       return { bookingId };
     }),
 
@@ -714,13 +727,62 @@ const subscriptionsRouter = router({
   }),
 });
 
+// ─── Tech Follows (client subscribes to tech page) ──────────────────────────
+const techFollowsRouter = router({
+  follow: protectedProcedure
+    .input(z.object({ techId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await followTech(ctx.user.id, input.techId);
+      return { success: true };
+    }),
+
+  unfollow: protectedProcedure
+    .input(z.object({ techId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await unfollowTech(ctx.user.id, input.techId);
+      return { success: true };
+    }),
+
+  isFollowing: protectedProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const following = await isTechFollowed(ctx.user.id, input.techId);
+      return { following };
+    }),
+
+  followerCount: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => {
+      const count = await getTechFollowerCount(input.techId);
+      return { count };
+    }),
+
+  myFollowedTechIds: protectedProcedure.query(async ({ ctx }) => {
+    const ids = await getFollowedTechIds(ctx.user.id);
+    return { ids };
+  }),
+});
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 const notificationsRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => getUserNotifications(ctx.user.id)),
+
+  unreadCount: protectedProcedure.query(async ({ ctx }) => {
+    const count = await getUnreadNotificationCount(ctx.user.id);
+    return { count };
+  }),
+
   markRead: protectedProcedure.mutation(async ({ ctx }) => {
     await markNotificationsRead(ctx.user.id);
     return { success: true };
   }),
+
+  markOne: protectedProcedure
+    .input(z.object({ notificationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await markSingleNotificationRead(input.notificationId, ctx.user.id);
+      return { success: true };
+    }),
 });
 
 // ─── App Router ───────────────────────────────────────────────────────────────
@@ -738,6 +800,7 @@ export const appRouter = router({
   analytics: analyticsRouter,
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
+  techFollows: techFollowsRouter,
 });
 
 export type AppRouter = typeof appRouter;

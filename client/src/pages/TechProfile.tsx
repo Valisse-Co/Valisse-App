@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { Bell, BellOff } from "lucide-react";
 
 interface Props { techId: number }
 
@@ -18,6 +19,29 @@ export default function TechProfile({ techId }: Props) {
   const { data: profileData, isLoading } = trpc.users.getProfile.useQuery({ userId: techId });
   const { data: postsData } = trpc.posts.techPosts.useQuery({ techId });
   const { data: reviewsData } = trpc.reviews.techReviews.useQuery({ techId });
+  const { data: followData, refetch: refetchFollow } = trpc.techFollows.isFollowing.useQuery(
+    { techId },
+    { enabled: isAuthenticated }
+  );
+  const { data: followerCountData, refetch: refetchFollowerCount } = trpc.techFollows.followerCount.useQuery({ techId });
+
+  const followMutation = trpc.techFollows.follow.useMutation({
+    onSuccess: () => { refetchFollow(); refetchFollowerCount(); toast.success("Subscribed!"); },
+    onError: () => toast.error("Could not subscribe"),
+  });
+  const unfollowMutation = trpc.techFollows.unfollow.useMutation({
+    onSuccess: () => { refetchFollow(); refetchFollowerCount(); toast.success("Unsubscribed"); },
+    onError: () => toast.error("Could not unsubscribe"),
+  });
+
+  const isFollowing = followData?.following ?? false;
+  const subscriberCount = followerCountData?.count ?? 0;
+
+  const handleToggleFollow = () => {
+    if (!isAuthenticated) { toast.error("Sign in to subscribe"); return; }
+    if (isFollowing) unfollowMutation.mutate({ techId });
+    else followMutation.mutate({ techId });
+  };
 
   const getOrCreateConv = trpc.messaging.getOrCreateConversation.useMutation({
     onSuccess: (conv) => navigate(`/chat/${conv.id}`),
@@ -117,8 +141,8 @@ export default function TechProfile({ techId }: Props) {
             <p className="text-xs text-muted-foreground">Posts</p>
           </div>
           <div className="text-center">
-            <p className="text-lg font-semibold">{followerCount}</p>
-            <p className="text-xs text-muted-foreground">Followers</p>
+            <p className="text-lg font-semibold">{subscriberCount}</p>
+            <p className="text-xs text-muted-foreground">Subscribers</p>
           </div>
           {reviews.length > 0 && (
             <div className="text-center">
@@ -145,6 +169,22 @@ export default function TechProfile({ techId }: Props) {
 
         {/* CTA Buttons */}
         <div className="flex gap-3 mt-5">
+          {/* Subscribe / Unsubscribe */}
+          {user?.id !== techId && (
+            <button
+              onClick={handleToggleFollow}
+              disabled={followMutation.isPending || unfollowMutation.isPending}
+              className={cn(
+                "flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all",
+                isFollowing
+                  ? "bg-primary/10 text-primary border border-primary/30 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              )}
+            >
+              {isFollowing ? <BellOff size={16} /> : <Bell size={16} />}
+              {isFollowing ? "Subscribed" : "Subscribe"}
+            </button>
+          )}
           <button onClick={handleMessage} className="flex-1 btn-valisse-outline py-3 flex items-center justify-center gap-2">
             <MessageCircle size={16} />
             Message

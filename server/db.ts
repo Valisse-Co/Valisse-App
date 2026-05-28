@@ -23,6 +23,7 @@ import {
   savedPosts,
   scheduleBlocks,
   subscriptions,
+  techFollows,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -130,10 +131,20 @@ export async function getDiscoverFeed(
     userLat?: number;
     userLng?: number;
     soonestAvailable?: boolean;
-  }
+    subscriptionsOnly?: boolean; // only show posts from techs the client follows
+  },
+  clientId?: number // used for subscription boost + filter
 ) {
   const db = await getDb();
   if (!db) return [];
+
+  // Fetch followed tech IDs for this client (used for boost + subscriptionsOnly filter)
+  let followedTechIds: Set<number> = new Set();
+  if (clientId) {
+    const ids = await getFollowedTechIds(clientId);
+    followedTechIds = new Set(ids);
+  }
+
   const conditions = [eq(posts.status, "published")];
   // Style filter: multi-select OR single style (legacy)
   const activeStyles = filters?.styles && filters.styles.length > 0
@@ -168,6 +179,15 @@ export async function getDiscoverFeed(
 
   // ── Distance filter (Haversine) ──────────────────────────────────────────
   let results = rows;
+
+  // ── Subscriptions-only filter ─────────────────────────────────────────
+  if (filters?.subscriptionsOnly && followedTechIds.size > 0) {
+    results = results.filter((r) => r.tech?.id != null && followedTechIds.has(r.tech.id));
+  } else if (filters?.subscriptionsOnly) {
+    // Client follows nobody — return empty
+    return [];
+  }
+
   if (
     filters?.distanceMiles &&
     filters.userLat !== undefined &&
@@ -253,7 +273,9 @@ export async function getDiscoverFeed(
     const recencyScore = Math.max(0, 7 - ageDays); // 0-7 bonus, 0 after 7 days
     // Promoted posts always float to top
     const promotedBonus = r.post.isPromoted ? 100 : 0;
-    return { ...r, _score: promotedBonus + styleScore + savesScore + recencyScore };
+    // Subscription boost: posts from followed techs get a significant ranking bump
+    const subscriptionBonus = (r.tech?.id != null && followedTechIds.has(r.tech.id)) ? 50 : 0;
+    return { ...r, _score: promotedBonus + subscriptionBonus + styleScore + savesScore + recencyScore };
   });
 
   // Sort by score descending
@@ -757,12 +779,6 @@ export async function getFollowerCount(userId: number) {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export async function createNotification(userId: number, type: string, title: string, body?: string, relatedId?: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db.insert(notifications).values({ userId, type, title, body: body ?? null, relatedId: relatedId ?? null });
-}
-
 export async function getUserNotifications(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -1284,4 +1300,128 @@ export async function setAvailabilityClientTier(
     .update(availability)
     .set({ clientTier, clientTierUpdatedAt: new Date() })
     .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek)));
+}
+
+// ─── Tech Follows (client subscribes to tech page) ───────────────────────────
+
+export async function followTech(clientId: number, techId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  // Upsert — ignore if already following (unique key handles it)
+  try {
+    await db.insert(techFollows).values({ clientId, techId });
+  } catch (_) {
+    // Duplicate entry — already following, no-op
+  }
+}
+
+export async function unfollowTech(clientId: number, techId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .delete(techFollows)
+    .where(and(eq(techFollows.clientId, clientId), eq(techFollows.techId, techId)));
+}
+
+export async function isTechFollowed(clientId: number, techId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: techFollows.id })
+    .from(techFollows)
+    .where(and(eq(techFollows.clientId, clientId), eq(techFollows.techId, techId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function getTechFollowerCount(techId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(techFollows)
+    .where(eq(techFollows.techId, techId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+/** Returns the list of techIds that a client follows */
+export async function getFollowedTechIds(clientId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ techId: techFollows.techId })
+    .from(techFollows)
+    .where(eq(techFollows.clientId, clientId));
+  return rows.map((r) => r.techId);
+}
+
+/** Returns all follower clientIds for a tech (used to fan-out notifications) */
+export async function getTechFollowerIds(techId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ clientId: techFollows.clientId })
+    .from(techFollows)
+    .where(eq(techFollows.techId, techId));
+  return rows.map((r) => r.clientId);
+}
+
+// ─── Notification helpers (extended) ─────────────────────────────────────────
+
+export async function createNotification(data: {
+  userId: number;
+  type: string;
+  title: string;
+  body?: string;
+  relatedId?: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(notifications).values({
+    userId: data.userId,
+    type: data.type,
+    title: data.title,
+    body: data.body ?? null,
+    relatedId: data.relatedId ?? null,
+    isRead: false,
+  });
+}
+
+export async function getUnreadNotificationCount(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function markSingleNotificationRead(notificationId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+}
+
+/** Fan-out: create a new_post notification for every follower of a tech */
+export async function notifyTechFollowers(techId: number, postId: number, techName: string) {
+  const followerIds = await getTechFollowerIds(techId);
+  if (followerIds.length === 0) return;
+  const db = await getDb();
+  if (!db) return;
+  const rows = followerIds.map((clientId) => ({
+    userId: clientId,
+    type: "new_post",
+    title: `${techName} posted something new`,
+    body: "Tap to see the latest look.",
+    relatedId: postId,
+    isRead: false,
+  }));
+  // Insert in batches of 50 to avoid oversized queries
+  for (let i = 0; i < rows.length; i += 50) {
+    await db.insert(notifications).values(rows.slice(i, i + 50));
+  }
 }

@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,6 +32,7 @@ export default function Discover() {
   const [activeColor, setActiveColor] = useState("All");
   const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
   const [soonestAvailable, setSoonestAvailable] = useState(false);
+  const [subscriptionsOnly, setSubscriptionsOnly] = useState(false);
   const [userLat, setUserLat] = useState<number | undefined>();
   const [userLng, setUserLng] = useState<number | undefined>();
   const [locating, setLocating] = useState(false);
@@ -72,7 +73,8 @@ export default function Discover() {
     userLat: distanceMiles && userLat ? userLat : undefined,
     userLng: distanceMiles && userLng ? userLng : undefined,
     soonestAvailable: soonestAvailable || undefined,
-  }), [activeStyles, activeShape, activeColor, distanceMiles, userLat, userLng, soonestAvailable]);
+    subscriptionsOnly: subscriptionsOnly || undefined,
+  }), [activeStyles, activeShape, activeColor, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly]);
 
   const { data: feed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
 
@@ -103,6 +105,7 @@ export default function Discover() {
     setActiveColor("All");
     setDistanceMiles(null);
     setSoonestAvailable(false);
+    setSubscriptionsOnly(false);
   };
 
   const hasActiveFilters =
@@ -110,7 +113,8 @@ export default function Discover() {
     activeShape !== "All" ||
     activeColor !== "All" ||
     distanceMiles !== null ||
-    soonestAvailable;
+    soonestAvailable ||
+    subscriptionsOnly;
 
   const leftCol = feed?.filter((_, i) => i % 2 === 0) ?? [];
   const rightCol = feed?.filter((_, i) => i % 2 === 1) ?? [];
@@ -138,6 +142,21 @@ export default function Discover() {
 
         {/* Quick style chips — horizontal scroll */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
+          {/* Subscriptions chip — always first */}
+          {isAuthenticated && (
+            <button
+              onClick={() => setSubscriptionsOnly(v => !v)}
+              className={cn(
+                "flex-shrink-0 flex items-center gap-1 px-3 py-1 rounded-full text-xs border transition-all duration-150",
+                subscriptionsOnly
+                  ? "bg-primary text-white border-primary"
+                  : "bg-card border-border text-muted-foreground"
+              )}
+            >
+              <Bell size={11} />
+              Following
+            </button>
+          )}
           {QUICK_STYLE_CHIPS.map(s => {
             const isAll = s === "All";
             const active = isAll ? activeStyles.length === 0 : activeStyles.includes(s);

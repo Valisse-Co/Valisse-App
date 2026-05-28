@@ -1,0 +1,1 @@
+ALTER TABLE `tech_follows` ADD CONSTRAINT `tech_follows_clientId_techId_unique` UNIQUE(`clientId`,`techId`);

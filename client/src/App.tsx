@@ -23,6 +23,7 @@ import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import { useAuth } from "./_core/hooks/useAuth";
 import { DemoBar } from "./components/DemoBar";
+import Notifications from "./pages/Notifications";
 
 function Router() {
   const { user, loading } = useAuth();
@@ -82,6 +83,9 @@ function Router() {
       </Route>
       <Route path="/subscription">
         <AppLayout><Subscription /></AppLayout>
+      </Route>
+      <Route path="/notifications">
+        <AppLayout><Notifications /></AppLayout>
       </Route>
       <Route path="/settings">
         <AppLayout><Settings /></AppLayout>

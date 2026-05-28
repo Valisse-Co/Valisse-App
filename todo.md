@@ -181,3 +181,21 @@
 - [x] Integrate MediaCarousel into feed card (thumbnail)
 - [x] Integrate MediaCarousel into post detail view
 - [x] Integrate MediaCarousel into booking flow confirmation step (post preview)
+
+## Subscriptions Feature
+- [x] Schema: techFollows table (clientId, techId, createdAt) — unique constraint on (clientId, techId)
+- [x] Schema: notifications table already existed; extended with new_post type
+- [x] Migration: generated and applied SQL for techFollows table
+- [x] Backend: followTech, unfollowTech, isFollowingTech, getTechFollowerCount, getMyFollowedTechs helpers in db.ts
+- [x] Backend: tRPC procedures — techFollowsRouter (follow, unfollow, isFollowing, followerCount, myFollows)
+- [x] Backend: feed query boost — followed techs' posts ranked first in general feed
+- [x] Backend: subscriptionsOnly feed filter — when active, only return posts from followed techs (other style/color filters still apply)
+- [x] Backend: post-publish notification trigger — when tech creates a post, insert notification rows for all followers
+- [x] Backend: tRPC procedures — notifications.list, notifications.markRead, notifications.markOne, notifications.unreadCount
+- [x] Frontend: Subscribe/Unsubscribe button on TechProfile page
+- [x] Frontend: Subscriber count shown on TechProfile (public)
+- [x] Frontend: "Following" as first filter chip in Discover feed
+- [x] Frontend: Feed respects subscriptions filter + existing style/color filters simultaneously
+- [x] Frontend: Alerts nav item in client nav bar with unread badge count
+- [x] Frontend: Notifications page (/notifications) with list and mark-read
+- [x] Frontend: Toast pop-up when a new post notification arrives while client is in-app (30s polling)
