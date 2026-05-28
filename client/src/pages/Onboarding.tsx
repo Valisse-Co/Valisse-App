@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ChevronRight, Sparkles, Scissors, LocateFixed } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ConsentStep from "./ConsentStep";
 
 const STYLE_OPTIONS = ["Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
 const COLOR_OPTIONS = ["Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold", "Multicolor"];
@@ -34,6 +35,8 @@ export default function Onboarding() {
   const [geoLat, setGeoLat] = useState<number | undefined>();
   const [geoLng, setGeoLng] = useState<number | undefined>();
   const [locating, setLocating] = useState(false);
+  // After profile is saved, show the consent step
+  const [profileSaved, setProfileSaved] = useState(false);
 
   const detectLocation = () => {
     if (!navigator.geolocation) return;
@@ -52,8 +55,8 @@ export default function Onboarding() {
 
   const completeOnboarding = trpc.users.completeOnboarding.useMutation({
     onSuccess: () => {
-      if (userType === "nail_tech") navigate("/dashboard");
-      else navigate("/discover");
+      // Move to consent step instead of navigating away
+      setProfileSaved(true);
     },
     onError: () => toast.error("Something went wrong. Please try again."),
   });
@@ -79,11 +82,21 @@ export default function Onboarding() {
     });
   };
 
+  const handleConsentComplete = () => {
+    if (userType === "nail_tech") navigate("/dashboard");
+    else navigate("/discover");
+  };
+
   const steps = userType === "nail_tech"
     ? ["role", "tech-info", "services", "done"]
     : ["role", "preferences", "location", "done"];
 
   const currentStep = steps[step];
+
+  // After profile is saved, show the consent step
+  if (profileSaved) {
+    return <ConsentStep onComplete={handleConsentComplete} />;
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F4EE] flex flex-col">
@@ -238,7 +251,7 @@ export default function Onboarding() {
                 {locating ? "Detecting location…" : geoLat ? "Location detected ✓" : "Detect my location"}
               </button>
               <button onClick={handleFinish} disabled={completeOnboarding.isPending} className="btn-valisse py-4 w-full mt-auto">
-                {completeOnboarding.isPending ? "Setting up..." : "Start Discovering"}
+                {completeOnboarding.isPending ? "Setting up..." : "Continue"}
               </button>
             </motion.div>
           )}
@@ -319,7 +332,7 @@ export default function Onboarding() {
                 </div>
               </div>
               <button onClick={handleFinish} disabled={completeOnboarding.isPending} className="btn-valisse py-4 w-full mt-auto">
-                {completeOnboarding.isPending ? "Setting up..." : "Launch My Profile"}
+                {completeOnboarding.isPending ? "Setting up..." : "Continue"}
               </button>
             </motion.div>
           )}

@@ -34,6 +34,12 @@ export const users = mysqlTable("users", {
   services: json("services").$type<string[]>(),
   priceRange: varchar("priceRange", { length: 32 }),
   instagramHandle: varchar("instagramHandle", { length: 64 }),
+  // Legal consents
+  tosVersion: int("tosVersion").default(0).notNull(),
+  tosAcceptedAt: timestamp("tosAcceptedAt"),
+  privacyAcceptedAt: timestamp("privacyAcceptedAt"),
+  smsConsent: boolean("smsConsent").default(false).notNull(),
+  smsConsentAt: timestamp("smsConsentAt"),
   // Dual-role account system
   hasDualRole: boolean("hasDualRole").default(false).notNull(),
   activeMode: mysqlEnum("activeMode", ["client", "nail_tech"]).default("client").notNull(),

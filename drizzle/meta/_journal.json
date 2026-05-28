@@ -85,6 +85,13 @@
       "when": 1779985697696,
       "tag": "0011_smart_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1779989451336,
+      "tag": "0012_bright_quasimodo",
+      "breakpoints": true
     }
   ]
 }

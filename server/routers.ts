@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, CURRENT_TOS_VERSION } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -151,6 +151,33 @@ const usersRouter = router({
       if (input.userType === "nail_tech") {
         await getOrCreateSubscription(ctx.user.id);
       }
+      return { success: true };
+    }),
+
+  // Returns whether the user needs to accept (or re-accept) legal consents
+  getConsentStatus: protectedProcedure.query(async ({ ctx }) => {
+    const user = ctx.user as any;
+    const needsConsent = !user.tosAcceptedAt || (user.tosVersion ?? 0) < CURRENT_TOS_VERSION;
+    return {
+      needsConsent,
+      currentVersion: CURRENT_TOS_VERSION,
+      userVersion: user.tosVersion ?? 0,
+      smsConsent: user.smsConsent ?? false,
+    };
+  }),
+
+  // Records acceptance of ToS, Privacy Policy, and optional SMS consent
+  acceptConsents: protectedProcedure
+    .input(z.object({ smsConsent: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      await updateUserProfile(ctx.user.id, {
+        tosVersion: CURRENT_TOS_VERSION,
+        tosAcceptedAt: now,
+        privacyAcceptedAt: now,
+        smsConsent: input.smsConsent,
+        smsConsentAt: input.smsConsent ? now : undefined,
+      } as any);
       return { success: true };
     }),
 

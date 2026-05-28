@@ -219,3 +219,16 @@
 ## Report Feature Gaps
 - [x] Hide hidden posts in PostDetail for non-admin users (show not found/removed state unless admin)
 - [x] Add admin-only nav entry to AppLayout linking to /admin/reports
+
+## Onboarding Flow (ToS / Privacy / SMS Consent)
+- [x] Schema: add tosVersion (int), tosAcceptedAt, privacyAcceptedAt, smsConsent (bool), smsConsentAt to users table
+- [x] Migration: generate and apply SQL
+- [x] Backend: users.getConsentStatus procedure (returns needsConsent, currentVersion, userVersion, smsConsent)
+- [x] Backend: users.acceptConsents procedure (writes tosVersion, tosAcceptedAt, privacyAcceptedAt, smsConsent, smsConsentAt)
+- [x] Backend: re-consent gate — if CURRENT_TOS_VERSION > user.tosVersion, needsConsent=true
+- [x] Frontend: Onboarding flow — role selection → profile setup → ConsentStep (final step)
+- [x] Frontend: ConsentStep component — ToS + Privacy Policy + SMS opt-in checkboxes, Continue button
+- [x] Frontend: TermsOfService full-text page at /terms
+- [x] Frontend: PrivacyPolicy full-text page at /privacy
+- [x] Frontend: Consent gate in App.tsx (ConsentGate wrapper) — blocks already-onboarded users who need re-consent
+- [x] Frontend: /terms and /privacy registered as public routes in App.tsx
