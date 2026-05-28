@@ -72,6 +72,12 @@ import {
   getUnreadNotificationCount,
   markSingleNotificationRead,
   notifyTechFollowers,
+  submitReport,
+  hasUserReportedPost,
+  getReportsForAdmin,
+  dismissReport,
+  hidePostByAdmin,
+  deletePostByAdmin,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -785,6 +791,85 @@ const notificationsRouter = router({
     }),
 });
 
+// ─── Reports Router ─────────────────────────────────────────────────────────
+const reportsRouter = router({
+  submit: protectedProcedure
+    .input(
+      z.object({
+        postId: z.number(),
+        reason: z.enum(["nudity", "stolen_content", "spam", "harassment", "violence", "other"]),
+        note: z.string().max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await submitReport({
+        postId: input.postId,
+        reporterId: ctx.user.id,
+        reason: input.reason,
+        note: input.note,
+      });
+      if (result.alreadyReported) return { alreadyReported: true };
+
+      // Notify the post's tech
+      const post = await getPostById(input.postId);
+      if (post) {
+        await createNotification({
+          userId: post.techId,
+          type: "system",
+          title: "Your post was reported",
+          body: `A user reported your post for: ${input.reason.replace(/_/g, " ")}.`,
+          relatedId: input.postId,
+        });
+        // Notify the platform owner/admin
+        const { notifyOwner } = await import("./_core/notification");
+        await notifyOwner({
+          title: "New post report",
+          content: `Post #${input.postId} was reported for "${input.reason.replace(/_/g, " ")}" by user #${ctx.user.id}.${
+            input.note ? ` Note: ${input.note}` : ""
+          }`,
+        });
+      }
+      return { alreadyReported: false };
+    }),
+
+  hasReported: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const reported = await hasUserReportedPost(ctx.user.id, input.postId);
+      return { reported };
+    }),
+
+  // Admin-only procedures
+  list: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new Error("Forbidden");
+    return getReportsForAdmin();
+  }),
+
+  dismiss: protectedProcedure
+    .input(z.object({ reportId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Forbidden");
+      await dismissReport(input.reportId);
+      return { success: true };
+    }),
+
+  hidePost: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Forbidden");
+      await hidePostByAdmin(input.postId);
+      return { success: true };
+    }),
+
+  deletePost: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new Error("Forbidden");
+      await deletePostByAdmin(input.postId);
+      return { success: true };
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
@@ -801,6 +886,7 @@ export const appRouter = router({
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
   techFollows: techFollowsRouter,
+  reports: reportsRouter,
 });
 
 export type AppRouter = typeof appRouter;

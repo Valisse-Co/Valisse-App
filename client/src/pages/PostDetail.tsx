@@ -1,18 +1,21 @@
+import { useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight, Eye } from "lucide-react";
+import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight, Eye, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MediaCarousel } from "@/components/MediaCarousel";
+import { ReportSheet } from "@/components/ReportSheet";
 
 interface Props { postId: number }
 
 export default function PostDetail({ postId }: Props) {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
+  const [reportOpen, setReportOpen] = useState(false);
   const search = useSearch();
   const isPreview = new URLSearchParams(search).get("preview") === "1";
 
@@ -126,6 +129,14 @@ export default function PostDetail({ postId }: Props) {
             >
               <Share2 size={18} />
             </button>
+            {isAuthenticated && (
+              <button
+                onClick={() => setReportOpen(true)}
+                className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
+              >
+                <Flag size={18} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -240,12 +251,20 @@ export default function PostDetail({ postId }: Props) {
           >
             {isPreview ? `Book With ${techName}` : "Book This Look"}
           </button>
-        </div>
+                </div>
       </div>
+
+      {/* Report Sheet */}
+      {isAuthenticated && (
+        <ReportSheet
+          postId={postId}
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+        />
+      )}
     </div>
   );
 }
-
 function Tag({ label }: { label: string }) {
   return (
     <span className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-medium">

@@ -292,3 +292,26 @@ export const techFollows = mysqlTable("tech_follows", {
 
 export type TechFollow = typeof techFollows.$inferSelect;
 export type InsertTechFollow = typeof techFollows.$inferInsert;
+
+// ─── Post Reports ─────────────────────────────────────────────────────────────
+export const postReports = mysqlTable("post_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  postId: int("postId").notNull(),
+  reporterId: int("reporterId").notNull(),
+  reason: mysqlEnum("reason", [
+    "nudity",
+    "stolen_content",
+    "spam",
+    "harassment",
+    "violence",
+    "other",
+  ]).notNull(),
+  note: text("note"),
+  status: mysqlEnum("status", ["pending", "dismissed"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqReporterPost: unique().on(t.reporterId, t.postId),
+}));
+
+export type PostReport = typeof postReports.$inferSelect;
+export type InsertPostReport = typeof postReports.$inferInsert;

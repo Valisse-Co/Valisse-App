@@ -2,12 +2,13 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { STYLE_TAG_GROUPS } from "@shared/const";
 import { MediaCarousel } from "@/components/MediaCarousel";
+import { ReportSheet } from "@/components/ReportSheet";
 
 const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"];
 const COLORS = ["All", "Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold"];
@@ -373,6 +374,7 @@ export default function Discover() {
 
 function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
   const urls: string[] = post.imageUrls ?? [];
+  const [reportOpen, setReportOpen] = useState(false);
   return (
     <motion.div
       whileTap={{ scale: 0.97 }}
@@ -430,6 +432,17 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
       >
         <Bookmark size={15} fill={saved ? "currentColor" : "none"} />
       </button>
+
+      {/* Report button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setReportOpen(true); }}
+        className="absolute bottom-2 right-2 w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm text-white/70 flex items-center justify-center z-10"
+        title="Report post"
+      >
+        <Flag size={12} />
+      </button>
+
+      <ReportSheet postId={post.id} open={reportOpen} onOpenChange={setReportOpen} />
     </motion.div>
   );
 }

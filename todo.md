@@ -199,3 +199,19 @@
 - [x] Frontend: Alerts nav item in client nav bar with unread badge count
 - [x] Frontend: Notifications page (/notifications) with list and mark-read
 - [x] Frontend: Toast pop-up when a new post notification arrives while client is in-app (30s polling)
+
+## Report Inappropriate Content
+- [ ] Schema: post_reports table (id, postId, reporterId, reason, note, status: pending|dismissed, createdAt)
+- [ ] Schema: add isHidden boolean to posts table
+- [ ] Migration: generate and apply SQL
+- [ ] Backend: createReport helper with duplicate guard (unique constraint on reporterId+postId)
+- [ ] Backend: getReports, updateReportStatus, hidePost, deletePost helpers
+- [ ] Backend: tRPC procedures — reports.submit, reports.list (admin), reports.action (admin)
+- [ ] Backend: notify tech on report, notify owner/admin on report
+- [ ] Frontend: Report button (⋯ menu or flag icon) on PostDetail and Discover feed card
+- [ ] Frontend: Report bottom sheet — reason selector (6 options) + optional note field + submit
+- [ ] Frontend: Duplicate guard — show "Already reported" state if user has reported this post
+- [ ] Frontend: Hide reported/hidden posts from Discover feed and PostDetail for non-admin users
+- [ ] Frontend: Admin panel (/admin/reports) — list of pending reports with post preview, reason, reporter, actions (Hide Post / Dismiss / Delete Post)
+- [ ] Frontend: Admin nav entry visible only to admin role users
+- [ ] Demo: promote Ashton Earl (id=1) to admin role in DB

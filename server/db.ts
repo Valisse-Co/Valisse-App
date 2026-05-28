@@ -18,6 +18,7 @@ import {
   messages,
   notifications,
   postAnalytics,
+  postReports,
   posts,
   reviews,
   savedPosts,
@@ -1424,4 +1425,104 @@ export async function notifyTechFollowers(techId: number, postId: number, techNa
   for (let i = 0; i < rows.length; i += 50) {
     await db.insert(notifications).values(rows.slice(i, i + 50));
   }
+}
+
+// ─── Post Reports ─────────────────────────────────────────────────────────────
+
+export async function submitReport({
+  postId,
+  reporterId,
+  reason,
+  note,
+}: {
+  postId: number;
+  reporterId: number;
+  reason: "nudity" | "stolen_content" | "spam" | "harassment" | "violence" | "other";
+  note?: string;
+}): Promise<{ alreadyReported: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Duplicate guard
+  const existing = await db
+    .select({ id: postReports.id })
+    .from(postReports)
+    .where(
+      and(
+        eq(postReports.reporterId, reporterId),
+        eq(postReports.postId, postId)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) return { alreadyReported: true };
+
+  await db.insert(postReports).values({ postId, reporterId, reason, note: note ?? null });
+  return { alreadyReported: false };
+}
+
+export async function hasUserReportedPost(reporterId: number, postId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: postReports.id })
+    .from(postReports)
+    .where(and(eq(postReports.reporterId, reporterId), eq(postReports.postId, postId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function getReportsForAdmin() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: postReports.id,
+      postId: postReports.postId,
+      reporterId: postReports.reporterId,
+      reason: postReports.reason,
+      note: postReports.note,
+      status: postReports.status,
+      createdAt: postReports.createdAt,
+      reporterName: users.name,
+      postCaption: posts.caption,
+      postImageUrls: posts.imageUrls,
+      postStatus: posts.status,
+      techId: posts.techId,
+    })
+    .from(postReports)
+    .leftJoin(users, eq(postReports.reporterId, users.id))
+    .leftJoin(posts, eq(postReports.postId, posts.id))
+    .orderBy(desc(postReports.createdAt));
+}
+
+export async function dismissReport(reportId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .update(postReports)
+    .set({ status: "dismissed" })
+    .where(eq(postReports.id, reportId));
+}
+
+export async function hidePostByAdmin(postId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db
+    .update(posts)
+    .set({ status: "hidden" })
+    .where(eq(posts.id, postId));
+  // Mark all pending reports for this post as dismissed
+  await db
+    .update(postReports)
+    .set({ status: "dismissed" })
+    .where(and(eq(postReports.postId, postId), eq(postReports.status, "pending")));
+}
+
+export async function deletePostByAdmin(postId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  // Remove reports first (FK safety)
+  await db.delete(postReports).where(eq(postReports.postId, postId));
+  await db.delete(posts).where(eq(posts.id, postId));
 }

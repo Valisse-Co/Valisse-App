@@ -78,6 +78,13 @@
       "when": 1779307363965,
       "tag": "0010_little_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1779985697696,
+      "tag": "0011_smart_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }

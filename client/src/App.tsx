@@ -24,6 +24,7 @@ import Settings from "./pages/Settings";
 import { useAuth } from "./_core/hooks/useAuth";
 import { DemoBar } from "./components/DemoBar";
 import Notifications from "./pages/Notifications";
+import AdminReports from "./pages/AdminReports";
 
 function Router() {
   const { user, loading } = useAuth();
@@ -89,6 +90,10 @@ function Router() {
       </Route>
       <Route path="/settings">
         <AppLayout><Settings /></AppLayout>
+      </Route>
+      {/* Admin routes */}
+      <Route path="/admin/reports">
+        <AppLayout><AdminReports /></AppLayout>
       </Route>
       <Route path="/login" component={Login} />
       <Route path="/404" component={NotFound} />
