@@ -14,6 +14,7 @@ import {
   Loader2,
   MapPin,
   Scissors,
+  Shield,
   Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -122,6 +123,13 @@ export default function BookingFlow() {
   const monthStatus = monthStatusQuery.data ?? {};
 
   // ── Mutations ────────────────────────────────────────────────────────────
+  // Fetch cancellation policy for the tech
+  const policyQuery = trpc.cancellation.getPolicy.useQuery(
+    { techId },
+    { enabled: techId > 0 }
+  );
+  const cancellationPolicy = policyQuery.data;
+
   // Fetch post data when booking from a post
   const postQuery = trpc.posts.getById.useQuery(
     { postId: postId ? Number(postId) : 0 },
@@ -634,6 +642,29 @@ export default function BookingFlow() {
                   </div>
                 </div>
               </Card>
+              {/* Cancellation Policy Summary */}
+              {cancellationPolicy && (
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Shield size={14} className="text-muted-foreground" />
+                    <p className="text-xs font-medium text-foreground">Cancellation Policy</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Free cancellation up to {cancellationPolicy.windowHours}h before your appointment
+                    {cancellationPolicy.feeAmount > 0 && (
+                      <> or within 1 hour of booking. After that, a{" "}
+                        <span className="text-foreground font-medium">
+                          {cancellationPolicy.feeType === "flat"
+                            ? `$${cancellationPolicy.feeAmount}`
+                            : `${cancellationPolicy.feeAmount}%`}
+                        </span>{" "}
+                        late cancellation fee applies.
+                      </>
+                    )}
+                    {cancellationPolicy.feeAmount === 0 && " (no fee for late cancellations)."}
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-foreground block mb-2">
                   Notes <span className="text-muted-foreground font-normal">(optional)</span>

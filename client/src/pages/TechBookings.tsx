@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -32,11 +32,22 @@ function TodayTab() {
   );
   const utils = trpc.useUtils();
 
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+
   const updateStatus = trpc.bookings.updateStatus.useMutation({
     onSuccess: () => {
       utils.bookings.todayBookings.invalidate();
       toast.success("Booking updated");
     },
+  });
+
+  const cancelBookingMutation = trpc.cancellation.cancel.useMutation({
+    onSuccess: () => {
+      utils.bookings.todayBookings.invalidate();
+      setCancellingId(null);
+      toast.success("Booking cancelled. Client has been notified.");
+    },
+    onError: () => toast.error("Failed to cancel booking."),
   });
 
   const today = new Date();
@@ -179,13 +190,21 @@ function TodayTab() {
                       </div>
                     )}
                     {booking.status === "confirmed" && !isPast && (
-                      <button
-                        onClick={() => updateStatus.mutate({ bookingId: booking.id, status: "completed" })}
-                        disabled={updateStatus.isPending}
-                        className="w-full mt-3 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
-                      >
-                        Mark as Completed
-                      </button>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => updateStatus.mutate({ bookingId: booking.id, status: "completed" })}
+                          disabled={updateStatus.isPending}
+                          className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+                        >
+                          Mark as Completed
+                        </button>
+                        <button
+                          onClick={() => setCancellingId(booking.id)}
+                          className="px-3 py-2 rounded-xl border border-destructive/30 text-destructive text-xs font-medium hover:bg-destructive/5 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
                 </motion.div>
@@ -194,6 +213,49 @@ function TodayTab() {
           </div>
         </div>
       )}
+
+      {/* Tech Cancel Confirmation */}
+      <AnimatePresence>
+        {cancellingId != null && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setCancellingId(null)} />
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 40 }}
+              className="relative bg-background rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 shadow-2xl"
+            >
+              <button onClick={() => setCancellingId(null)} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground">
+                <X size={20} />
+              </button>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <X size={18} className="text-destructive" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground text-sm">Cancel This Booking?</p>
+                  <p className="text-xs text-muted-foreground">The client will be notified and shown alternative techs nearby</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCancellingId(null)}
+                  className="flex-1 py-3 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                >
+                  Keep
+                </button>
+                <button
+                  onClick={() => cancelBookingMutation.mutate({ bookingId: cancellingId })}
+                  disabled={cancelBookingMutation.isPending}
+                  className="flex-1 py-3 rounded-xl bg-destructive text-white text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                >
+                  {cancelBookingMutation.isPending ? "Cancelling…" : "Yes, Cancel"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -664,6 +726,154 @@ function DayRow({
 }
 
 // ─── Schedule Tab ─────────────────────────────────────────────────────────────
+// ─── Cancellation Policy Panel ───────────────────────────────────────────────
+const WINDOW_OPTIONS = [
+  { label: "24 hours", value: 24 },
+  { label: "48 hours", value: 48 },
+  { label: "72 hours", value: 72 },
+  { label: "96 hours", value: 96 },
+  { label: "120 hours", value: 120 },
+  { label: "144 hours", value: 144 },
+  { label: "1 week", value: 168 },
+];
+
+function CancellationPolicyPanel() {
+  const { isAuthenticated, user } = useAuth();
+  const utils = trpc.useUtils();
+  const { data: policy } = trpc.cancellation.getPolicy.useQuery(
+    { techId: user?.id ?? 0 },
+    { enabled: isAuthenticated && !!user?.id }
+  );
+
+  const [windowHours, setWindowHours] = useState(48);
+  const [feeType, setFeeType] = useState<"flat" | "percent">("flat");
+  const [feeAmount, setFeeAmount] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (policy) {
+      setWindowHours(policy.windowHours);
+      setFeeType(policy.feeType);
+      setFeeAmount(policy.feeAmount > 0 ? String(policy.feeAmount) : "");
+      setDirty(false);
+    }
+  }, [policy]);
+
+  const setPolicy = trpc.cancellation.setPolicy.useMutation({
+    onSuccess: () => {
+      toast.success("Cancellation policy saved");
+      utils.cancellation.getPolicy.invalidate();
+      setDirty(false);
+    },
+    onError: () => toast.error("Failed to save policy"),
+  });
+
+  const handleSave = () => {
+    const amount = parseFloat(feeAmount) || 0;
+    if (feeType === "percent" && amount > 100) {
+      toast.error("Percentage cannot exceed 100%");
+      return;
+    }
+    setPolicy.mutate({ windowHours, feeType, feeAmount: amount, gracePeriodHours: 1 });
+  };
+
+  const feeLabel = feeType === "flat" ? `$${parseFloat(feeAmount) || 0}` : `${parseFloat(feeAmount) || 0}%`;
+  const hasFee = parseFloat(feeAmount) > 0;
+
+  return (
+    <div className="mb-6 bg-card border border-border rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-sm font-medium text-foreground">Cancellation Policy</p>
+          <p className="text-xs text-muted-foreground">Shown to clients before they book</p>
+        </div>
+        <Shield size={16} className="text-muted-foreground" />
+      </div>
+
+      <div className="mb-4">
+        <p className="text-xs text-muted-foreground mb-2">Free cancellation window</p>
+        <div className="flex flex-wrap gap-2">
+          {WINDOW_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { setWindowHours(opt.value); setDirty(true); }}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                windowHours === opt.value
+                  ? "bg-primary text-white border-primary"
+                  : "bg-background border-border text-muted-foreground hover:border-primary hover:text-primary"
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Clients can cancel for free up to {windowHours}h before the appointment. Cancellations within 1 hour of booking are always free.
+        </p>
+      </div>
+
+      <div className="mb-3">
+        <p className="text-xs text-muted-foreground mb-2">Late cancellation fee</p>
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={() => { setFeeType("flat"); setDirty(true); }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
+              feeType === "flat" ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground"
+            )}
+          >
+            <DollarSign size={12} /> Flat amount
+          </button>
+          <button
+            onClick={() => { setFeeType("percent"); setDirty(true); }}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
+              feeType === "percent" ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground"
+            )}
+          >
+            <Percent size={12} /> % of service
+          </button>
+        </div>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+            {feeType === "flat" ? "$" : "%"}
+          </span>
+          <input
+            type="number"
+            min="0"
+            max={feeType === "percent" ? 100 : undefined}
+            placeholder={feeType === "flat" ? "e.g. 30" : "e.g. 50"}
+            value={feeAmount}
+            onChange={e => { setFeeAmount(e.target.value); setDirty(true); }}
+            className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        {hasFee ? (
+          <p className="text-xs text-muted-foreground mt-2">
+            A {feeLabel} fee will be recorded as pending when a client cancels within the {windowHours}h window.
+            {feeType === "percent" && " Calculated as a percentage of the service price."}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground mt-2">
+            No fee — clients can cancel at any time without charge.
+          </p>
+        )}
+      </div>
+
+      {dirty && (
+        <button
+          onClick={handleSave}
+          disabled={setPolicy.isPending}
+          className="w-full btn-valisse py-3 text-sm mt-2"
+        >
+          {setPolicy.isPending ? "Saving..." : "Save Policy"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const BUFFER_OPTIONS = [
   { label: "No buffer", value: 0 },
   { label: "10 min", value: 10 },
@@ -1038,6 +1248,9 @@ function ScheduleTab() {
           </div>
         )}
       </div>
+
+      {/* ── Cancellation Policy ── */}
+      <CancellationPolicyPanel />
 
       {/* Floating save button */}
       <AnimatePresence>

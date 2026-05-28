@@ -78,6 +78,13 @@ import {
   dismissReport,
   hidePostByAdmin,
   deletePostByAdmin,
+  getBookingById,
+  getCancellationPolicy,
+  upsertCancellationPolicy,
+  resolveCancellationFee,
+  cancelBooking,
+  waiveCancellationFee,
+  getAlternativeTechs,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -897,6 +904,137 @@ const reportsRouter = router({
     }),
 });
 
+// ─── Cancellation Policy ─────────────────────────────────────────────────────
+const cancellationRouter = router({
+  // Get a tech's cancellation policy (public — shown on profile + booking flow)
+  getPolicy: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => getCancellationPolicy(input.techId)),
+
+  // Set/update the current tech's cancellation policy
+  setPolicy: protectedProcedure
+    .input(
+      z.object({
+        windowHours: z.number().int().min(24).max(168),
+        feeType: z.enum(["flat", "percent"]),
+        feeAmount: z.number().min(0),
+        gracePeriodHours: z.number().int().min(0).max(24).default(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech")
+        throw new TRPCError({ code: "FORBIDDEN" });
+      await upsertCancellationPolicy({ techId: ctx.user.id, ...input });
+      return { success: true };
+    }),
+
+  // Preview the fee for a specific booking before cancelling
+  previewFee: protectedProcedure
+    .input(
+      z.object({
+        bookingId: z.number(),
+        servicePrice: z.number().nullable().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
+      if (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id)
+        throw new TRPCError({ code: "FORBIDDEN" });
+      const policy = await getCancellationPolicy(booking.techId);
+      if (!policy) return { isGrace: true, isLateCancellation: false, feeAmountDollars: 0, policy: null };
+      const result = resolveCancellationFee(
+        { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
+        policy,
+        input.servicePrice ?? null
+      );
+      return { ...result, policy };
+    }),
+
+  // Cancel a booking (client or tech), applying policy
+  cancel: protectedProcedure
+    .input(
+      z.object({
+        bookingId: z.number(),
+        servicePrice: z.number().nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const isClient = booking.clientId === ctx.user.id;
+      const isTech = booking.techId === ctx.user.id;
+      if (!isClient && !isTech) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.status === "cancelled" || booking.status === "completed")
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Booking cannot be cancelled." });
+
+      const cancelledBy: "client" | "tech" = isClient ? "client" : "tech";
+
+      let feeStatus: "none" | "pending" | "waived" = "none";
+      let feeAmountDollars = 0;
+
+      if (isClient) {
+        const policy = await getCancellationPolicy(booking.techId);
+        if (policy) {
+          const resolved = resolveCancellationFee(
+            { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
+            policy,
+            input.servicePrice ?? null
+          );
+          if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
+            feeStatus = "pending";
+            feeAmountDollars = resolved.feeAmountDollars;
+          }
+        }
+      } else {
+        // Tech cancelled — notify client
+        await createNotification({
+          userId: booking.clientId,
+          type: "booking_cancelled_by_tech",
+          title: "Booking Cancelled",
+          body: `Your appointment has been cancelled by the nail tech. We've found some alternatives for you.`,
+          relatedId: booking.id,
+        });
+      }
+
+      await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars);
+      return { success: true, feeStatus, feeAmountDollars };
+    }),
+
+  // Tech waives the pending cancellation fee for a booking
+  waiveFee: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech")
+        throw new TRPCError({ code: "FORBIDDEN" });
+      await waiveCancellationFee(input.bookingId, ctx.user.id);
+      return { success: true };
+    }),
+
+  // Get alternative techs after a tech-initiated cancellation
+  alternativeTechs: protectedProcedure
+    .input(
+      z.object({
+        bookingId: z.number(),
+        clientLat: z.number().nullable().optional(),
+        clientLng: z.number().nullable().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
+      if (booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      return getAlternativeTechs({
+        originalTechId: booking.techId,
+        serviceType: booking.serviceType,
+        scheduledAt: booking.scheduledAt,
+        clientLat: input.clientLat,
+        clientLng: input.clientLng,
+      });
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
@@ -914,6 +1052,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   techFollows: techFollowsRouter,
   reports: reportsRouter,
+  cancellation: cancellationRouter,
 });
 
 export type AppRouter = typeof appRouter;

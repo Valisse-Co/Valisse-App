@@ -223,6 +223,11 @@ export const bookings = mysqlTable("bookings", {
   depositPaid: boolean("depositPaid").default(false).notNull(),
   notes: text("notes"),
   techNotes: text("techNotes"),
+  // Cancellation tracking
+  cancelledBy: mysqlEnum("cancelledBy", ["client", "tech"]),
+  cancelledAt: timestamp("cancelledAt"),
+  cancellationFeeStatus: mysqlEnum("cancellationFeeStatus", ["none", "pending", "waived", "charged"]).default("none").notNull(),
+  cancellationFeeAmount: float("cancellationFeeAmount"), // resolved fee in dollars at time of cancel
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -321,3 +326,23 @@ export const postReports = mysqlTable("post_reports", {
 
 export type PostReport = typeof postReports.$inferSelect;
 export type InsertPostReport = typeof postReports.$inferInsert;
+
+// ─── Cancellation Policies ────────────────────────────────────────────────────
+// Each nail tech can define their own cancellation policy.
+// windowHours: how many hours before the appointment the client can cancel for free.
+// feeType: flat dollar amount or percentage of service price.
+// feeAmount: dollar amount (if flat) or percentage 0-100 (if percent).
+// gracePeriodHours: always-free window immediately after booking (default 1h).
+export const cancellationPolicies = mysqlTable("cancellation_policies", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull().unique(),
+  windowHours: int("windowHours").default(24).notNull(), // 24, 48, 72, 96, 120, 144, 168
+  feeType: mysqlEnum("feeType", ["flat", "percent"]).default("flat").notNull(),
+  feeAmount: float("feeAmount").default(0).notNull(), // dollars if flat, 0-100 if percent
+  gracePeriodHours: int("gracePeriodHours").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CancellationPolicy = typeof cancellationPolicies.$inferSelect;
+export type InsertCancellationPolicy = typeof cancellationPolicies.$inferInsert;

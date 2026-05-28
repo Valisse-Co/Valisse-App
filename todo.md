@@ -232,3 +232,21 @@
 - [x] Frontend: PrivacyPolicy full-text page at /privacy
 - [x] Frontend: Consent gate in App.tsx (ConsentGate wrapper) — blocks already-onboarded users who need re-consent
 - [x] Frontend: /terms and /privacy registered as public routes in App.tsx
+
+## Cancellation Policy Enforcement
+- [x] Schema: cancellation_policies table (techId, windowHours 24-168, feeType flat|percent, feeAmount, gracePeriodHours=1, createdAt, updatedAt)
+- [x] Schema: bookings table — add cancellationFeeStatus (none|pending|waived|charged), cancellationFeeAmount, cancelledBy (client|tech), cancelledAt
+- [x] Migration: generate and apply SQL for both schema changes
+- [x] Backend: cancellation.getPolicy (by techId, public), cancellation.setPolicy (protected, nail_tech only)
+- [x] Backend: cancellation.cancel — enforce grace period, detect late cancel, set cancellationFeeStatus=pending if late, set cancelledBy
+- [x] Backend: cancellation.waiveFee (tech-only), cancellation.markFeeCharged (admin/future Stripe hook)
+- [x] Backend: cancellation.alternativeTechs — given a cancelled booking, return techs with open slots on same day ±1 day, same service type, sorted by proximity
+- [x] Backend: resolveCancellationFee pure function (grace period, window check, flat/percent)
+- [x] Frontend: TechBookings / Schedule tab — Cancellation Policy panel (window selector, fee type toggle, fee amount input, save button)
+- [x] Frontend: BookingFlow confirm step — show policy summary with fee warning before client confirms
+- [x] Frontend: Client Bookings — CancelDialog with grace period vs late-cancel distinction; fee warning before confirming
+- [x] Frontend: Client Bookings — cancelled bookings with pending fee show "Pending fee: $X" badge
+- [x] Frontend: Tech-cancel flow — tech confirms cancellation, backend sets cancelledBy=tech; client sees notification
+- [x] Frontend: AltTechsModal in Notifications — shown to client after tech cancels; lists nearby techs with open slots, same service, same day ±1 day
+- [x] Tests: resolveCancellationFee unit tests (grace, outside window, inside window, percent, null price)
+- [x] Tests: cancellation router procedure tests — 20 tests passing

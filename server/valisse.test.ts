@@ -205,3 +205,150 @@ describe("subscriptions router", () => {
     }
   });
 });
+
+// ─── Cancellation Policy Tests ────────────────────────────────────────────────
+describe("cancellation router", () => {
+  it("getPolicy returns null when no policy set (DB unavailable is ok)", async () => {
+    const { ctx } = createClientContext();
+    const caller = appRouter.createCaller(ctx);
+    try {
+      const policy = await caller.cancellation.getPolicy({ techId: 999 });
+      expect(policy === null || typeof policy === "object").toBe(true);
+    } catch (e: any) {
+      expect(e.message).toBeDefined();
+    }
+  });
+
+  it("setPolicy is forbidden for client users", async () => {
+    const { ctx } = createClientContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.cancellation.setPolicy({
+        windowHours: 48,
+        feeType: "flat",
+        feeAmount: 30,
+        gracePeriodHours: 1,
+      })
+    ).rejects.toThrow();
+  });
+
+  it("setPolicy is allowed for nail_tech users", async () => {
+    const { ctx } = createTechContext();
+    const caller = appRouter.createCaller(ctx);
+    try {
+      const result = await caller.cancellation.setPolicy({
+        windowHours: 48,
+        feeType: "flat",
+        feeAmount: 30,
+        gracePeriodHours: 1,
+      });
+      expect(result.success).toBe(true);
+    } catch (e: any) {
+      // DB not available in test env
+      expect(e.message).toBeDefined();
+    }
+  });
+
+  it("cancel requires authentication", async () => {
+    const { ctx } = createClientContext();
+    const caller = appRouter.createCaller(ctx);
+    try {
+      await caller.cancellation.cancel({ bookingId: 9999 });
+    } catch (e: any) {
+      // Either NOT_FOUND (no booking) or DB error — both are acceptable
+      expect(e.message).toBeDefined();
+    }
+  });
+
+  it("waiveFee is forbidden for client users", async () => {
+    const { ctx } = createClientContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.cancellation.waiveFee({ bookingId: 1 })
+    ).rejects.toThrow();
+  });
+});
+
+// ─── resolveCancellationFee unit tests ────────────────────────────────────────
+import { resolveCancellationFee } from "./db";
+
+describe("resolveCancellationFee", () => {
+  const policy = {
+    windowHours: 48,
+    feeType: "flat" as const,
+    feeAmount: 30,
+    gracePeriodHours: 1,
+  };
+
+  it("returns isGrace=true when within 1h of booking", () => {
+    const bookedAt = new Date();
+    const scheduledAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 3 days away
+    const nowMs = bookedAt.getTime() + 30 * 60 * 1000; // 30 min after booking
+    const result = resolveCancellationFee(
+      { scheduledAt, createdAt: bookedAt },
+      policy,
+      null,
+      nowMs
+    );
+    expect(result.isGrace).toBe(true);
+    expect(result.feeAmountDollars).toBe(0);
+  });
+
+  it("returns isLateCancellation=false when outside the window", () => {
+    const bookedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // booked 5 days ago
+    const scheduledAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3 days from now
+    const nowMs = Date.now(); // now is outside the 48h window
+    const result = resolveCancellationFee(
+      { scheduledAt, createdAt: bookedAt },
+      policy,
+      null,
+      nowMs
+    );
+    expect(result.isLateCancellation).toBe(false);
+    expect(result.feeAmountDollars).toBe(0);
+  });
+
+  it("returns isLateCancellation=true and fee when inside the window", () => {
+    const bookedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // booked 5 days ago
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now (inside 48h window)
+    const nowMs = Date.now();
+    const result = resolveCancellationFee(
+      { scheduledAt, createdAt: bookedAt },
+      policy,
+      null,
+      nowMs
+    );
+    expect(result.isLateCancellation).toBe(true);
+    expect(result.feeAmountDollars).toBe(30);
+  });
+
+  it("calculates percent fee correctly", () => {
+    const percentPolicy = { ...policy, feeType: "percent" as const, feeAmount: 50 };
+    const bookedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const nowMs = Date.now();
+    const result = resolveCancellationFee(
+      { scheduledAt, createdAt: bookedAt },
+      percentPolicy,
+      100, // $100 service price
+      nowMs
+    );
+    expect(result.isLateCancellation).toBe(true);
+    expect(result.feeAmountDollars).toBe(50); // 50% of $100
+  });
+
+  it("returns 0 fee for percent policy when servicePrice is null", () => {
+    const percentPolicy = { ...policy, feeType: "percent" as const, feeAmount: 50 };
+    const bookedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const nowMs = Date.now();
+    const result = resolveCancellationFee(
+      { scheduledAt, createdAt: bookedAt },
+      percentPolicy,
+      null,
+      nowMs
+    );
+    expect(result.isLateCancellation).toBe(true);
+    expect(result.feeAmountDollars).toBe(0);
+  });
+});

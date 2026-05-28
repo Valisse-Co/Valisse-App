@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
@@ -24,6 +24,7 @@ import {
   savedPosts,
   scheduleBlocks,
   subscriptions,
+  cancellationPolicies,
   techFollows,
   users,
 } from "../drizzle/schema";
@@ -423,6 +424,17 @@ export async function createBooking(data: InsertBooking) {
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(bookings).values(data);
   return (result as any).insertId as number;
+}
+
+export async function getBookingById(bookingId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function getClientBookings(clientId: number) {
@@ -1525,4 +1537,244 @@ export async function deletePostByAdmin(postId: number) {
   // Remove reports first (FK safety)
   await db.delete(postReports).where(eq(postReports.postId, postId));
   await db.delete(posts).where(eq(posts.id, postId));
+}
+
+// ─── Cancellation Policies ────────────────────────────────────────────────────
+
+export async function getCancellationPolicy(techId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(cancellationPolicies)
+    .where(eq(cancellationPolicies.techId, techId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertCancellationPolicy(data: {
+  techId: number;
+  windowHours: number;
+  feeType: "flat" | "percent";
+  feeAmount: number;
+  gracePeriodHours?: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(cancellationPolicies)
+    .values({
+      techId: data.techId,
+      windowHours: data.windowHours,
+      feeType: data.feeType,
+      feeAmount: data.feeAmount,
+      gracePeriodHours: data.gracePeriodHours ?? 1,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        windowHours: data.windowHours,
+        feeType: data.feeType,
+        feeAmount: data.feeAmount,
+        gracePeriodHours: data.gracePeriodHours ?? 1,
+      },
+    });
+}
+
+/**
+ * Compute the resolved cancellation fee in dollars for a booking.
+ * Returns 0 if within grace period, 0 if outside the policy window (free cancel),
+ * or the fee amount if inside the late-cancel window.
+ *
+ * @param booking - the booking row (needs scheduledAt, createdAt, servicePrice optional)
+ * @param policy  - the tech's cancellation policy
+ * @param nowMs   - current time in ms (injectable for testing)
+ * @returns { isGrace, isLateCancellation, feeAmountDollars }
+ */
+export function resolveCancellationFee(
+  booking: { scheduledAt: Date; createdAt: Date },
+  policy: { windowHours: number; feeType: "flat" | "percent"; feeAmount: number; gracePeriodHours: number },
+  servicePrice: number | null,
+  nowMs: number = Date.now()
+): { isGrace: boolean; isLateCancellation: boolean; feeAmountDollars: number } {
+  const bookedAtMs = booking.createdAt.getTime();
+  const scheduledAtMs = booking.scheduledAt.getTime();
+  const graceEndMs = bookedAtMs + policy.gracePeriodHours * 60 * 60 * 1000;
+  const windowStartMs = scheduledAtMs - policy.windowHours * 60 * 60 * 1000;
+
+  // Within grace period → always free
+  if (nowMs <= graceEndMs) {
+    return { isGrace: true, isLateCancellation: false, feeAmountDollars: 0 };
+  }
+
+  // Outside the late-cancel window → free cancel
+  if (nowMs <= windowStartMs) {
+    return { isGrace: false, isLateCancellation: false, feeAmountDollars: 0 };
+  }
+
+  // Inside the late-cancel window → fee applies
+  let feeAmountDollars = 0;
+  if (policy.feeType === "flat") {
+    feeAmountDollars = policy.feeAmount;
+  } else if (policy.feeType === "percent" && servicePrice != null && servicePrice > 0) {
+    feeAmountDollars = Math.round((servicePrice * policy.feeAmount) / 100 * 100) / 100;
+  }
+  return { isGrace: false, isLateCancellation: true, feeAmountDollars };
+}
+
+/**
+ * Cancel a booking and apply cancellation policy logic.
+ * Sets status=cancelled, cancelledBy, cancelledAt, and cancellationFeeStatus/Amount.
+ */
+export async function cancelBooking(
+  bookingId: number,
+  cancelledBy: "client" | "tech",
+  feeStatus: "none" | "pending" | "waived",
+  feeAmountDollars: number
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(bookings)
+    .set({
+      status: "cancelled",
+      cancelledBy,
+      cancelledAt: new Date(),
+      cancellationFeeStatus: feeStatus,
+      cancellationFeeAmount: feeAmountDollars > 0 ? feeAmountDollars : null,
+    })
+    .where(eq(bookings.id, bookingId));
+}
+
+export async function waiveCancellationFee(bookingId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(bookings)
+    .set({ cancellationFeeStatus: "waived" })
+    .where(and(eq(bookings.id, bookingId), eq(bookings.techId, techId)));
+}
+
+/**
+ * Find alternative nail techs for a cancelled booking.
+ * Returns techs who:
+ *  - offer the same service type (or have no services set)
+ *  - have at least one available slot on the same day ±1 day
+ *  - are not the original tech
+ * Sorted by proximity if lat/lng available, otherwise by name.
+ */
+export async function getAlternativeTechs(params: {
+  originalTechId: number;
+  serviceType: string | null;
+  scheduledAt: Date;
+  clientLat?: number | null;
+  clientLng?: number | null;
+}): Promise<Array<{
+  id: number;
+  name: string | null;
+  businessName: string | null;
+  avatarUrl: string | null;
+  location: string | null;
+  lat: number | null;
+  lng: number | null;
+  services: string[] | null;
+  priceRange: string | null;
+  distanceMiles: number | null;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const windowStart = new Date(params.scheduledAt.getTime() - dayMs);
+  const windowEnd = new Date(params.scheduledAt.getTime() + dayMs);
+
+  // Get all nail techs except the original
+  const techs = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      businessName: users.businessName,
+      avatarUrl: users.avatarUrl,
+      location: users.location,
+      lat: users.lat,
+      lng: users.lng,
+      services: users.services,
+      priceRange: users.priceRange,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.userType, "nail_tech"),
+        ne(users.id, params.originalTechId)
+      )
+    );
+
+  // Filter by service type if provided
+  const filtered = techs.filter((t) => {
+    if (!params.serviceType) return true;
+    if (!t.services || t.services.length === 0) return true;
+    return t.services.some(
+      (s) => s.toLowerCase() === params.serviceType!.toLowerCase()
+    );
+  });
+
+  // Check availability in the window for each tech
+  const windowStartDow = windowStart.getDay();
+  const windowEndDow = windowEnd.getDay();
+  const dows = new Set<number>();
+  for (let d = new Date(windowStart); d <= windowEnd; d = new Date(d.getTime() + dayMs)) {
+    dows.add(d.getDay());
+  }
+
+  const availRows = await db
+    .select({ techId: availability.techId, dayOfWeek: availability.dayOfWeek })
+    .from(availability)
+    .where(
+      and(
+        eq(availability.isActive, true),
+        inArray(
+          availability.techId,
+          filtered.map((t) => t.id)
+        )
+      )
+    );
+
+  const techsWithSlots = new Set(
+    availRows
+      .filter((r) => dows.has(r.dayOfWeek))
+      .map((r) => r.techId)
+  );
+
+  const candidates = filtered.filter((t) => techsWithSlots.has(t.id));
+
+  // Compute distance if client lat/lng available
+  const result = candidates.map((t) => {
+    let distanceMiles: number | null = null;
+    if (
+      params.clientLat != null &&
+      params.clientLng != null &&
+      t.lat != null &&
+      t.lng != null
+    ) {
+      const R = 3958.8;
+      const dLat = ((t.lat - params.clientLat) * Math.PI) / 180;
+      const dLng = ((t.lng - params.clientLng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((params.clientLat * Math.PI) / 180) *
+          Math.cos((t.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
+      distanceMiles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+    return { ...t, distanceMiles };
+  });
+
+  result.sort((a, b) => {
+    if (a.distanceMiles != null && b.distanceMiles != null)
+      return a.distanceMiles - b.distanceMiles;
+    if (a.distanceMiles != null) return -1;
+    if (b.distanceMiles != null) return 1;
+    return (a.name ?? "").localeCompare(b.name ?? "");
+  });
+
+  return result.slice(0, 8);
 }
