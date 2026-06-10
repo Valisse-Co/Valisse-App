@@ -103,18 +103,32 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="mobile-container bg-background">
-      {/* Account Switcher top bar — only shown for dual-role users */}
-      {hasDual && (
-        <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-card/95 backdrop-blur-sm border-b border-border z-40 px-4 py-2 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-medium">
-            {activeMode === "nail_tech" ? "Nail Tech Mode" : "Client Mode"}
+      {/* Top header bar — always visible */}
+      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-card/95 backdrop-blur-sm border-b border-border z-40 px-4 py-2 flex items-center justify-between">
+        {/* Logo + wordmark */}
+        <div className="flex items-center gap-2">
+          <img
+            src="/manus-storage/valisse_logo_transparent_b005737c.png"
+            alt="Valisse"
+            className="w-8 h-8 object-contain"
+          />
+          <span className="font-display text-lg font-light tracking-widest text-foreground">
+            Valisse
           </span>
-          <AccountSwitcher />
         </div>
-      )}
+        {/* Right side: mode label + switcher for dual-role users */}
+        <div className="flex items-center gap-2">
+          {hasDual && (
+            <span className="text-xs text-muted-foreground font-medium">
+              {activeMode === "nail_tech" ? "Nail Tech Mode" : "Client Mode"}
+            </span>
+          )}
+          {hasDual && <AccountSwitcher />}
+        </div>
+      </div>
 
-      {/* Main content with bottom padding for nav */}
-      <main className={cn("pb-20 min-h-screen", hasDual && "pt-10")}>
+      {/* Main content with bottom padding for nav and top padding for header */}
+      <main className="pb-20 pt-14 min-h-screen">
         {children}
       </main>
 

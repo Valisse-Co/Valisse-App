@@ -250,3 +250,12 @@
 - [x] Frontend: AltTechsModal in Notifications — shown to client after tech cancels; lists nearby techs with open slots, same service, same day ±1 day
 - [x] Tests: resolveCancellationFee unit tests (grace, outside window, inside window, percent, null price)
 - [x] Tests: cancellation router procedure tests — 20 tests passing
+
+## Logo Integration
+- [x] Generate transparent-background logo PNG from Valisse_Logo.png (remove solid emerald square, keep circle mark)
+- [x] Upload transparent logo as static webdev asset, get permanent URL
+- [x] Update nav header: show logo mark + "Valisse" wordmark side by side (always-visible top bar)
+- [x] Replace favicon with logo (32x32 and 180x180 PNG favicons + apple-touch-icon in index.html)
+- [x] Add logo to splash/loading screen (replaces SVG placeholder, centered with animation)
+- [x] Add logo to onboarding welcome screen (above "Welcome to Valisse" headline)
+- [x] Replace text loading spinners in App.tsx with logo + spinner combo

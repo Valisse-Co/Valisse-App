@@ -42,12 +42,11 @@ export default function Splash() {
           className="flex flex-col items-center gap-3"
         >
           {/* Logo mark */}
-          <div className="w-20 h-20 rounded-[28px] bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-            <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-              <path d="M20 6C20 6 8 14 8 22C8 28.627 13.373 34 20 34C26.627 34 32 28.627 32 22C32 14 20 6 20 6Z" fill="white" fillOpacity="0.9"/>
-              <path d="M20 12C20 12 14 17 14 22C14 25.314 16.686 28 20 28C23.314 28 26 25.314 26 22C26 17 20 12 20 12Z" fill="white" fillOpacity="0.5"/>
-            </svg>
-          </div>
+          <img
+            src="/manus-storage/valisse_logo_transparent_b005737c.png"
+            alt="Valisse"
+            className="w-24 h-24 object-contain drop-shadow-lg"
+          />
 
           {/* Brand name */}
           <h1 className="text-5xl font-display font-light tracking-[0.12em] text-[#1A1714]">

@@ -121,8 +121,13 @@ export default function Onboarding() {
               exit={{ opacity: 0, x: -20 }}
               className="flex flex-col gap-8 flex-1"
             >
-              <div>
-                <h1 className="text-3xl font-display font-light text-foreground mb-2">Welcome to Valisse</h1>
+              <div className="flex flex-col gap-3">
+                <img
+                  src="/manus-storage/valisse_logo_transparent_b005737c.png"
+                  alt="Valisse"
+                  className="w-16 h-16 object-contain"
+                />
+                <h1 className="text-3xl font-display font-light text-foreground mb-1">Welcome to Valisse</h1>
                 <p className="text-muted-foreground text-sm">How will you be using the app?</p>
               </div>
 
