@@ -21,17 +21,15 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation, useRoute, useSearch } from "wouter";
 
-// ─── Service definitions ──────────────────────────────────────────────────────
-const SERVICES = [
-  { id: "gel_manicure",    label: "Gel Manicure",    duration: 60,  icon: "💅" },
-  { id: "acrylic_full",    label: "Acrylic Full Set", duration: 90,  icon: "✨" },
-  { id: "nail_art",        label: "Nail Art",         duration: 90,  icon: "🎨" },
-  { id: "gel_pedicure",    label: "Gel Pedicure",     duration: 75,  icon: "🦶" },
-  { id: "dip_powder",      label: "Dip Powder",       duration: 60,  icon: "🌸" },
-  { id: "nail_removal",    label: "Nail Removal",     duration: 45,  icon: "🔧" },
-  { id: "nail_repair",     label: "Nail Repair",      duration: 30,  icon: "🩹" },
-  { id: "custom_design",   label: "Custom Design",    duration: 120, icon: "🖌️" },
-];
+// ─── Service type ────────────────────────────────────────────────────────────
+type BookingService = {
+  id: string;
+  label: string;
+  duration: number;
+  price: number | null;
+  photoUrl: string | null;
+  icon?: string;
+};
 
 // ─── Calendar helpers ─────────────────────────────────────────────────────────
 const MONTH_NAMES = [
@@ -64,7 +62,7 @@ export default function BookingFlow() {
 
   // ── State ────────────────────────────────────────────────────────────────
   const [step, setStep]                   = useState(0);
-  const [selectedService, setSelectedService] = useState<typeof SERVICES[0] | null>(null);
+  const [selectedService, setSelectedService] = useState<BookingService | null>(null);
   const [calMonth, setCalMonth]           = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -121,6 +119,35 @@ export default function BookingFlow() {
     { enabled: techId > 0 && !!selectedService, staleTime: 60_000 }
   );
   const monthStatus = monthStatusQuery.data ?? {};
+
+  // ── Tech services (from Settings) ─────────────────────────────────────────
+  const techServicesQuery = trpc.settings.getServicesByTechId.useQuery(
+    { techId },
+    { enabled: techId > 0 }
+  );
+  const techServices: BookingService[] = useMemo(() => {
+    const raw = techServicesQuery.data as any[] | undefined;
+    if (raw && raw.length > 0) {
+      return raw.map((s: any) => ({
+        id: String(s.id),
+        label: s.name,
+        duration: s.durationMinutes,
+        price: s.price != null ? Number(s.price) : null,
+        photoUrl: s.photoUrl ?? null,
+      }));
+    }
+    // Fallback defaults when tech hasn't set up services yet
+    return [
+      { id: "gel_manicure",  label: "Gel Manicure",     duration: 60,  price: null, photoUrl: null },
+      { id: "acrylic_full",  label: "Acrylic Full Set", duration: 90,  price: null, photoUrl: null },
+      { id: "nail_art",      label: "Nail Art",          duration: 90,  price: null, photoUrl: null },
+      { id: "gel_pedicure",  label: "Gel Pedicure",      duration: 75,  price: null, photoUrl: null },
+      { id: "dip_powder",    label: "Dip Powder",        duration: 60,  price: null, photoUrl: null },
+      { id: "nail_removal",  label: "Nail Removal",      duration: 45,  price: null, photoUrl: null },
+      { id: "nail_repair",   label: "Nail Repair",       duration: 30,  price: null, photoUrl: null },
+      { id: "custom_design", label: "Custom Design",     duration: 120, price: null, photoUrl: null },
+    ];
+  }, [techServicesQuery.data]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
   // Fetch cancellation policy for the tech
@@ -306,27 +333,40 @@ export default function BookingFlow() {
                 <p className="text-sm text-muted-foreground mt-1">Select the service you'd like to book</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {SERVICES.map(svc => (
+                {techServicesQuery.isLoading ? (
+                  <div className="col-span-2 flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : techServices.map((svc: BookingService) => (
                   <button
                     key={svc.id}
                     onClick={() => setSelectedService(svc)}
                     className={`
-                      relative p-4 rounded-2xl border text-left transition-all duration-200
+                      relative rounded-2xl border text-left transition-all duration-200 overflow-hidden
                       ${selectedService?.id === svc.id
                         ? "border-primary bg-primary/5 shadow-sm"
                         : "border-border bg-card hover:border-primary/40"}
                     `}
                   >
-                    {selectedService?.id === svc.id && (
-                      <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
-                        <CheckCircle2 className="w-3 h-3 text-white" />
+                    {svc.photoUrl && (
+                      <div className="w-full h-24 overflow-hidden">
+                        <img src={svc.photoUrl} alt={svc.label} className="w-full h-full object-cover" />
                       </div>
                     )}
-                    <span className="text-2xl mb-2 block">{svc.icon}</span>
-                    <p className="text-sm font-medium text-foreground leading-tight">{svc.label}</p>
-                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {svc.duration} min
-                    </p>
+                    <div className="p-3">
+                      {selectedService?.id === svc.id && (
+                        <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                          <CheckCircle2 className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                      <p className="text-sm font-medium text-foreground leading-tight">{svc.label}</p>
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {svc.duration} min
+                      </p>
+                      {svc.price != null && (
+                        <p className="text-xs font-semibold text-primary mt-1">${svc.price.toFixed(2)}</p>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>

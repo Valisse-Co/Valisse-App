@@ -31,9 +31,22 @@ export const users = mysqlTable("users", {
   colorPreferences: json("colorPreferences").$type<string[]>(),
   // Nail Tech fields
   businessName: text("businessName"),
+  businessAddress: text("businessAddress"),
+  licenseNumber: varchar("licenseNumber", { length: 64 }),
+  yearsExperience: int("yearsExperience"),
   services: json("services").$type<string[]>(),
   priceRange: varchar("priceRange", { length: 32 }),
   instagramHandle: varchar("instagramHandle", { length: 64 }),
+  // Avatar storage
+  avatarKey: text("avatarKey"),
+  // Account state
+  darkMode: boolean("darkMode").default(false).notNull(),
+  deactivatedAt: timestamp("deactivatedAt"),
+  connectedProvider: varchar("connectedProvider", { length: 64 }),
+  // Subscription (tech only)
+  subscriptionStatus: mysqlEnum("subscriptionStatus", ["trial", "active", "expired", "cancelled"]).default("trial"),
+  subscriptionStartedAt: timestamp("subscriptionStartedAt"),
+  subscriptionTrialEndsAt: timestamp("subscriptionTrialEndsAt"),
   // Legal consents
   tosVersion: int("tosVersion").default(0).notNull(),
   tosAcceptedAt: timestamp("tosAcceptedAt"),
@@ -346,3 +359,68 @@ export const cancellationPolicies = mysqlTable("cancellation_policies", {
 
 export type CancellationPolicy = typeof cancellationPolicies.$inferSelect;
 export type InsertCancellationPolicy = typeof cancellationPolicies.$inferInsert;
+
+// ─── Tech Services ────────────────────────────────────────────────────────────
+// Each nail tech can define their offered services with price, duration, and photo.
+export const techServices = mysqlTable("tech_services", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull(),
+  category: varchar("category", { length: 64 }).notNull(), // e.g. "Gel", "Acrylic", "Custom"
+  customName: varchar("customName", { length: 128 }), // override display name
+  photoKey: text("photoKey"),   // S3 key
+  photoUrl: text("photoUrl"),   // served URL
+  priceInCents: int("priceInCents").default(0).notNull(), // price in cents
+  durationMinutes: int("durationMinutes").default(60).notNull(), // 5-min increments, max 360
+  sortOrder: int("sortOrder").default(0).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TechService = typeof techServices.$inferSelect;
+export type InsertTechService = typeof techServices.$inferInsert;
+
+// ─── Notification Preferences ─────────────────────────────────────────────────
+// Per-user, per-type channel preferences (in-app, SMS, email).
+export const notificationPreferences = mysqlTable("notification_preferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  type: varchar("type", { length: 64 }).notNull(),
+  inApp: boolean("inApp").default(true).notNull(),
+  sms: boolean("sms").default(false).notNull(),
+  email: boolean("email").default(true).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqUserType: unique().on(t.userId, t.type),
+}));
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+
+// ─── Privacy Settings ─────────────────────────────────────────────────────────
+export const privacySettings = mysqlTable("privacy_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  // Client controls
+  profilePrivate: boolean("profilePrivate").default(false).notNull(),
+  hideBookingHistory: boolean("hideBookingHistory").default(false).notNull(),
+  hideFromNearMe: boolean("hideFromNearMe").default(false).notNull(),
+  // Tech controls
+  discoverVisible: boolean("discoverVisible").default(true).notNull(),
+  hideExactAddress: boolean("hideExactAddress").default(false).notNull(),
+  messagePermission: mysqlEnum("messagePermission", ["anyone", "booked_only"]).default("anyone").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PrivacySettings = typeof privacySettings.$inferSelect;
+
+// ─── Blocked Users ────────────────────────────────────────────────────────────
+export const blockedUsers = mysqlTable("blocked_users", {
+  id: int("id").autoincrement().primaryKey(),
+  blockerId: int("blockerId").notNull(),
+  blockedId: int("blockedId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqBlock: unique().on(t.blockerId, t.blockedId),
+}));
+
+export type BlockedUser = typeof blockedUsers.$inferSelect;

@@ -26,6 +26,14 @@ import {
   subscriptions,
   cancellationPolicies,
   techFollows,
+  techServices,
+  notificationPreferences,
+  privacySettings,
+  blockedUsers,
+  TechService,
+  NotificationPreference,
+  PrivacySettings,
+  BlockedUser,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -1777,4 +1785,318 @@ export async function getAlternativeTechs(params: {
   });
 
   return result.slice(0, 8);
+}
+
+// ─── Settings: Profile ────────────────────────────────────────────────────────
+
+export async function softDeactivateUser(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ deactivatedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+export async function updateUserDarkMode(userId: number, darkMode: boolean) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ darkMode, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+// ─── Settings: Tech Services ──────────────────────────────────────────────────
+
+export async function getTechServices(techId: number): Promise<TechService[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(techServices)
+    .where(and(eq(techServices.techId, techId), eq(techServices.isActive, true)))
+    .orderBy(techServices.sortOrder, techServices.createdAt);
+}
+
+export async function upsertTechService(data: {
+  id?: number;
+  techId: number;
+  category: string;
+  customName?: string;
+  photoKey?: string;
+  photoUrl?: string;
+  priceInCents: number;
+  durationMinutes: number;
+  sortOrder?: number;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  if (data.id) {
+    await db
+      .update(techServices)
+      .set({
+        category: data.category,
+        customName: data.customName ?? null,
+        photoKey: data.photoKey ?? null,
+        photoUrl: data.photoUrl ?? null,
+        priceInCents: data.priceInCents,
+        durationMinutes: data.durationMinutes,
+        sortOrder: data.sortOrder ?? 0,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(techServices.id, data.id), eq(techServices.techId, data.techId)));
+    return data.id;
+  } else {
+    const result = await db.insert(techServices).values({
+      techId: data.techId,
+      category: data.category,
+      customName: data.customName,
+      photoKey: data.photoKey,
+      photoUrl: data.photoUrl,
+      priceInCents: data.priceInCents,
+      durationMinutes: data.durationMinutes,
+      sortOrder: data.sortOrder ?? 0,
+    });
+    return (result as any)[0]?.insertId ?? 0;
+  }
+}
+
+export async function deleteTechService(serviceId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  // Soft-delete by marking inactive
+  await db
+    .update(techServices)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(and(eq(techServices.id, serviceId), eq(techServices.techId, techId)));
+}
+
+export async function updateTechServicePhoto(
+  serviceId: number,
+  techId: number,
+  photoKey: string,
+  photoUrl: string
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(techServices)
+    .set({ photoKey, photoUrl, updatedAt: new Date() })
+    .where(and(eq(techServices.id, serviceId), eq(techServices.techId, techId)));
+}
+
+// ─── Settings: Notification Preferences ──────────────────────────────────────
+
+const DEFAULT_CLIENT_NOTIF_TYPES = [
+  "booking_confirmed",
+  "booking_reminder",
+  "booking_cancelled_by_tech",
+  "new_post_from_followed",
+  "promotional",
+];
+
+const DEFAULT_TECH_NOTIF_TYPES = [
+  "new_booking_request",
+  "booking_cancelled_by_client",
+  "client_message",
+  "payment_fee_update",
+  "new_subscriber",
+];
+
+export async function getNotificationPreferences(
+  userId: number,
+  userType: "client" | "nail_tech"
+): Promise<NotificationPreference[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const existing = await db
+    .select()
+    .from(notificationPreferences)
+    .where(eq(notificationPreferences.userId, userId));
+
+  const types = userType === "nail_tech" ? DEFAULT_TECH_NOTIF_TYPES : DEFAULT_CLIENT_NOTIF_TYPES;
+  // Return defaults merged with any saved prefs
+  return types.map((type) => {
+    const saved = existing.find((p) => p.type === type);
+    return saved ?? ({
+      id: 0,
+      userId,
+      type,
+      inApp: true,
+      sms: false,
+      email: true,
+      updatedAt: new Date(),
+    } as NotificationPreference);
+  });
+}
+
+export async function upsertNotificationPreference(
+  userId: number,
+  type: string,
+  channels: { inApp: boolean; sms: boolean; email: boolean }
+) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db
+    .select()
+    .from(notificationPreferences)
+    .where(and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.type, type)));
+  if (existing.length > 0) {
+    await db
+      .update(notificationPreferences)
+      .set({ ...channels, updatedAt: new Date() })
+      .where(and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.type, type)));
+  } else {
+    await db.insert(notificationPreferences).values({ userId, type, ...channels });
+  }
+}
+
+// ─── Settings: Privacy ────────────────────────────────────────────────────────
+
+export async function getPrivacySettings(userId: number): Promise<PrivacySettings> {
+  const db = await getDb();
+  const defaults: PrivacySettings = {
+    id: 0,
+    userId,
+    profilePrivate: false,
+    hideBookingHistory: false,
+    hideFromNearMe: false,
+    discoverVisible: true,
+    hideExactAddress: false,
+    messagePermission: "anyone",
+    updatedAt: new Date(),
+  };
+  if (!db) return defaults;
+  const rows = await db.select().from(privacySettings).where(eq(privacySettings.userId, userId));
+  return rows[0] ?? defaults;
+}
+
+export async function upsertPrivacySettings(
+  userId: number,
+  data: Partial<Omit<PrivacySettings, "id" | "userId" | "updatedAt">>
+) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(privacySettings).where(eq(privacySettings.userId, userId));
+  if (existing.length > 0) {
+    await db.update(privacySettings).set({ ...data, updatedAt: new Date() }).where(eq(privacySettings.userId, userId));
+  } else {
+    await db.insert(privacySettings).values({ userId, ...data });
+  }
+}
+
+// ─── Settings: Block Users ────────────────────────────────────────────────────
+
+export async function blockUser(blockerId: number, blockedId: number) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.insert(blockedUsers).values({ blockerId, blockedId });
+  } catch {
+    // Already blocked — ignore duplicate
+  }
+}
+
+export async function unblockUser(blockerId: number, blockedId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(blockedUsers)
+    .where(and(eq(blockedUsers.blockerId, blockerId), eq(blockedUsers.blockedId, blockedId)));
+}
+
+export async function getBlockedUsers(
+  blockerId: number,
+  search?: string
+): Promise<Array<{ id: number; blockedId: number; name: string | null; avatarUrl: string | null; blockedAt: Date }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      id: blockedUsers.id,
+      blockedId: blockedUsers.blockedId,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      blockedAt: blockedUsers.createdAt,
+    })
+    .from(blockedUsers)
+    .innerJoin(users, eq(users.id, blockedUsers.blockedId))
+    .where(eq(blockedUsers.blockerId, blockerId))
+    .orderBy(desc(blockedUsers.createdAt));
+
+  if (search) {
+    const q = search.toLowerCase();
+    return rows.filter((r) => r.name?.toLowerCase().includes(q));
+  }
+  return rows;
+}
+
+// Returns users the current user has interacted with (bookings + messages), sorted by most recent
+export async function getInteractedUsers(
+  userId: number
+): Promise<Array<{ id: number; name: string | null; avatarUrl: string | null; lastInteractionAt: Date }>> {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Get conversation partners
+  const convRows = await db
+    .select({
+      partnerId: sql<number>`CASE WHEN ${conversations.clientId} = ${userId} THEN ${conversations.techId} ELSE ${conversations.clientId} END`,
+      lastAt: conversations.lastMessageAt,
+    })
+    .from(conversations)
+    .where(or(eq(conversations.clientId, userId), eq(conversations.techId, userId)))
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(50);
+
+  const partnerIds = Array.from(new Set(convRows.map((r) => r.partnerId)));
+  if (partnerIds.length === 0) return [];
+
+  const partnerUsers = await db
+    .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl })
+    .from(users)
+    .where(inArray(users.id, partnerIds));
+
+  return partnerIds.map((pid) => {
+    const u = partnerUsers.find((p) => p.id === pid);
+    const row = convRows.find((r) => r.partnerId === pid);
+    return {
+      id: pid,
+      name: u?.name ?? null,
+      avatarUrl: u?.avatarUrl ?? null,
+      lastInteractionAt: row?.lastAt ?? new Date(0),
+    };
+  });
+}
+
+// ─── Settings: Subscription ───────────────────────────────────────────────────
+
+export async function getTechSubscriptionStatus(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(users).where(eq(users.id, userId));
+  const user = rows[0];
+  if (!user) return null;
+  const now = new Date();
+  const trialEnd = user.subscriptionTrialEndsAt;
+  const trialDaysLeft = trialEnd
+    ? Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
+  return {
+    status: user.subscriptionStatus ?? "trial",
+    subscriptionStartedAt: user.subscriptionStartedAt,
+    trialEndsAt: trialEnd,
+    trialDaysLeft,
+  };
+}
+
+export async function initTechSubscription(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + 60); // 2 months
+  await db
+    .update(users)
+    .set({
+      subscriptionStatus: "trial",
+      subscriptionStartedAt: new Date(),
+      subscriptionTrialEndsAt: trialEndsAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
 }

@@ -85,6 +85,23 @@ import {
   cancelBooking,
   waiveCancellationFee,
   getAlternativeTechs,
+  // Settings helpers
+  softDeactivateUser,
+  updateUserDarkMode,
+  getTechServices,
+  upsertTechService,
+  deleteTechService,
+  updateTechServicePhoto,
+  getNotificationPreferences,
+  upsertNotificationPreference,
+  getPrivacySettings,
+  upsertPrivacySettings,
+  blockUser,
+  unblockUser,
+  getBlockedUsers,
+  getInteractedUsers,
+  getTechSubscriptionStatus,
+  initTechSubscription,
 } from "./db";
 import { storagePut } from "./storage";
 
@@ -1036,6 +1053,191 @@ const cancellationRouter = router({
 });
 
 // ─── App Router ───────────────────────────────────────────────────────────────
+// ─── Settings ───────────────────────────────────────────────────────────────
+const settingsRouter = router({
+  // Profile
+  updateProfile: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(128).optional(),
+      phone: z.string().max(32).optional(),
+      email: z.string().email().optional(),
+      bio: z.string().max(500).optional(),
+      location: z.string().max(128).optional(),
+      avatarUrl: z.string().optional(),
+      avatarKey: z.string().optional(),
+      // Tech-specific
+      businessName: z.string().max(128).optional(),
+      businessAddress: z.string().max(256).optional(),
+      licenseNumber: z.string().max(64).optional(),
+      yearsExperience: z.number().int().min(0).max(50).optional(),
+      instagramHandle: z.string().max(64).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await updateUserProfile(ctx.user.id, input);
+      return { success: true };
+    }),
+
+  uploadAvatar: protectedProcedure
+    .input(z.object({
+      base64: z.string(),
+      mimeType: z.string().default("image/jpeg"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      const key = `avatars/${ctx.user.id}-${Date.now()}.jpg`;
+      const { url } = await storagePut(key, buffer, input.mimeType);
+      await updateUserProfile(ctx.user.id, { avatarUrl: url, avatarKey: key });
+      return { url, key };
+    }),
+
+  deactivateAccount: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      await softDeactivateUser(ctx.user.id);
+      return { success: true };
+    }),
+
+  setDarkMode: protectedProcedure
+    .input(z.object({ darkMode: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await updateUserDarkMode(ctx.user.id, input.darkMode);
+      return { success: true };
+    }),
+
+  // Services (nail tech only)
+  getServices: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getTechServices(ctx.user.id);
+    }),
+
+  getServicesByTechId: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => {
+      return getTechServices(input.techId);
+    }),
+
+  upsertService: protectedProcedure
+    .input(z.object({
+      id: z.number().optional(),
+      category: z.string().min(1).max(64),
+      customName: z.string().max(128).optional(),
+      photoKey: z.string().optional(),
+      photoUrl: z.string().optional(),
+      priceInCents: z.number().int().min(0),
+      durationMinutes: z.number().int().min(5).max(360),
+      sortOrder: z.number().int().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const id = await upsertTechService({ ...input, techId: ctx.user.id });
+      return { id };
+    }),
+
+  deleteService: protectedProcedure
+    .input(z.object({ serviceId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      await deleteTechService(input.serviceId, ctx.user.id);
+      return { success: true };
+    }),
+
+  uploadServicePhoto: protectedProcedure
+    .input(z.object({
+      serviceId: z.number(),
+      base64: z.string(),
+      mimeType: z.string().default("image/jpeg"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const buffer = Buffer.from(input.base64, "base64");
+      const key = `service-photos/${ctx.user.id}-${input.serviceId}-${Date.now()}.jpg`;
+      const { url } = await storagePut(key, buffer, input.mimeType);
+      await updateTechServicePhoto(input.serviceId, ctx.user.id, key, url);
+      return { url, key };
+    }),
+
+  // Notification preferences
+  getNotificationPreferences: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getNotificationPreferences(ctx.user.id, ctx.user.userType as "client" | "nail_tech");
+    }),
+
+  updateNotificationPreference: protectedProcedure
+    .input(z.object({
+      type: z.string(),
+      inApp: z.boolean(),
+      sms: z.boolean(),
+      email: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await upsertNotificationPreference(ctx.user.id, input.type, {
+        inApp: input.inApp,
+        sms: input.sms,
+        email: input.email,
+      });
+      return { success: true };
+    }),
+
+  // Privacy settings
+  getPrivacySettings: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getPrivacySettings(ctx.user.id);
+    }),
+
+  updatePrivacySettings: protectedProcedure
+    .input(z.object({
+      profilePrivate: z.boolean().optional(),
+      hideBookingHistory: z.boolean().optional(),
+      hideFromNearMe: z.boolean().optional(),
+      discoverVisible: z.boolean().optional(),
+      hideExactAddress: z.boolean().optional(),
+      messagePermission: z.enum(["anyone", "booked_only"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await upsertPrivacySettings(ctx.user.id, input);
+      return { success: true };
+    }),
+
+  // Block users
+  blockUser: protectedProcedure
+    .input(z.object({ blockedId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.blockedId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot block yourself" });
+      await blockUser(ctx.user.id, input.blockedId);
+      return { success: true };
+    }),
+
+  unblockUser: protectedProcedure
+    .input(z.object({ blockedId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await unblockUser(ctx.user.id, input.blockedId);
+      return { success: true };
+    }),
+
+  getBlockedUsers: protectedProcedure
+    .input(z.object({ search: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      return getBlockedUsers(ctx.user.id, input.search);
+    }),
+
+  getInteractedUsers: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getInteractedUsers(ctx.user.id);
+    }),
+
+  // Subscription
+  getSubscriptionStatus: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getTechSubscriptionStatus(ctx.user.id);
+    }),
+
+  initSubscription: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      await initTechSubscription(ctx.user.id);
+      return { success: true };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -1053,6 +1255,7 @@ export const appRouter = router({
   techFollows: techFollowsRouter,
   reports: reportsRouter,
   cancellation: cancellationRouter,
+  settings: settingsRouter,
 });
 
 export type AppRouter = typeof appRouter;

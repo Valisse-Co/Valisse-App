@@ -6,6 +6,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
 import {
   Scissors,
   Sparkles,
@@ -18,7 +20,54 @@ import {
   Star,
   X,
   Check,
+  Lock,
+  CreditCard,
+  Moon,
+  FileText,
 } from "lucide-react";
+
+type SettingsSection = {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+  href: string;
+  techOnly?: boolean;
+};
+
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: "profile", label: "Edit Profile", description: "Name, photo, bio, contact info", icon: <User size={20} />, href: "/settings/profile" },
+  { id: "notifications", label: "Notifications", description: "In-app, SMS, and email preferences", icon: <Bell size={20} />, href: "/settings/notifications" },
+  { id: "privacy", label: "Privacy", description: "Profile visibility, blocked users", icon: <Shield size={20} />, href: "/settings/privacy" },
+  { id: "account", label: "Account & Security", description: "Connected account, display name", icon: <Lock size={20} />, href: "/settings/account" },
+  { id: "subscription", label: "Subscription", description: "Plan, billing, trial status", icon: <CreditCard size={20} />, href: "/settings/subscription", techOnly: true },
+  { id: "appearance", label: "Appearance", description: "Dark mode, display preferences", icon: <Moon size={20} />, href: "/settings/appearance" },
+];
+
+const LEGAL_SECTIONS: SettingsSection[] = [
+  { id: "terms", label: "Terms of Service", description: "Read our terms", icon: <FileText size={20} />, href: "/terms" },
+  { id: "privacy-policy", label: "Privacy Policy", description: "How we use your data", icon: <Shield size={20} />, href: "/privacy" },
+  { id: "support", label: "Contact Support", description: "Get help from our team", icon: <HelpCircle size={20} />, href: "/settings/support" },
+];
+
+function SettingsRow({ section }: { section: SettingsSection }) {
+  const [, navigate] = useLocation();
+  return (
+    <button
+      onClick={() => navigate(section.href)}
+      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-muted/50 transition-colors text-left"
+    >
+      <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+        {section.icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground">{section.label}</p>
+        <p className="text-xs text-muted-foreground truncate">{section.description}</p>
+      </div>
+      <ChevronRight size={16} className="text-muted-foreground flex-shrink-0" />
+    </button>
+  );
+}
 
 const SERVICE_OPTIONS = ["Gel Manicure", "Acrylic Nails", "Nail Art", "Pedicure", "Nail Extensions", "Dip Powder", "Natural Nails"];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];
@@ -77,12 +126,10 @@ export default function Settings() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#F7F4EE] flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <p className="text-muted-foreground mb-4">Please sign in to access settings.</p>
-          <button onClick={() => navigate("/login")} className="btn-valisse px-6 py-3 rounded-xl text-sm">
-            Sign In
-          </button>
+          <button onClick={() => navigate("/login")} className="btn-valisse px-6 py-3 rounded-xl text-sm">Sign In</button>
         </div>
       </div>
     );
@@ -91,98 +138,57 @@ export default function Settings() {
   const isTech = user.userType === "nail_tech";
   const hasDual = (user as any).hasDualRole || isTech;
   const activeMode = (user as any).activeMode ?? (isTech ? "nail_tech" : "client");
-
-  const settingsGroups = [
-    {
-      title: "Account",
-      items: [
-        {
-          icon: <User size={18} />,
-          label: "Edit Profile",
-          action: () => toast.info("Profile editor coming soon"),
-        },
-        {
-          icon: <Bell size={18} />,
-          label: "Notifications",
-          action: () => toast.info("Notification settings coming soon"),
-        },
-        {
-          icon: <Shield size={18} />,
-          label: "Privacy & Security",
-          action: () => toast.info("Privacy settings coming soon"),
-        },
-      ],
-    },
-    {
-      title: "Support",
-      items: [
-        {
-          icon: <HelpCircle size={18} />,
-          label: "Help Center",
-          action: () => toast.info("Help center coming soon"),
-        },
-        {
-          icon: <Star size={18} />,
-          label: "Rate Valisse",
-          action: () => toast.info("Thank you for your support!"),
-        },
-      ],
-    },
-  ];
+  const visibleSections = SETTINGS_SECTIONS.filter((s) => !s.techOnly || isTech);
+  const initials = user.name ? user.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) : "?";
 
   return (
-    <div className="min-h-screen bg-[#F7F4EE] pb-24">
+    <div className="min-h-screen bg-background pb-24">
       {/* Header */}
-      <div className="px-5 pt-12 pb-6">
-        <h1 className="font-display text-3xl font-light mb-1">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your account and preferences</p>
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-3">
+        <h1 className="text-lg font-semibold text-foreground">Settings</h1>
       </div>
 
-      {/* Profile Card */}
-      <div className="mx-5 mb-6 bg-card rounded-2xl border border-border p-5">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-xl flex-shrink-0">
-            {user.name?.[0]?.toUpperCase() ?? "U"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-foreground truncate">{user.name ?? "Valisse User"}</p>
-            <p className="text-sm text-muted-foreground truncate">{user.email ?? ""}</p>
-            <div className="flex items-center gap-1.5 mt-1">
-              {activeMode === "nail_tech"
-                ? <Scissors size={12} className="text-primary" />
-                : <Sparkles size={12} className="text-primary" />
-              }
-              <span className="text-xs text-primary font-medium">
-                {activeMode === "nail_tech" ? "Nail Tech Mode" : "Client Mode"}
-              </span>
-              {hasDual && (
-                <span className="text-xs text-muted-foreground ml-1">· Dual Account</span>
-              )}
-            </div>
+      {/* Profile summary card */}
+      <div
+        className="mx-4 mt-4 mb-2 rounded-2xl bg-card border border-border p-4 flex items-center gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={() => navigate("/settings/profile")}
+      >
+        <Avatar className="w-14 h-14 border-2 border-primary/20">
+          <AvatarImage src={(user as any).avatarUrl ?? undefined} />
+          <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">{initials}</AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-foreground truncate">{user.name ?? "Your Name"}</p>
+          <p className="text-sm text-muted-foreground truncate">{(user as any).email ?? (user as any).phone ?? "Add contact info"}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {activeMode === "nail_tech" ? <Scissors size={11} className="text-primary" /> : <Sparkles size={11} className="text-primary" />}
+            <span className="text-xs text-primary">{activeMode === "nail_tech" ? "Nail Tech" : "Client"}</span>
+            {hasDual && <span className="text-xs text-muted-foreground">· Dual Account</span>}
           </div>
         </div>
-
-        {/* Account Switcher */}
-        {hasDual && (
-          <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Active mode</span>
-            <AccountSwitcher />
-          </div>
-        )}
+        <ChevronRight size={18} className="text-muted-foreground flex-shrink-0" />
       </div>
+
+      {/* Account Switcher (dual-role) */}
+      {hasDual && (
+        <div className="mx-4 mb-4 rounded-2xl bg-card border border-border px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Active mode</span>
+          <AccountSwitcher />
+        </div>
+      )}
 
       {/* Become a Nail Tech (client-only) */}
       {!isTech && !hasDual && (
-        <div className="mx-5 mb-6">
+        <div className="mx-4 mb-4">
           <button
             onClick={() => setShowBecomeModal(true)}
-            className="w-full bg-primary text-white rounded-2xl p-5 flex items-center gap-4 hover:bg-primary/90 transition"
+            className="w-full bg-primary text-white rounded-2xl p-4 flex items-center gap-4 hover:bg-primary/90 transition"
           >
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
               <Scissors size={18} className="text-white" />
             </div>
             <div className="text-left flex-1">
-              <p className="font-semibold text-white">Become a Nail Tech</p>
+              <p className="font-semibold text-white text-sm">Become a Nail Tech</p>
               <p className="text-xs text-white/70 mt-0.5">Add a tech account — keep your client profile</p>
             </div>
             <ChevronRight size={18} className="text-white/70" />
@@ -190,52 +196,44 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Settings Groups */}
-      {settingsGroups.map(group => (
-        <div key={group.title} className="mx-5 mb-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
-            {group.title}
-          </p>
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
-            {group.items.map((item, i) => (
-              <button
-                key={item.label}
-                onClick={item.action}
-                className={cn(
-                  "w-full flex items-center gap-3 px-5 py-4 text-sm text-foreground hover:bg-muted/30 transition text-left",
-                  i < group.items.length - 1 && "border-b border-border"
-                )}
-              >
-                <span className="text-muted-foreground">{item.icon}</span>
-                <span className="flex-1">{item.label}</span>
-                <ChevronRight size={16} className="text-muted-foreground" />
-              </button>
-            ))}
+      {/* Main settings sections */}
+      <div className="mx-4 mt-2 rounded-2xl bg-card border border-border overflow-hidden">
+        {visibleSections.map((section, i) => (
+          <div key={section.id}>
+            <SettingsRow section={section} />
+            {i < visibleSections.length - 1 && <Separator className="ml-[68px]" />}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+
+      {/* Legal & Support */}
+      <div className="mx-4 mt-4 rounded-2xl bg-card border border-border overflow-hidden">
+        {LEGAL_SECTIONS.map((section, i) => (
+          <div key={section.id}>
+            <SettingsRow section={section} />
+            {i < LEGAL_SECTIONS.length - 1 && <Separator className="ml-[68px]" />}
+          </div>
+        ))}
+      </div>
 
       {/* Logout */}
-      <div className="mx-5 mb-4">
+      <div className="mx-4 mt-4 rounded-2xl bg-card border border-border overflow-hidden">
         <button
-          onClick={handleLogout}
+          onClick={() => { logoutMutation.mutate(); logout(); }}
           disabled={logoutMutation.isPending}
-          className="w-full bg-card border border-border rounded-2xl px-5 py-4 flex items-center gap-3 text-sm text-destructive hover:bg-destructive/5 transition"
+          className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-destructive/5 transition-colors text-left"
         >
-          <LogOut size={18} />
-          <span className="flex-1 text-left">
-            {logoutMutation.isPending ? "Signing out…" : "Sign Out"}
-          </span>
-          {hasDual && (
-            <span className="text-xs text-muted-foreground">Both accounts</span>
-          )}
+          <div className="w-9 h-9 rounded-full bg-destructive/10 text-destructive flex items-center justify-center flex-shrink-0">
+            <LogOut size={20} />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-destructive">{logoutMutation.isPending ? "Signing out…" : "Sign Out"}</p>
+          </div>
         </button>
       </div>
 
       {/* App version */}
-      <p className="text-center text-xs text-muted-foreground mt-6">
-        Valisse v1.0 · Made with care
-      </p>
+      <p className="text-center text-xs text-muted-foreground mt-6">Valisse · v1.0.0</p>
 
       {/* Become a Nail Tech Modal */}
       <AnimatePresence>

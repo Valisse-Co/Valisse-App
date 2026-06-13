@@ -21,6 +21,13 @@ import Subscription from "./pages/Subscription";
 import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
+import SettingsProfile from "./pages/SettingsProfile";
+import SettingsNotifications from "./pages/SettingsNotifications";
+import SettingsPrivacy from "./pages/SettingsPrivacy";
+import SettingsAccount from "./pages/SettingsAccount";
+import SettingsSubscription from "./pages/SettingsSubscription";
+import SettingsAppearance from "./pages/SettingsAppearance";
+import SettingsSupport from "./pages/SettingsSupport";
 import { useAuth } from "./_core/hooks/useAuth";
 import { DemoBar } from "./components/DemoBar";
 import Notifications from "./pages/Notifications";
@@ -145,6 +152,27 @@ function Router() {
         <Route path="/settings">
           <AppLayout><Settings /></AppLayout>
         </Route>
+        <Route path="/settings/profile">
+          <AppLayout><SettingsProfile /></AppLayout>
+        </Route>
+        <Route path="/settings/notifications">
+          <AppLayout><SettingsNotifications /></AppLayout>
+        </Route>
+        <Route path="/settings/privacy">
+          <AppLayout><SettingsPrivacy /></AppLayout>
+        </Route>
+        <Route path="/settings/account">
+          <AppLayout><SettingsAccount /></AppLayout>
+        </Route>
+        <Route path="/settings/subscription">
+          <AppLayout><SettingsSubscription /></AppLayout>
+        </Route>
+        <Route path="/settings/appearance">
+          <AppLayout><SettingsAppearance /></AppLayout>
+        </Route>
+        <Route path="/settings/support">
+          <AppLayout><SettingsSupport /></AppLayout>
+        </Route>
         {/* Admin routes */}
         <Route path="/admin/reports">
           <AppLayout><AdminReports /></AppLayout>
@@ -160,7 +188,7 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light">
+      <ThemeProvider defaultTheme="light" switchable>
         <TooltipProvider>
           <Toaster />
           <Router />

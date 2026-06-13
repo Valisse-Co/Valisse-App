@@ -259,3 +259,26 @@
 - [x] Add logo to splash/loading screen (replaces SVG placeholder, centered with animation)
 - [x] Add logo to onboarding welcome screen (above "Welcome to Valisse" headline)
 - [x] Replace text loading spinners in App.tsx with logo + spinner combo
+
+## Settings Page & Sub-sections
+- [x] Schema: add tech_services table (techId, category, customName, photoKey, photoUrl, priceInCents, durationMinutes, sortOrder, isActive)
+- [x] Schema: add notification_preferences table (userId, type, inApp, sms, email)
+- [x] Schema: add privacy_settings table (userId, profilePrivate, hideBookingHistory, hideFromNearMe, hideExactAddress, messagePermission, discoverVisible)
+- [x] Schema: add blocked_users table (blockerId, blockedId, createdAt)
+- [x] Schema: update users table — add phone, bio, location, avatarKey, avatarUrl, darkMode (bool), deactivatedAt, subscriptionStatus, subscriptionStartedAt, connectedProvider
+- [x] Migration: generate and apply SQL
+- [x] Backend: settings.updateProfile (client + tech fields), settings.getProfile
+- [x] Backend: settings.getServices / settings.upsertService / settings.deleteService / settings.getServicesByTechId (public)
+- [x] Backend: settings.getNotificationPreferences / settings.updateNotificationPreference
+- [x] Backend: settings.getPrivacySettings / settings.updatePrivacySettings
+- [x] Backend: settings.getBlockedUsers / settings.blockUser / settings.unblockUser
+- [x] Backend: settings.updateDisplayName / settings.deactivateAccount / settings.getSubscriptionStatus
+- [x] Frontend: Settings page shell — sectioned list with chevrons, user avatar + name header
+- [x] Frontend: SettingsProfile sub-page — client + tech fields, avatar upload, services manager (add/edit/delete, photo per service, 5-min duration increments up to 6h)
+- [x] Frontend: SettingsNotifications sub-page — grouped by type, per-channel (in-app/SMS/email) toggle rows
+- [x] Frontend: SettingsPrivacy sub-page — client + tech controls, block user management (searchable, sorted by recent interaction)
+- [x] Frontend: SettingsAccount sub-page — connected provider display, change display name, logout, deactivate account (soft)
+- [x] Frontend: SettingsSubscription sub-page — trial countdown, status badge, Stripe CTA placeholder
+- [x] Frontend: SettingsAppearance — dark/light mode toggle, persisted to DB
+- [x] Frontend: SettingsSupport — links to ToS, Privacy Policy, Contact Support, Rate Valisse, Share App
+- [x] Wire services into BookingFlow — tech's actual services (price + duration) replace hardcoded list; fallback defaults if no services set
