@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerDemoLoginRoutes } from "./demoLogin";
+import { registerSocialAuthRoutes, registerSocialAuthStatusRoute } from "../socialAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -38,6 +39,8 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerDemoLoginRoutes(app);
+  registerSocialAuthStatusRoute(app);
+  await registerSocialAuthRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

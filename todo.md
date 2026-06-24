@@ -296,3 +296,13 @@
 - [x] Frontend: PostDetail / feed cards — "Book This Look" auto-selects linked service → time slot picker with service summary at top; "Book Another Look" second button → navigates to service list page → booking flow
 - [x] Frontend: TechProfile — "Book a Look" generic button → service list page → booking flow
 - [x] Frontend: BookingFlow — service summary header (name, price, duration) shown at top of time slot picker step
+
+## Apple Sign In & Google Sign In
+- [x] Backend: add /api/oauth/google/start and /api/oauth/google/callback routes (credential-gated via GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET env vars)
+- [x] Backend: add /api/oauth/apple/start and /api/oauth/apple/callback routes (credential-gated via APPLE_CLIENT_ID / APPLE_TEAM_ID / APPLE_KEY_ID / APPLE_PRIVATE_KEY env vars)
+- [x] Backend: shared upsertSocialUser helper — find-or-create user by provider+sub, set connectedProvider field
+- [x] Backend: issue same session cookie as Manus OAuth on successful social login
+- [x] Frontend: Login page — add Apple and Google buttons with official branding
+- [x] Frontend: buttons show "Coming Soon" tooltip / disabled state when provider env vars are absent (VITE_GOOGLE_ENABLED / VITE_APPLE_ENABLED feature flags)
+- [x] Frontend: existing Manus "Sign In / Create Account" button remains as primary fallback for demo
+- [x] Secrets: add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY placeholders (empty = disabled)
