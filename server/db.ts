@@ -136,8 +136,10 @@ export async function getDiscoverFeed(
     style?: string;   // legacy compat
     styles?: string[]; // multi-select
     shape?: string;
-    color?: string;
-    distanceMiles?: number;
+    color?: string;   // legacy single color
+    colors?: string[]; // multi-select colors
+    multiColor?: boolean; // filter for multi-color posts only
+    distanceMiles?: number; // defaults to 10mi if userLat/userLng provided
     userLat?: number;
     userLng?: number;
     soonestAvailable?: boolean;
@@ -160,10 +162,13 @@ export async function getDiscoverFeed(
   const activeStyles = filters?.styles && filters.styles.length > 0
     ? filters.styles
     : filters?.style ? [filters.style] : [];
-  // We do NOT push a DB WHERE for styles here — we handle it in JS scoring below
-  // (post.style may be a JSON array of tags, so SQL equality won't work for multi-tag posts)
+  // Active color filters (multi-select)
+  const activeColors = filters?.colors && filters.colors.length > 0
+    ? filters.colors
+    : filters?.color ? [filters.color] : [];
+  // We do NOT push DB WHERE for styles/colors — handled in JS scoring below
+  // (stored as JSON arrays, SQL equality won't work for multi-value fields)
   if (filters?.shape) conditions.push(eq(posts.shape, filters.shape));
-  if (filters?.color) conditions.push(eq(posts.color, filters.color));
 
   // Fetch base results with tech lat/lng included
   const rows = await db
@@ -187,37 +192,28 @@ export async function getDiscoverFeed(
     .orderBy(desc(posts.isPromoted), desc(posts.createdAt))
     .limit(500); // over-fetch so we can filter/sort in JS
 
-  // ── Distance filter (Haversine) ──────────────────────────────────────────
-  let results = rows;
+  // ── Haversine distance helper ─────────────────────────────────────────────
+  const R = 3958.8;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const getDistMiles = (techLat: number, techLng: number, uLat: number, uLng: number) => {
+    const dLat = toRad(techLat - uLat);
+    const dLng = toRad(techLng - uLng);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(uLat)) * Math.cos(toRad(techLat)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  // Location is always active — default 10mi when lat/lng provided
+  const hasLocation = filters?.userLat !== undefined && filters?.userLng !== undefined;
+  const maxMiles = filters?.distanceMiles ?? 10;
+  const uLat = filters?.userLat;
+  const uLng = filters?.userLng;
 
   // ── Subscriptions-only filter ─────────────────────────────────────────
+  let results = rows;
   if (filters?.subscriptionsOnly && followedTechIds.size > 0) {
     results = results.filter((r) => r.tech?.id != null && followedTechIds.has(r.tech.id));
   } else if (filters?.subscriptionsOnly) {
-    // Client follows nobody — return empty
     return [];
-  }
-
-  if (
-    filters?.distanceMiles &&
-    filters.userLat !== undefined &&
-    filters.userLng !== undefined
-  ) {
-    const R = 3958.8; // Earth radius in miles
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const uLat = filters.userLat;
-    const uLng = filters.userLng;
-    const maxMi = filters.distanceMiles;
-    results = results.filter(({ tech }) => {
-      if (tech?.lat == null || tech?.lng == null) return false;
-      const dLat = toRad(tech.lat - uLat);
-      const dLng = toRad(tech.lng - uLng);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(uLat)) * Math.cos(toRad(tech.lat)) * Math.sin(dLng / 2) ** 2;
-      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return dist <= maxMi;
-    });
   }
 
   // ── Soonest available sort ───────────────────────────────────────────────
@@ -255,43 +251,113 @@ export async function getDiscoverFeed(
     ];
   }
 
-  // ── Relevance scoring: style tag match count + saves + recency ─────────────
-  // Score = (matching style tag count * 10) + (saves weight) + (recency decay)
+  // ── Scoring: exact-match vs partial-match split ─────────────────────────────────
   const now2 = Date.now();
   const ONE_DAY_MS = 86_400_000;
 
+  // Total active filter dimensions (for exact-match determination)
+  const totalFilterDimensions =
+    (activeStyles.length > 0 ? 1 : 0) +
+    (filters?.shape ? 1 : 0) +
+    (activeColors.length > 0 || filters?.multiColor ? 1 : 0) +
+    (hasLocation ? 1 : 0);
+
   const scored = results.map((r) => {
-    // Style match: count how many of the selected style tags appear in this post's tags
-    let styleScore = 0;
+    let matchedDimensions = 0;
+
+    // Style match
+    let styleMatchCount = 0;
     if (activeStyles.length > 0 && r.post.style) {
       let postTags: string[] = [];
       try {
         const parsed = JSON.parse(r.post.style);
         postTags = Array.isArray(parsed) ? parsed : [r.post.style];
-      } catch {
-        postTags = [r.post.style];
-      }
-      const matchCount = activeStyles.filter(t => postTags.includes(t)).length;
-      styleScore = matchCount * 10; // 10 pts per matching tag
+      } catch { postTags = [r.post.style]; }
+      styleMatchCount = activeStyles.filter(t => postTags.includes(t)).length;
+      if (styleMatchCount > 0) matchedDimensions++;
+    } else if (activeStyles.length === 0) {
+      matchedDimensions++;
     }
-    // Saves weight (logarithmic so viral posts don't dominate completely)
+
+    // Shape match
+    if (filters?.shape) {
+      if (r.post.shape === filters.shape) matchedDimensions++;
+    } else {
+      matchedDimensions++;
+    }
+
+    // Color match (multi-select + multi-color auto-tag)
+    let colorMatchCount = 0;
+    const postColors: string[] = (() => {
+      if (!r.post.colors) return r.post.color ? [r.post.color] : [];
+      try {
+        const parsed = typeof r.post.colors === 'string' ? JSON.parse(r.post.colors as string) : r.post.colors;
+        return Array.isArray(parsed) ? parsed : (r.post.color ? [r.post.color] : []);
+      } catch { return r.post.color ? [r.post.color] : []; }
+    })();
+    const isMultiColor = postColors.length >= 2;
+    if (filters?.multiColor) {
+      if (isMultiColor) { colorMatchCount = 1; matchedDimensions++; }
+    } else if (activeColors.length > 0) {
+      colorMatchCount = activeColors.filter(c => postColors.includes(c)).length;
+      if (colorMatchCount > 0) matchedDimensions++;
+    } else {
+      matchedDimensions++;
+    }
+
+    // Location match
+    let withinLocation = true;
+    let distMiles = 0;
+    if (hasLocation && uLat !== undefined && uLng !== undefined) {
+      if (r.tech?.lat != null && r.tech?.lng != null) {
+        distMiles = getDistMiles(r.tech.lat, r.tech.lng, uLat, uLng);
+        withinLocation = distMiles <= maxMiles;
+      } else {
+        withinLocation = false;
+      }
+      if (withinLocation) matchedDimensions++;
+    } else {
+      matchedDimensions++;
+    }
+
+    // Base quality scores
     const saves = r.analytics?.saves ?? 0;
     const savesScore = saves > 0 ? Math.log2(saves + 1) * 2 : 0;
-    // Recency decay: posts from last 7 days get a bonus, older posts decay
     const ageMs = now2 - (r.post.createdAt?.getTime() ?? 0);
     const ageDays = ageMs / ONE_DAY_MS;
-    const recencyScore = Math.max(0, 7 - ageDays); // 0-7 bonus, 0 after 7 days
-    // Promoted posts always float to top
+    const recencyScore = Math.max(0, 7 - ageDays);
     const promotedBonus = r.post.isPromoted ? 100 : 0;
-    // Subscription boost: posts from followed techs get a significant ranking bump
     const subscriptionBonus = (r.tech?.id != null && followedTechIds.has(r.tech.id)) ? 50 : 0;
-    return { ...r, _score: promotedBonus + subscriptionBonus + styleScore + savesScore + recencyScore };
+    const styleScore = styleMatchCount * 10;
+    const colorScore = colorMatchCount * 8;
+    const proximityScore = (hasLocation && withinLocation && maxMiles > 0)
+      ? Math.max(0, 5 - (distMiles / maxMiles) * 5)
+      : 0;
+
+    const baseScore = promotedBonus + subscriptionBonus + styleScore + colorScore + savesScore + recencyScore + proximityScore;
+    const isExactMatch = totalFilterDimensions === 0 || matchedDimensions >= totalFilterDimensions;
+
+    return { ...r, _score: baseScore, _matchedDimensions: matchedDimensions, _isExactMatch: isExactMatch, _isMultiColor: isMultiColor, _postColors: postColors };
   });
 
-  // Sort by score descending
-  scored.sort((a, b) => b._score - a._score);
+  // Split into exact matches and partial matches
+  const exactMatches = scored.filter(r => r._isExactMatch).sort((a, b) => b._score - a._score);
+  const partialMatches = scored
+    .filter(r => !r._isExactMatch)
+    .sort((a, b) => b._matchedDimensions - a._matchedDimensions || b._score - a._score);
 
-  return scored.slice(offset, offset + limit).map(({ _score: _s, ...rest }) => rest);
+  // Combine with divider marker for frontend
+  const combined: any[] = [
+    ...exactMatches,
+    ...(partialMatches.length > 0 ? [{ _divider: true }] : []),
+    ...partialMatches,
+  ];
+
+  return combined.slice(offset, offset + limit).map((r) => {
+    if (r._divider) return { _divider: true } as any;
+    const { _score: _s, _matchedDimensions: _m, _isExactMatch: _e, _isMultiColor, _postColors, ...rest } = r;
+    return { ...rest, isMultiColor: _isMultiColor as boolean, postColors: _postColors as string[] };
+  });
 }
 
 export async function getTechPosts(techId: number) {

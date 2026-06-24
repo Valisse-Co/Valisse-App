@@ -2,15 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { ArrowLeft, ImagePlus, X } from "lucide-react";
+import { ArrowLeft, ImagePlus, X, Plus, ChevronDown, Layers, Briefcase } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { STYLE_TAG_GROUPS, MAX_STYLE_TAGS } from "@shared/const";
+import { STYLE_TAG_GROUPS, NAIL_COLORS, MAX_STYLE_TAGS } from "@shared/const";
 
 const SHAPES = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin", "Ballerina"];
-const COLORS = ["Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold", "Multicolor"];
+
+const SERVICE_CATEGORIES = [
+  "Gel", "Acrylic", "Dip Powder", "Nail Art", "Manicure", "Pedicure", "Extensions", "Press-On", "Other"
+];
 
 interface Props { postId?: number }
 
@@ -24,20 +27,44 @@ export default function CreatePost({ postId }: Props) {
   const [caption, setCaption] = useState("");
   const [styleTags, setStyleTags] = useState<string[]>([]);
   const [shape, setShape] = useState("");
-  const [color, setColor] = useState("");
+  // Multi-color: array of selected colors
+  const [colors, setColors] = useState<string[]>([]);
   const [location, setLocation] = useState(user?.location ?? "");
   const [uploading, setUploading] = useState(false);
   const [loaded, setLoaded] = useState(!isEditing);
+
+  // Service linking
+  const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
+  const [showServicePicker, setShowServicePicker] = useState(false);
+  const [showInlineServiceForm, setShowInlineServiceForm] = useState(false);
+  // Inline service creation fields
+  const [newServiceCategory, setNewServiceCategory] = useState("Gel");
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+  const [newServiceDuration, setNewServiceDuration] = useState("60");
+  const [creatingService, setCreatingService] = useState(false);
+
+  const utils = trpc.useUtils();
+
+  const { data: myServices } = trpc.settings.getServices.useQuery(undefined, {
+    enabled: !!user && user.userType === "nail_tech",
+  });
+
+  const upsertService = trpc.settings.upsertService.useMutation({
+    onSuccess: () => {
+      utils.settings.getServices.invalidate();
+      toast.success("Service created!");
+    },
+  });
 
   // Load existing post data when editing
   const { data: postsData } = trpc.posts.myPosts.useQuery(undefined, { enabled: isEditing });
   useEffect(() => {
     if (!isEditing || !postsData) return;
-    const found = postsData.find(p => p.post.id === postId);
+    const found = postsData.find((p: any) => p.post.id === postId);
     if (!found) return;
     const { post } = found;
     setCaption(post.caption ?? "");
-    // Support both old single-style and new multi-style
     const rawStyle = post.style ?? "";
     if (rawStyle) {
       try {
@@ -48,8 +75,17 @@ export default function CreatePost({ postId }: Props) {
       }
     }
     setShape(post.shape ?? "");
-    setColor(post.color ?? "");
+    // Load colors
+    if (post.colors) {
+      try {
+        const parsed = typeof post.colors === "string" ? JSON.parse(post.colors) : post.colors;
+        setColors(Array.isArray(parsed) ? parsed : (post.color ? [post.color] : []));
+      } catch { setColors(post.color ? [post.color] : []); }
+    } else if (post.color) {
+      setColors([post.color]);
+    }
     setLocation(post.location ?? "");
+    if (post.serviceId) setSelectedServiceId(post.serviceId);
     setImages((post.imageUrls ?? []).map((url: string) => ({ preview: url, url })));
     setLoaded(true);
   }, [postsData, postId, isEditing]);
@@ -75,6 +111,10 @@ export default function CreatePost({ postId }: Props) {
     });
   };
 
+  const toggleColor = (c: string) => {
+    setColors(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length + images.length > 5) { toast.error("Max 5 images per post"); return; }
@@ -86,10 +126,36 @@ export default function CreatePost({ postId }: Props) {
 
   const removeImage = (idx: number) => setImages(prev => prev.filter((_, i) => i !== idx));
 
+  const handleCreateServiceInline = async () => {
+    const name = newServiceName.trim() || newServiceCategory;
+    const price = parseFloat(newServicePrice);
+    const duration = parseInt(newServiceDuration, 10);
+    if (!name) { toast.error("Enter a service name"); return; }
+    if (isNaN(price) || price <= 0) { toast.error("Enter a valid price"); return; }
+    if (isNaN(duration) || duration < 5) { toast.error("Enter a valid duration"); return; }
+    setCreatingService(true);
+    try {
+      const result = await upsertService.mutateAsync({
+        category: newServiceCategory,
+        customName: newServiceName.trim() || undefined,
+        priceInCents: Math.round(price * 100),
+        durationMinutes: duration,
+      });
+      setSelectedServiceId((result as any).id);
+      setShowInlineServiceForm(false);
+      setShowServicePicker(false);
+      toast.success("Service created and linked!");
+    } catch {
+      toast.error("Failed to create service");
+    } finally {
+      setCreatingService(false);
+    }
+  };
+
   const handlePublish = async () => {
     if (images.length === 0) { toast.error("Add at least one image"); return; }
+    if (!selectedServiceId) { toast.error("Link a service to this post"); return; }
     setUploading(true);
-    // Serialize style tags as JSON array string for backward compat
     const styleValue = styleTags.length > 0 ? JSON.stringify(styleTags) : undefined;
     try {
       const uploadedUrls: string[] = [];
@@ -106,17 +172,21 @@ export default function CreatePost({ postId }: Props) {
           caption: caption || undefined,
           style: styleValue,
           shape: shape || undefined,
-          color: color || undefined,
+          color: colors[0] || undefined,
+          colors: colors.length > 0 ? colors : undefined,
           location: location || undefined,
           status: "published",
         });
       } else {
         await createPost.mutateAsync({
           imageUrls: uploadedUrls,
+          serviceId: selectedServiceId,
           caption: caption || undefined,
           style: styleValue,
+          styles: styleTags.length > 0 ? styleTags : undefined,
           shape: shape || undefined,
-          color: color || undefined,
+          color: colors[0] || undefined,
+          colors: colors.length > 0 ? colors : undefined,
           location: location || undefined,
         });
       }
@@ -126,6 +196,9 @@ export default function CreatePost({ postId }: Props) {
       setUploading(false);
     }
   };
+
+  const selectedService = myServices?.find((s: any) => s.id === selectedServiceId);
+  const isMultiColor = colors.length >= 2;
 
   if (!loaded) {
     return (
@@ -145,7 +218,7 @@ export default function CreatePost({ postId }: Props) {
         <h1 className="flex-1 font-semibold text-foreground">{isEditing ? "Edit Post" : "New Post"}</h1>
         <button
           onClick={handlePublish}
-          disabled={images.length === 0 || uploading || createPost.isPending || updatePost.isPending}
+          disabled={images.length === 0 || !selectedServiceId || uploading || createPost.isPending || updatePost.isPending}
           className="btn-valisse px-5 py-2 text-sm disabled:opacity-50"
         >
           {uploading || createPost.isPending || updatePost.isPending ? "Saving..." : isEditing ? "Save" : "Publish"}
@@ -176,6 +249,159 @@ export default function CreatePost({ postId }: Props) {
           <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
         </div>
 
+        {/* Service Link — required */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Service <span className="text-destructive">*</span>
+            </p>
+            <span className="text-[10px] text-muted-foreground">Required — clients book this service from your post</span>
+          </div>
+
+          {selectedService ? (
+            <div className="flex items-center gap-3 p-3 rounded-xl border border-primary/30 bg-primary/5">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Briefcase size={16} className="text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {selectedService.customName || selectedService.category}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  ${(selectedService.priceInCents / 100).toFixed(0)} · {selectedService.durationMinutes} min
+                </p>
+              </div>
+              <button
+                onClick={() => { setSelectedServiceId(null); setShowServicePicker(true); }}
+                className="text-xs text-primary font-medium"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowServicePicker(v => !v)}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-sm",
+                showServicePicker
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-dashed border-border text-muted-foreground hover:border-primary/40"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <Briefcase size={15} />
+                Link a service to this post
+              </span>
+              <ChevronDown size={14} className={cn("transition-transform", showServicePicker && "rotate-180")} />
+            </button>
+          )}
+
+          {/* Service picker dropdown */}
+          {showServicePicker && !selectedService && (
+            <div className="mt-2 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              {myServices && myServices.length > 0 ? (
+                <>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-3 pt-3 pb-1">Your Services</p>
+                  {myServices.filter((s: any) => s.isActive).map((s: any) => (
+                    <button
+                      key={s.id}
+                      onClick={() => { setSelectedServiceId(s.id); setShowServicePicker(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted transition-colors text-left"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{s.customName || s.category}</p>
+                        <p className="text-xs text-muted-foreground">${(s.priceInCents / 100).toFixed(0)} · {s.durationMinutes} min</p>
+                      </div>
+                    </button>
+                  ))}
+                  <div className="border-t border-border" />
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground px-3 py-3">No services set up yet. Create one below.</p>
+              )}
+
+              {/* Inline service creation */}
+              {!showInlineServiceForm ? (
+                <button
+                  onClick={() => setShowInlineServiceForm(true)}
+                  className="w-full flex items-center gap-2 px-3 py-3 text-primary text-sm font-medium hover:bg-primary/5 transition-colors"
+                >
+                  <Plus size={14} />
+                  Create a new service
+                </button>
+              ) : (
+                <div className="px-3 py-3 space-y-3 border-t border-border">
+                  <p className="text-xs font-semibold text-foreground">New Service</p>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1">Category</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {SERVICE_CATEGORIES.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => setNewServiceCategory(cat)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-full text-xs border transition-all",
+                            newServiceCategory === cat
+                              ? "bg-primary text-white border-primary"
+                              : "bg-background border-border text-foreground"
+                          )}
+                        >{cat}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1">Custom name (optional)</p>
+                    <Input
+                      placeholder={`e.g. ${newServiceCategory} with Nail Art`}
+                      value={newServiceName}
+                      onChange={e => setNewServiceName(e.target.value)}
+                      className="h-9 text-sm rounded-lg"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <p className="text-[10px] text-muted-foreground mb-1">Price ($)</p>
+                      <Input
+                        type="number"
+                        placeholder="45"
+                        value={newServicePrice}
+                        onChange={e => setNewServicePrice(e.target.value)}
+                        className="h-9 text-sm rounded-lg"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] text-muted-foreground mb-1">Duration (min)</p>
+                      <Input
+                        type="number"
+                        placeholder="60"
+                        value={newServiceDuration}
+                        onChange={e => setNewServiceDuration(e.target.value)}
+                        step={5}
+                        min={5}
+                        max={360}
+                        className="h-9 text-sm rounded-lg"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowInlineServiceForm(false)}
+                      className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground"
+                    >Cancel</button>
+                    <button
+                      onClick={handleCreateServiceInline}
+                      disabled={creatingService}
+                      className="flex-1 py-2 rounded-lg bg-primary text-white text-sm font-medium disabled:opacity-50"
+                    >
+                      {creatingService ? "Creating…" : "Create & Link"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Caption */}
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Caption</p>
@@ -193,24 +419,16 @@ export default function CreatePost({ postId }: Props) {
               {styleTags.length}/{MAX_STYLE_TAGS} selected
             </span>
           </div>
-
-          {/* Selected tags summary */}
           {styleTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-4">
               {styleTags.map(tag => (
-                <button
-                  key={tag}
-                  onClick={() => toggleStyleTag(tag)}
-                  className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-white text-xs font-medium"
-                >
-                  {tag}
-                  <X size={10} />
+                <button key={tag} onClick={() => toggleStyleTag(tag)}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-white text-xs font-medium">
+                  {tag}<X size={10} />
                 </button>
               ))}
             </div>
           )}
-
-          {/* Grouped tag list */}
           <div className="space-y-4">
             {STYLE_TAG_GROUPS.map(({ group, tags }) => (
               <div key={group}>
@@ -220,21 +438,12 @@ export default function CreatePost({ postId }: Props) {
                     const selected = styleTags.includes(tag);
                     const maxed = !selected && styleTags.length >= MAX_STYLE_TAGS;
                     return (
-                      <button
-                        key={tag}
-                        onClick={() => toggleStyleTag(tag)}
-                        disabled={maxed}
-                        className={cn(
-                          "px-3 py-1.5 rounded-full text-xs border transition-all",
-                          selected
-                            ? "bg-primary text-white border-primary"
-                            : maxed
-                              ? "bg-card border-border text-muted-foreground/40 cursor-not-allowed"
+                      <button key={tag} onClick={() => toggleStyleTag(tag)} disabled={maxed}
+                        className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
+                          selected ? "bg-primary text-white border-primary"
+                            : maxed ? "bg-card border-border text-muted-foreground/40 cursor-not-allowed"
                               : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
-                        )}
-                      >
-                        {tag}
-                      </button>
+                        )}>{tag}</button>
                     );
                   })}
                 </div>
@@ -256,17 +465,44 @@ export default function CreatePost({ postId }: Props) {
           </div>
         </div>
 
-        {/* Color */}
+        {/* Color — multi-select, auto Multi-Color */}
         <div>
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Color</p>
-          <div className="flex flex-wrap gap-2">
-            {COLORS.map(o => (
-              <button key={o} onClick={() => setColor(color === o ? "" : o)}
-                className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
-                  color === o ? "bg-primary text-white border-primary" : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
-                )}>{o}</button>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Colors</p>
+            {isMultiColor && (
+              <span className="flex items-center gap-1 text-xs text-primary font-medium">
+                <Layers size={11} />
+                Multi-Color
+              </span>
+            )}
           </div>
+          {colors.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {colors.map(c => (
+                <button key={c} onClick={() => toggleColor(c)}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-white text-xs font-medium">
+                  {c}<X size={10} />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {NAIL_COLORS.map(c => {
+              const selected = colors.includes(c);
+              return (
+                <button key={c} onClick={() => toggleColor(c)}
+                  className={cn("px-3 py-1.5 rounded-full text-xs border transition-all",
+                    selected ? "bg-primary text-white border-primary" : "bg-card border-border text-foreground hover:border-primary hover:text-primary"
+                  )}>{c}</button>
+              );
+            })}
+          </div>
+          {isMultiColor && (
+            <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+              <Layers size={10} />
+              This post will appear in Multi-Color search results
+            </p>
+          )}
         </div>
 
         {/* Location */}

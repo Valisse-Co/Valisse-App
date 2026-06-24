@@ -191,7 +191,7 @@ export default function TechProfile({ techId }: Props) {
           </button>
           <button onClick={handleBook} className="flex-1 btn-valisse py-3 flex items-center justify-center gap-2">
             <Calendar size={16} />
-            Book Now
+            Book a Look
           </button>
         </div>
       </div>

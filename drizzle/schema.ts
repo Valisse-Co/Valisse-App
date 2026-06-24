@@ -95,6 +95,8 @@ export const posts = mysqlTable("posts", {
   style: varchar("style", { length: 64 }),
   shape: varchar("shape", { length: 64 }),
   color: varchar("color", { length: 64 }),
+  colors: json("colors").$type<string[]>().default([]).notNull(),
+  serviceId: int("serviceId"),
   location: text("location"),
   isPromoted: boolean("isPromoted").default(false).notNull(),
   promotedUntil: timestamp("promotedUntil"),

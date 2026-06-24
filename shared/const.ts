@@ -4,7 +4,7 @@ export const COOKIE_NAME = "app_session_id";
 export const STYLE_TAG_GROUPS = [
   {
     group: "Everyday",
-    tags: ["Minimalist", "Classic", "French", "Natural", "Nude", "Vintage", "Bold", "Glam", "Floral", "Geometric", "Abstract", "Marble", "Ombre", "Chrome", "Glitter", "Pastel", "Neon", "Boho"],
+    tags: ["Minimalist", "Classic", "French", "Natural", "Nude", "Vintage", "Bold", "Glam", "Floral", "Geometric", "Abstract", "Marble", "Ombré", "Chrome/Mirror", "Glitter", "Pastel", "Neon", "Boho", "3D Nails", "Stamping", "Encapsulated", "Press-On", "Metallic", "Holographic"],
   },
   {
     group: "Themed",
@@ -19,6 +19,32 @@ export const STYLE_TAG_GROUPS = [
     tags: ["Christmas", "Halloween", "Valentine's Day", "Fourth of July", "Thanksgiving", "New Year's", "Easter"],
   },
 ] as const;
+
+// ─── Nail Colors ──────────────────────────────────────────────────────────────
+export const NAIL_COLORS = [
+  "Nude/Beige",
+  "White",
+  "Black",
+  "Pink",
+  "Red",
+  "Burgundy",
+  "Coral",
+  "Orange",
+  "Yellow",
+  "Peach",
+  "Lavender",
+  "Purple",
+  "Blue",
+  "Green",
+  "Sage/Olive",
+  "Brown",
+  "Gold",
+  "Rose Gold",
+  "Silver",
+] as const;
+
+export type NailColor = typeof NAIL_COLORS[number];
+export const MULTI_COLOR_TAG = "Multi-Color" as const;
 
 export const STYLE_TAGS_FLAT: string[] = STYLE_TAG_GROUPS.flatMap(g => [...g.tags]);
 

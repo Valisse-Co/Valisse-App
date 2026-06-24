@@ -282,3 +282,17 @@
 - [x] Frontend: SettingsAppearance — dark/light mode toggle, persisted to DB
 - [x] Frontend: SettingsSupport — links to ToS, Privacy Policy, Contact Support, Rate Valisse, Share App
 - [x] Wire services into BookingFlow — tech's actual services (price + duration) replace hardcoded list; fallback defaults if no services set
+
+## Color/Style Expansion, Multi-Color, Similar Matches, Post-Service Linking
+- [x] Shared constants: add Brown, Nude/Beige, Burgundy, Coral, Lavender, Sage/Olive, Orange, Yellow, Peach, Rose Gold to COLOR_OPTIONS; remove Metallic/Holographic/Chrome from colors
+- [x] Shared constants: add 3D Nails, Ombré, Chrome/Mirror, Stamping, Encapsulated, Press-On, Metallic, Holographic to STYLE_OPTIONS
+- [x] Schema: add serviceId (FK → tech_services) to posts table; migration + apply
+- [x] Backend: update getDiscoverFeed — exact-match bucket vs partial-match bucket, location default 10mi always active, multi-color auto-tag logic, score by match count within partial bucket
+- [x] Backend: update createPost / updatePost procedures to require serviceId; add createServiceInline procedure for post creation flow
+- [x] Frontend: Discover filter panel — multi-select colors, new styles, Multi-Color filter chip, location radius default 10mi
+- [x] Frontend: Discover feed — similar-matches divider (subtle gray line + "Similar Matches" centered text) between exact and partial buckets
+- [x] Frontend: Post cards — multi-color chip (shows "Multi-Color" + expands on tap to show all color tags)
+- [x] Frontend: CreatePost — required service selector (pick from saved or create inline), multi-color tag selection
+- [x] Frontend: PostDetail / feed cards — "Book This Look" auto-selects linked service → time slot picker with service summary at top; "Book Another Look" second button → navigates to service list page → booking flow
+- [x] Frontend: TechProfile — "Book a Look" generic button → service list page → booking flow
+- [x] Frontend: BookingFlow — service summary header (name, price, duration) shown at top of time slot picker step

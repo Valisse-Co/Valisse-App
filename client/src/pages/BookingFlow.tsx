@@ -130,9 +130,9 @@ export default function BookingFlow() {
     if (raw && raw.length > 0) {
       return raw.map((s: any) => ({
         id: String(s.id),
-        label: s.name,
+        label: s.customName || s.category || s.name,
         duration: s.durationMinutes,
-        price: s.price != null ? Number(s.price) : null,
+        price: s.priceInCents != null ? s.priceInCents / 100 : (s.price != null ? Number(s.price) : null),
         photoUrl: s.photoUrl ?? null,
       }));
     }
@@ -163,6 +163,29 @@ export default function BookingFlow() {
     { enabled: !!postId }
   );
   const postData = postQuery.data?.post;
+
+  // ── Auto-select service from post and skip to date step ──────────────────
+  const [autoSelected, setAutoSelected] = useState(false);
+  useEffect(() => {
+    if (autoSelected) return;
+    if (!postData || !techServicesQuery.data) return;
+    const linkedServiceId = (postData as any).serviceId;
+    if (!linkedServiceId) return;
+    const raw = techServicesQuery.data as any[];
+    const match = raw.find((s: any) => s.id === linkedServiceId);
+    if (match) {
+      const svc: BookingService = {
+        id: String(match.id),
+        label: match.customName || match.category || match.name,
+        duration: match.durationMinutes,
+        price: match.priceInCents != null ? match.priceInCents / 100 : null,
+        photoUrl: match.photoUrl ?? null,
+      };
+      setSelectedService(svc);
+      setStep(1); // skip service selection, go straight to date
+      setAutoSelected(true);
+    }
+  }, [postData, techServicesQuery.data, autoSelected]);
 
   const utils = trpc.useUtils();
   const createBooking = trpc.bookings.create.useMutation({
@@ -496,13 +519,31 @@ export default function BookingFlow() {
               <div>
                 <h1 className="text-xl font-serif font-semibold text-foreground">Choose a time</h1>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {selectedDate ? formatDateStr(selectedDate) : ""} ·{" "}
-                  <span className="text-foreground">{selectedService?.label}</span>
-                  {selectedService && (
-                    <span className="text-muted-foreground"> · {selectedService.duration} min</span>
-                  )}
+                  {selectedDate ? formatDateStr(selectedDate) : ""}
                 </p>
               </div>
+
+              {/* Service summary banner — shown when auto-selected from a post */}
+              {selectedService && (
+                <div className="flex items-center gap-3 rounded-2xl bg-primary/5 border border-primary/15 px-4 py-3">
+                  {selectedService.photoUrl ? (
+                    <img src={selectedService.photoUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <Scissors className="w-5 h-5 text-primary" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{selectedService.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {selectedService.duration} min
+                      {selectedService.price != null && (
+                        <span className="ml-2 text-primary font-medium">${selectedService.price.toFixed(2)}</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Working hours banner for the selected day */}
               {selectedDate && (() => {

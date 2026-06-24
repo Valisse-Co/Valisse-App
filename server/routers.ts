@@ -258,11 +258,13 @@ const postsRouter = router({
       z.object({
         limit: z.number().default(20),
         offset: z.number().default(0),
-        style: z.string().optional(),          // legacy single-style compat
-        styles: z.array(z.string()).optional(), // multi-select
+        style: z.string().optional(),           // legacy single-style compat
+        styles: z.array(z.string()).optional(),  // multi-select styles
         shape: z.string().optional(),
-        color: z.string().optional(),
-        distanceMiles: z.number().optional(),
+        color: z.string().optional(),            // legacy single color
+        colors: z.array(z.string()).optional(),  // multi-select colors
+        multiColor: z.boolean().optional(),      // filter for multi-color posts only
+        distanceMiles: z.number().optional(),    // defaults to 10mi in db layer
         userLat: z.number().optional(),
         userLng: z.number().optional(),
         soonestAvailable: z.boolean().optional(),
@@ -270,14 +272,17 @@ const postsRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      // Merge single and multi-select style inputs
       const styles = input.styles && input.styles.length > 0
         ? input.styles
         : input.style ? [input.style] : undefined;
+      const colors = input.colors && input.colors.length > 0
+        ? input.colors
+        : input.color ? [input.color] : undefined;
       return getDiscoverFeed(input.limit, input.offset, {
         styles,
         shape: input.shape,
-        color: input.color,
+        colors,
+        multiColor: input.multiColor,
         distanceMiles: input.distanceMiles,
         userLat: input.userLat,
         userLng: input.userLng,
@@ -303,15 +308,29 @@ const postsRouter = router({
         imageUrls: z.array(z.string()).min(1),
         caption: z.string().optional(),
         style: z.string().optional(),
+        styles: z.array(z.string()).optional(),  // multi-select style tags
         shape: z.string().optional(),
         color: z.string().optional(),
+        colors: z.array(z.string()).optional(),  // multi-select colors
         location: z.string().optional(),
+        serviceId: z.number().int().positive(),  // required: every post links to a service
       })
     )
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
-      const postId = await createPost({ ...input, techId: ctx.user.id });
-      // Fan-out new_post notifications to all followers (fire-and-forget)
+      // Serialize arrays as JSON strings for storage
+      const styleJson = input.styles && input.styles.length > 0
+        ? JSON.stringify(input.styles)
+        : input.style ?? null;
+      const colorsJson = input.colors && input.colors.length > 0
+        ? JSON.stringify(input.colors)
+        : input.color ? JSON.stringify([input.color]) : null;
+      const postId = await createPost({
+        ...input,
+        style: styleJson,
+        colors: colorsJson,
+        techId: ctx.user.id,
+      } as any);
       const techName = ctx.user.businessName || ctx.user.name || "Your nail tech";
       notifyTechFollowers(ctx.user.id, postId, techName).catch(() => {});
       return { postId };
@@ -323,15 +342,20 @@ const postsRouter = router({
         postId: z.number(),
         caption: z.string().optional(),
         style: z.string().optional(),
+        styles: z.array(z.string()).optional(),
         shape: z.string().optional(),
         color: z.string().optional(),
+        colors: z.array(z.string()).optional(),
         location: z.string().optional(),
         status: z.enum(["published", "draft", "hidden"]).optional(),
+        serviceId: z.number().int().positive().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { postId, ...data } = input;
-      await updatePost(postId, ctx.user.id, data as any);
+      const { postId, styles, colors, ...rest } = input;
+      const styleJson = styles && styles.length > 0 ? JSON.stringify(styles) : rest.style;
+      const colorsJson = colors && colors.length > 0 ? JSON.stringify(colors) : rest.color ? JSON.stringify([rest.color]) : undefined;
+      await updatePost(postId, ctx.user.id, { ...rest, style: styleJson, colors: colorsJson } as any);
       return { success: true };
     }),
 

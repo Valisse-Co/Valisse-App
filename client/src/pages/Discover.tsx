@@ -2,16 +2,16 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
-import { STYLE_TAG_GROUPS } from "@shared/const";
+import { STYLE_TAG_GROUPS, NAIL_COLORS, MULTI_COLOR_TAG } from "@shared/const";
 import { MediaCarousel } from "@/components/MediaCarousel";
 import { ReportSheet } from "@/components/ReportSheet";
 
 const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"];
-const COLORS = ["All", "Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold"];
+
 const DISTANCE_OPTIONS = [
   { label: "5 mi", value: 5 },
   { label: "10 mi", value: 10 },
@@ -30,8 +30,11 @@ export default function Discover() {
   // Multi-select style tags
   const [activeStyles, setActiveStyles] = useState<string[]>([]);
   const [activeShape, setActiveShape] = useState("All");
-  const [activeColor, setActiveColor] = useState("All");
-  const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
+  // Multi-select colors
+  const [activeColors, setActiveColors] = useState<string[]>([]);
+  const [multiColorOnly, setMultiColorOnly] = useState(false);
+  // Location — default 10mi always active
+  const [distanceMiles, setDistanceMiles] = useState<number>(10);
   const [soonestAvailable, setSoonestAvailable] = useState(false);
   const [subscriptionsOnly, setSubscriptionsOnly] = useState(false);
   const [userLat, setUserLat] = useState<number | undefined>();
@@ -42,6 +45,12 @@ export default function Discover() {
     if (tag === "All") { setActiveStyles([]); return; }
     setActiveStyles(prev =>
       prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const toggleColor = (color: string) => {
+    setActiveColors(prev =>
+      prev.includes(color) ? prev.filter(c => c !== color) : [...prev, color]
     );
   };
 
@@ -61,7 +70,6 @@ export default function Discover() {
   };
 
   const handleDistanceSelect = (miles: number) => {
-    if (distanceMiles === miles) { setDistanceMiles(null); return; }
     setDistanceMiles(miles);
     if (!userLat || !userLng) requestLocation();
   };
@@ -69,15 +77,27 @@ export default function Discover() {
   const filters = useMemo(() => ({
     styles: activeStyles.length > 0 ? activeStyles : undefined,
     shape: activeShape !== "All" ? activeShape : undefined,
-    color: activeColor !== "All" ? activeColor : undefined,
-    distanceMiles: distanceMiles && userLat && userLng ? distanceMiles : undefined,
-    userLat: distanceMiles && userLat ? userLat : undefined,
-    userLng: distanceMiles && userLng ? userLng : undefined,
+    colors: activeColors.length > 0 ? activeColors : undefined,
+    multiColor: multiColorOnly || undefined,
+    distanceMiles: userLat && userLng ? distanceMiles : distanceMiles, // always pass distance
+    userLat: userLat,
+    userLng: userLng,
     soonestAvailable: soonestAvailable || undefined,
     subscriptionsOnly: subscriptionsOnly || undefined,
-  }), [activeStyles, activeShape, activeColor, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly]);
+  }), [activeStyles, activeShape, activeColors, multiColorOnly, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly]);
 
-  const { data: feed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
+  const { data: rawFeed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
+
+  // Separate exact matches from partial matches using the _divider marker
+  const { exactFeed, partialFeed } = useMemo(() => {
+    if (!rawFeed) return { exactFeed: [], partialFeed: [] };
+    const dividerIdx = rawFeed.findIndex((r: any) => r._divider);
+    if (dividerIdx === -1) return { exactFeed: rawFeed as any[], partialFeed: [] };
+    return {
+      exactFeed: rawFeed.slice(0, dividerIdx) as any[],
+      partialFeed: rawFeed.slice(dividerIdx + 1) as any[],
+    };
+  }, [rawFeed]);
 
   const { data: userSaves } = trpc.collections.savedPosts.useQuery(undefined, { enabled: isAuthenticated });
   const savedSet = useMemo(
@@ -103,8 +123,9 @@ export default function Discover() {
   const clearAll = () => {
     setActiveStyles([]);
     setActiveShape("All");
-    setActiveColor("All");
-    setDistanceMiles(null);
+    setActiveColors([]);
+    setMultiColorOnly(false);
+    setDistanceMiles(10);
     setSoonestAvailable(false);
     setSubscriptionsOnly(false);
   };
@@ -112,13 +133,21 @@ export default function Discover() {
   const hasActiveFilters =
     activeStyles.length > 0 ||
     activeShape !== "All" ||
-    activeColor !== "All" ||
-    distanceMiles !== null ||
+    activeColors.length > 0 ||
+    multiColorOnly ||
+    distanceMiles !== 10 ||
     soonestAvailable ||
     subscriptionsOnly;
 
-  const leftCol = feed?.filter((_, i) => i % 2 === 0) ?? [];
-  const rightCol = feed?.filter((_, i) => i % 2 === 1) ?? [];
+  // Build two-column masonry for each section
+  const buildCols = (items: any[]) => ({
+    left: items.filter((_, i) => i % 2 === 0),
+    right: items.filter((_, i) => i % 2 === 1),
+  });
+
+  const exactCols = buildCols(exactFeed);
+  const partialCols = buildCols(partialFeed);
+  const hasPartial = partialFeed.length > 0;
 
   return (
     <div className="page-enter">
@@ -143,7 +172,6 @@ export default function Discover() {
 
         {/* Quick style chips — horizontal scroll */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
-          {/* Subscriptions chip — always first */}
           {isAuthenticated && (
             <button
               onClick={() => setSubscriptionsOnly(v => !v)}
@@ -177,7 +205,7 @@ export default function Discover() {
         </div>
 
         {/* Active filter pills */}
-        {(distanceMiles !== null || soonestAvailable || activeStyles.length > 1) && (
+        {(activeStyles.length > 1 || activeColors.length > 0 || multiColorOnly || distanceMiles !== 10 || soonestAvailable) && (
           <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
             {activeStyles.slice(1).map(tag => (
               <span key={tag} className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
@@ -185,11 +213,24 @@ export default function Discover() {
                 <button onClick={() => toggleStyleTag(tag)}><X size={10} /></button>
               </span>
             ))}
-            {distanceMiles !== null && (
+            {activeColors.map(c => (
+              <span key={c} className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                {c}
+                <button onClick={() => toggleColor(c)}><X size={10} /></button>
+              </span>
+            ))}
+            {multiColorOnly && (
+              <span className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+                <Layers size={10} />
+                Multi-Color
+                <button onClick={() => setMultiColorOnly(false)}><X size={10} /></button>
+              </span>
+            )}
+            {distanceMiles !== 10 && (
               <span className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
                 <MapPin size={10} />
                 {distanceMiles >= 9999 ? "50+ mi" : `${distanceMiles} mi`}
-                <button onClick={() => setDistanceMiles(null)}><X size={10} /></button>
+                <button onClick={() => setDistanceMiles(10)}><X size={10} /></button>
               </span>
             )}
             {soonestAvailable && (
@@ -246,7 +287,49 @@ export default function Discover() {
               </div>
             </div>
 
-            {/* Distance */}
+            {/* Color — multi-select + Multi-Color toggle */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Color</p>
+                {(activeColors.length > 0 || multiColorOnly) && (
+                  <button onClick={() => { setActiveColors([]); setMultiColorOnly(false); }} className="text-xs text-primary">Clear</button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {/* Multi-Color special chip */}
+                <button
+                  onClick={() => setMultiColorOnly(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border transition-all font-medium",
+                    multiColorOnly
+                      ? "bg-primary text-white border-primary"
+                      : "bg-background border-border text-foreground hover:border-primary hover:text-primary"
+                  )}
+                >
+                  <Layers size={11} />
+                  {MULTI_COLOR_TAG}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {NAIL_COLORS.map(c => {
+                  const active = activeColors.includes(c);
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => toggleColor(c)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs border transition-all",
+                        active
+                          ? "bg-primary text-white border-primary"
+                          : "bg-background border-border text-foreground hover:border-primary hover:text-primary"
+                      )}
+                    >{c}</button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Distance — default 10mi */}
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Distance</p>
@@ -269,11 +352,12 @@ export default function Discover() {
                   </button>
                 ))}
               </div>
-              {distanceMiles !== null && !userLat && !locating && (
+              {!userLat && !locating && (
                 <button onClick={requestLocation} className="mt-2 text-xs text-primary flex items-center gap-1">
-                  <LocateFixed size={11} /> Allow location to enable distance filter
+                  <LocateFixed size={11} /> Allow location to refine distance results
                 </button>
               )}
+              <p className="text-[10px] text-muted-foreground mt-1">Default: 10 mi. Posts outside your range appear in Similar Matches.</p>
             </div>
 
             {/* Soonest Available */}
@@ -304,19 +388,6 @@ export default function Discover() {
               </div>
             </div>
 
-            {/* Color */}
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Color</p>
-              <div className="flex flex-wrap gap-2">
-                {COLORS.map(c => (
-                  <button key={c} onClick={() => setActiveColor(c)}
-                    className={cn("px-3 py-1 rounded-full text-xs border transition-all",
-                      activeColor === c ? "bg-primary text-white border-primary" : "bg-background border-border text-foreground"
-                    )}>{c}</button>
-                ))}
-              </div>
-            </div>
-
             {hasActiveFilters && (
               <button onClick={clearAll} className="text-xs text-muted-foreground flex items-center gap-1">
                 <X size={12} /> Clear all filters
@@ -337,35 +408,71 @@ export default function Discover() {
               {[1, 2, 3].map(i => <div key={i} className={cn("rounded-2xl bg-muted animate-pulse", i % 2 === 0 ? "h-48" : "h-64")} />)}
             </div>
           </div>
-        ) : feed?.length === 0 ? (
+        ) : exactFeed.length === 0 && partialFeed.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
               <Search size={24} className="text-muted-foreground" />
             </div>
             <p className="text-muted-foreground text-sm text-center">
               No posts found.<br />
-              {distanceMiles !== null && !userLat
-                ? "Allow location access to filter by distance."
+              {!userLat
+                ? "Allow location access to see nearby results."
                 : "Try adjusting your filters."}
             </p>
           </div>
         ) : (
-          <div className="flex gap-3">
-            <div className="flex-1 flex flex-col gap-3">
-              {leftCol.map(({ post, tech, analytics }) => (
-                <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                  saved={savedSet.has(post.id)} onSave={handleSave}
-                  onClick={() => navigate(`/post/${post.id}`)} />
-              ))}
-            </div>
-            <div className="flex-1 flex flex-col gap-3 mt-6">
-              {rightCol.map(({ post, tech, analytics }) => (
-                <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                  saved={savedSet.has(post.id)} onSave={handleSave}
-                  onClick={() => navigate(`/post/${post.id}`)} />
-              ))}
-            </div>
-          </div>
+          <>
+            {/* Exact matches */}
+            {exactFeed.length > 0 && (
+              <div className="flex gap-3">
+                <div className="flex-1 flex flex-col gap-3">
+                  {exactCols.left.map(({ post, tech, analytics }: any) => (
+                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      onClick={() => navigate(`/post/${post.id}`)} />
+                  ))}
+                </div>
+                <div className="flex-1 flex flex-col gap-3 mt-6">
+                  {exactCols.right.map(({ post, tech, analytics }: any) => (
+                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      onClick={() => navigate(`/post/${post.id}`)} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Similar Matches divider */}
+            {hasPartial && (
+              <div className="relative flex items-center my-5">
+                <div className="flex-1 border-t border-border/50" />
+                <span className="mx-3 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-widest whitespace-nowrap">
+                  Similar Matches
+                </span>
+                <div className="flex-1 border-t border-border/50" />
+              </div>
+            )}
+
+            {/* Partial matches */}
+            {hasPartial && (
+              <div className="flex gap-3">
+                <div className="flex-1 flex flex-col gap-3">
+                  {partialCols.left.map(({ post, tech, analytics }: any) => (
+                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      onClick={() => navigate(`/post/${post.id}`)} />
+                  ))}
+                </div>
+                <div className="flex-1 flex flex-col gap-3 mt-6">
+                  {partialCols.right.map(({ post, tech, analytics }: any) => (
+                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
+                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      onClick={() => navigate(`/post/${post.id}`)} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -375,6 +482,20 @@ export default function Discover() {
 function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
   const urls: string[] = post.imageUrls ?? [];
   const [reportOpen, setReportOpen] = useState(false);
+
+  // Parse multi-color tags
+  const postColors: string[] = (() => {
+    if (post.postColors) return post.postColors;
+    if (!post.colors) return post.color ? [post.color] : [];
+    try {
+      const parsed = typeof post.colors === "string" ? JSON.parse(post.colors) : post.colors;
+      return Array.isArray(parsed) ? parsed : (post.color ? [post.color] : []);
+    } catch { return post.color ? [post.color] : []; }
+  })();
+  const isMultiColor = post.isMultiColor ?? postColors.length >= 2;
+
+  const [colorChipExpanded, setColorChipExpanded] = useState(false);
+
   return (
     <motion.div
       whileTap={{ scale: 0.97 }}
@@ -405,7 +526,6 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         </div>
       )}
 
-      {/* Overlay and text are pointer-events-none so taps fall through to the carousel */}
       <div className="absolute inset-0 img-overlay pointer-events-none" />
 
       <div
@@ -422,7 +542,20 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         )}
       </div>
 
-      {/* Bookmark button — stopPropagation so it doesn't trigger navigate */}
+      {/* Multi-color chip */}
+      {isMultiColor && postColors.length >= 2 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setColorChipExpanded(v => !v); }}
+          className="absolute top-2 left-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full z-10"
+        >
+          <Layers size={9} />
+          {colorChipExpanded
+            ? postColors.join(", ")
+            : `Multi-Color`}
+        </button>
+      )}
+
+      {/* Bookmark button */}
       <button
         onClick={(e) => { e.stopPropagation(); onSave(post.id, e); }}
         className={cn(

@@ -156,10 +156,10 @@ export default function PostDetail({ postId }: Props) {
       {/* Content */}
       <div className="px-4 pt-5 pb-32">
         {/* Tags */}
+        <ColorTagGroup post={post} />
         <div className="flex flex-wrap gap-2 mb-4">
           {post.style && <Tag label={post.style} />}
           {post.shape && <Tag label={post.shape} />}
-          {post.color && <Tag label={post.color} />}
         </div>
 
         {/* Caption */}
@@ -249,21 +249,34 @@ export default function PostDetail({ postId }: Props) {
 
       {/* Fixed CTA buttons */}
       <div className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-40">
-        <div className="flex gap-3 bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
-          <button
-            onClick={handleMessage}
-            disabled={getOrCreateConv.isPending}
-            className="flex-1 btn-valisse-outline py-3.5 text-sm font-medium"
-          >
-            Message
-          </button>
-          <button
-            onClick={handleBook}
-            className="flex-1 btn-valisse py-3.5 text-sm font-semibold"
-          >
-            {isPreview ? `Book With ${techName}` : "Book This Look"}
-          </button>
-                </div>
+        <div className="flex flex-col gap-2 bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
+          <div className="flex gap-3">
+            <button
+              onClick={handleMessage}
+              disabled={getOrCreateConv.isPending}
+              className="flex-1 btn-valisse-outline py-3.5 text-sm font-medium"
+            >
+              Message
+            </button>
+            <button
+              onClick={handleBook}
+              className="flex-1 btn-valisse py-3.5 text-sm font-semibold"
+            >
+              {isPreview ? `Book With ${techName}` : "Book This Look"}
+            </button>
+          </div>
+          {!isPreview && (
+            <button
+              onClick={() => {
+                if (!isAuthenticated) { toast.error("Sign in to book"); return; }
+                navigate(`/book/${tech?.id}`);
+              }}
+              className="w-full py-2.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors text-center"
+            >
+              Book another look with this tech
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Report Sheet */}
@@ -282,5 +295,41 @@ function Tag({ label }: { label: string }) {
     <span className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-medium">
       {label}
     </span>
+  );
+}
+
+function ColorTagGroup({ post }: { post: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const colors: string[] = Array.isArray(post.colors)
+    ? post.colors
+    : post.color
+    ? [post.color]
+    : [];
+  if (colors.length === 0) return null;
+  const isMulti = colors.length >= 2;
+  return (
+    <div className="flex flex-wrap gap-2 mb-2">
+      {isMulti && !expanded ? (
+        <button
+          onClick={() => setExpanded(true)}
+          className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium flex items-center gap-1 hover:bg-primary/20 transition-colors"
+        >
+          Multi-Color
+          <span className="text-primary/60">+{colors.length}</span>
+        </button>
+      ) : (
+        <>
+          {colors.map((c: string) => <Tag key={c} label={c} />)}
+          {isMulti && (
+            <button
+              onClick={() => setExpanded(false)}
+              className="px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium"
+            >
+              Collapse
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }
