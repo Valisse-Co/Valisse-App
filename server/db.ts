@@ -377,10 +377,25 @@ export async function updatePost(postId: number, techId: number, data: Partial<I
   await db.update(posts).set(data).where(and(eq(posts.id, postId), eq(posts.techId, techId)));
 }
 
+/** Soft-hide: sets status to 'hidden', post is recoverable. */
 export async function deletePost(postId: number, techId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(posts).set({ status: "hidden" }).where(and(eq(posts.id, postId), eq(posts.techId, techId)));
+}
+
+/** Hard delete: permanently removes the post row. Cannot be undone. */
+export async function hardDeletePost(postId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(posts).where(and(eq(posts.id, postId), eq(posts.techId, techId)));
+}
+
+/** Restore a hidden post back to published. */
+export async function restorePost(postId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(posts).set({ status: "published" }).where(and(eq(posts.id, postId), eq(posts.techId, techId)));
 }
 
 export async function incrementPostViews(postId: number) {

@@ -306,3 +306,16 @@
 - [x] Frontend: buttons show "Coming Soon" tooltip / disabled state when provider env vars are absent (VITE_GOOGLE_ENABLED / VITE_APPLE_ENABLED feature flags)
 - [x] Frontend: existing Manus "Sign In / Create Account" button remains as primary fallback for demo
 - [x] Secrets: add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY placeholders (empty = disabled)
+
+## Post Removal Options (Archive / Hide / Delete)
+- [x] Schema: add status enum ('published','archived','hidden') to posts table; default 'published'; migration + apply
+- [ ] Backend: updatePostStatus procedure — sets status to 'archived' or 'hidden' (protectedProcedure, owner-only)
+- [x] Backend: deletePost procedure — hard delete (protectedProcedure, owner-only, with confirmation flag)
+- [x] Backend: getMyPosts procedure — returns all posts for the tech including archived/hidden with status field
+- [x] Backend: restorePost procedure — sets status back to 'published'
+- [ ] Backend: feed/discover queries filter to status='published' only
+- [x] Frontend: replace "Remove" button/menu item with "Manage Post" sheet showing Archive, Hide, Delete options
+- [ ] Frontend: Archive option — greyed card with lock icon, tooltip "Hidden from public, bookings still work"
+- [x] Frontend: Hide option — unlisted, tooltip "Not in discover feed, direct link still works"
+- [x] Frontend: Delete option — confirmation dialog with "This cannot be undone" warning
+- [x] Frontend: Tech Dashboard Posts tab — show archived/hidden posts in a separate section with Restore button

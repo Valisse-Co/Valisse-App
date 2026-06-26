@@ -2,12 +2,13 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -26,8 +27,22 @@ export default function TechDashboard() {
   const { data: subscription } = trpc.subscriptions.mySubscription.useQuery(undefined, { enabled: isAuthenticated });
   const utils = trpc.useUtils();
 
-  const deletePost = trpc.posts.delete.useMutation({
-    onSuccess: () => { refetchPosts(); toast.success("Post removed"); },
+  const [managePostId, setManagePostId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const hidePost = trpc.posts.hide.useMutation({
+    onSuccess: () => { setManagePostId(null); refetchPosts(); toast.success("Post hidden from public feed"); },
+    onError: () => toast.error("Failed to hide post"),
+  });
+
+  const deletePermanently = trpc.posts.deletePermanently.useMutation({
+    onSuccess: () => { setConfirmDeleteId(null); setManagePostId(null); refetchPosts(); toast.success("Post permanently deleted"); },
+    onError: () => toast.error("Failed to delete post"),
+  });
+
+  const restorePost = trpc.posts.restore.useMutation({
+    onSuccess: () => { refetchPosts(); toast.success("Post restored to feed"); },
+    onError: () => toast.error("Failed to restore post"),
   });
 
   const createSlot = trpc.lastMinute.create.useMutation({
@@ -226,12 +241,22 @@ export default function TechDashboard() {
                         <button onClick={() => navigate(`/edit-post/${post.id}`)} className="flex items-center gap-1 text-xs text-primary">
                           <Edit2 size={11} /> Edit
                         </button>
-                        <button
-                          onClick={() => deletePost.mutate({ postId: post.id })}
-                          className="flex items-center gap-1 text-xs text-destructive"
-                        >
-                          <Trash2 size={11} /> Remove
-                        </button>
+                        {post.status === "hidden" ? (
+                          <button
+                            onClick={() => restorePost.mutate({ postId: post.id })}
+                            disabled={restorePost.isPending}
+                            className="flex items-center gap-1 text-xs text-primary"
+                          >
+                            <RotateCcw size={11} /> Restore
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setManagePostId(post.id)}
+                            className="flex items-center gap-1 text-xs text-destructive"
+                          >
+                            <Trash2 size={11} /> Remove
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -323,6 +348,82 @@ export default function TechDashboard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Manage Post modal (Hide / Delete Permanently) ── */}
+      <Dialog open={managePostId !== null} onOpenChange={open => { if (!open) setManagePostId(null); }}>
+        <DialogContent className="rounded-2xl mx-4 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display font-light text-xl">Remove Post</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground -mt-1">Choose how you want to remove this post.</p>
+          <div className="flex flex-col gap-3 pt-1">
+            {/* Hide option */}
+            <button
+              onClick={() => managePostId !== null && hidePost.mutate({ postId: managePostId })}
+              disabled={hidePost.isPending}
+              className="w-full flex items-start gap-4 rounded-2xl border border-border bg-card p-4 text-left hover:bg-muted transition-colors"
+            >
+              <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                <EyeOff size={16} className="text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Hide</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Removed from the public feed. You can restore it anytime from your dashboard.</p>
+              </div>
+            </button>
+
+            {/* Delete Permanently option */}
+            <button
+              onClick={() => { setConfirmDeleteId(managePostId); }}
+              className="w-full flex items-start gap-4 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-left hover:bg-destructive/10 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-xl bg-destructive/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Trash2 size={16} className="text-destructive" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-destructive">Delete Permanently</p>
+                <p className="text-xs text-muted-foreground mt-0.5">This cannot be undone. The post and all its data will be removed forever.</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setManagePostId(null)}
+              className="text-sm text-muted-foreground text-center py-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Permanent Delete confirmation ── */}
+      <AlertDialog open={confirmDeleteId !== null} onOpenChange={open => { if (!open) setConfirmDeleteId(null); }}>
+        <AlertDialogContent className="rounded-2xl mx-4 max-w-sm">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 rounded-xl bg-destructive/10 flex items-center justify-center">
+                <AlertTriangle size={18} className="text-destructive" />
+              </div>
+              <AlertDialogTitle className="font-display font-light text-xl">Delete Forever?</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-sm text-muted-foreground">
+              This post will be permanently deleted and cannot be recovered. All views, saves, and booking history linked to this post will also be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col">
+            <AlertDialogAction
+              onClick={() => confirmDeleteId !== null && deletePermanently.mutate({ postId: confirmDeleteId, confirm: true })}
+              disabled={deletePermanently.isPending}
+              className="bg-destructive hover:bg-destructive/90 text-white rounded-xl h-11 w-full"
+            >
+              {deletePermanently.isPending ? "Deleting..." : "Yes, Delete Permanently"}
+            </AlertDialogAction>
+            <AlertDialogCancel className="rounded-xl h-11 w-full mt-0">
+              Cancel
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

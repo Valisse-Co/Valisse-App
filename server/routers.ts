@@ -14,6 +14,8 @@ import {
   deleteCollection,
   deleteLastMinuteSlot,
   deletePost,
+  hardDeletePost,
+  restorePost,
   getClientBookings,
   getConversationMessages,
   getDiscoverFeed,
@@ -359,6 +361,31 @@ const postsRouter = router({
       return { success: true };
     }),
 
+  /** Soft-hide: hides from public feed, recoverable via restore. */
+  hide: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deletePost(input.postId, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** Hard delete: permanently removes the post. Cannot be undone. */
+  deletePermanently: protectedProcedure
+    .input(z.object({ postId: z.number(), confirm: z.literal(true) }))
+    .mutation(async ({ ctx, input }) => {
+      await hardDeletePost(input.postId, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** Restore a hidden post back to published. */
+  restore: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await restorePost(input.postId, ctx.user.id);
+      return { success: true };
+    }),
+
+  /** @deprecated use hide instead */
   delete: protectedProcedure
     .input(z.object({ postId: z.number() }))
     .mutation(async ({ ctx, input }) => {
