@@ -89,6 +89,10 @@ import {
   getAlternativeTechs,
   // Settings helpers
   softDeactivateUser,
+  deactivateAccountFull,
+  reactivateAccount,
+  permanentDeleteAccount,
+  getUpcomingBookingsForUser,
   updateUserDarkMode,
   getTechServices,
   upsertTechService,
@@ -109,7 +113,14 @@ import { storagePut } from "./storage";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 const authRouter = router({
-  me: publicProcedure.query(opts => opts.ctx.user),
+  me: publicProcedure.query(opts => {
+    const user = opts.ctx.user;
+    if (!user) return null;
+    return {
+      ...user,
+      isDeactivated: user.deactivatedAt != null,
+    };
+  }),
   logout: publicProcedure.mutation(({ ctx }) => {
     const cookieOptions = getSessionCookieOptions(ctx.req);
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -1143,8 +1154,25 @@ const settingsRouter = router({
 
   deactivateAccount: protectedProcedure
     .mutation(async ({ ctx }) => {
-      await softDeactivateUser(ctx.user.id);
+      const result = await deactivateAccountFull(ctx.user.id);
+      return { success: true, cancelledCount: result.cancelledCount };
+    }),
+
+  reactivateAccount: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      await reactivateAccount(ctx.user.id);
       return { success: true };
+    }),
+
+  permanentDeleteAccount: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const result = await permanentDeleteAccount(ctx.user.id);
+      return { success: true, cancelledCount: result.cancelledCount };
+    }),
+
+  getUpcomingBookings: protectedProcedure
+    .query(async ({ ctx }) => {
+      return getUpcomingBookingsForUser(ctx.user.id);
     }),
 
   setDarkMode: protectedProcedure

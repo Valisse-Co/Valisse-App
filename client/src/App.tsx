@@ -41,8 +41,51 @@ import { trpc } from "./lib/trpc";
 // Routes that are always accessible — even during re-consent flow
 const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/", "/onboarding", "/404"];
 
-// ─── Consent Gate ─────────────────────────────────────────────────────────────
-// Shown to already-onboarded users who need to re-accept (e.g. after ToS bump).
+// ── Reactivation Gate ────────────────────────────────────────────────────────
+// If a signed-in user's account is deactivated, show a full-screen reactivation
+// prompt before granting access to any part of the app.
+function ReactivationGate({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const utils = trpc.useUtils();
+  const [, navigate] = useLocation();
+
+  const reactivate = trpc.settings.reactivateAccount.useMutation({
+    onSuccess: () => {
+      utils.auth.me.invalidate();
+    },
+    onError: () => {},
+  });
+
+  if (!loading && user && (user as any).isDeactivated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center gap-6">
+        <img src="/manus-storage/valisse_logo_transparent_b005737c.png" alt="Valisse" className="w-16 h-16 object-contain" />
+        <div>
+          <h1 className="text-xl font-semibold text-foreground mb-2">Your account is deactivated</h1>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            Your profile is currently hidden. Reactivate to restore full access to Valisse.
+          </p>
+        </div>
+        <button
+          onClick={() => reactivate.mutate()}
+          disabled={reactivate.isPending}
+          className="btn-valisse px-8 py-3 rounded-2xl text-sm font-medium"
+        >
+          {reactivate.isPending ? "Reactivating…" : "Reactivate My Account"}
+        </button>
+        <button
+          onClick={() => { navigate("/login"); }}
+          className="text-xs text-muted-foreground underline underline-offset-2"
+        >
+          Sign out instead
+        </button>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 // Legal pages (/terms, /privacy) bypass the gate so users can read before accepting.
 function ConsentGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -99,6 +142,7 @@ function Router() {
   }
 
   return (
+    <ReactivationGate>
     <ConsentGate>
       <Switch>
         <Route path="/" component={Splash} />
@@ -183,6 +227,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </ConsentGate>
+    </ReactivationGate>
   );
 }
 

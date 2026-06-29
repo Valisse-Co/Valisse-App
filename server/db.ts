@@ -2181,3 +2181,188 @@ export async function initTechSubscription(userId: number) {
     })
     .where(eq(users.id, userId));
 }
+
+// ─── Account Deactivation & Permanent Deletion ───────────────────────────────
+
+/**
+ * Returns all upcoming (pending/confirmed) bookings for a user,
+ * whether they are the client or the tech.
+ */
+export async function getUpcomingBookingsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  return db
+    .select()
+    .from(bookings)
+    .where(
+      and(
+        or(eq(bookings.clientId, userId), eq(bookings.techId, userId)),
+        or(eq(bookings.status, "pending"), eq(bookings.status, "confirmed")),
+        gt(bookings.scheduledAt, now)
+      )
+    );
+}
+
+/**
+ * Full deactivation:
+ * - Cancels all upcoming bookings (client pays fee if they are the client-side party)
+ * - Hides all tech posts
+ * - Sets deactivatedAt on the user
+ * - Sends in-app notification to the other party on each cancelled booking
+ */
+export async function deactivateAccountFull(userId: number) {
+  const db = await getDb();
+  if (!db) return { cancelledCount: 0 };
+
+  const upcomingBookings = await getUpcomingBookingsForUser(userId);
+  let cancelledCount = 0;
+
+  for (const booking of upcomingBookings) {
+    const isClient = booking.clientId === userId;
+    const cancelledBy: "client" | "tech" = isClient ? "client" : "tech";
+    const otherPartyId = isClient ? booking.techId : booking.clientId;
+
+    // Resolve fee: only clients pay
+    let feeStatus: "none" | "pending" = "none";
+    let feeAmountDollars = 0;
+    if (isClient) {
+      const policy = await getCancellationPolicy(booking.techId);
+      if (policy) {
+        const resolved = resolveCancellationFee(
+          { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
+          policy,
+          null // servicePrice not stored on booking row; fee calc uses flat/percent of policy
+        );
+        if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
+          feeStatus = "pending";
+          feeAmountDollars = resolved.feeAmountDollars;
+        }
+      }
+    }
+
+    await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars);
+    cancelledCount++;
+
+    // Notify the other party
+    const feeNote = feeStatus === "pending" ? ` A cancellation fee of $${feeAmountDollars.toFixed(2)} applies.` : "";
+    await createNotification({
+      userId: otherPartyId,
+      type: "booking_cancelled",
+      title: "Booking Cancelled",
+      body: `A booking on ${booking.scheduledAt.toLocaleDateString()} was cancelled because the other party deactivated their account.${feeNote}`,
+      relatedId: booking.id,
+    });
+  }
+
+  // Hide all tech posts
+  await db
+    .update(posts)
+    .set({ status: "hidden" })
+    .where(and(eq(posts.techId, userId), eq(posts.status, "published")));
+
+  // Set deactivatedAt
+  await db.update(users).set({ deactivatedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, userId));
+
+  return { cancelledCount };
+}
+
+/**
+ * Reactivation: clears deactivatedAt and restores hidden posts to published.
+ */
+export async function reactivateAccount(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(users).set({ deactivatedAt: null, updatedAt: new Date() }).where(eq(users.id, userId));
+
+  // Restore hidden posts (only those hidden by the tech themselves, not by admin/report)
+  await db
+    .update(posts)
+    .set({ status: "published" })
+    .where(and(eq(posts.techId, userId), eq(posts.status, "hidden")));
+}
+
+/**
+ * Permanent deletion:
+ * - Cancels upcoming bookings (same fee logic as deactivation)
+ * - Notifies the other party
+ * - Hard-deletes all user data
+ * - Deletes the user row
+ */
+export async function permanentDeleteAccount(userId: number) {
+  const db = await getDb();
+  if (!db) return { cancelledCount: 0 };
+
+  // Cancel upcoming bookings and notify other party (same logic as deactivation)
+  const upcomingBookings = await getUpcomingBookingsForUser(userId);
+  let cancelledCount = 0;
+
+  for (const booking of upcomingBookings) {
+    const isClient = booking.clientId === userId;
+    const cancelledBy: "client" | "tech" = isClient ? "client" : "tech";
+    const otherPartyId = isClient ? booking.techId : booking.clientId;
+
+    let feeStatus: "none" | "pending" = "none";
+    let feeAmountDollars = 0;
+    if (isClient) {
+      const policy = await getCancellationPolicy(booking.techId);
+      if (policy) {
+        const resolved = resolveCancellationFee(
+          { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
+          policy,
+          null
+        );
+        if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
+          feeStatus = "pending";
+          feeAmountDollars = resolved.feeAmountDollars;
+        }
+      }
+    }
+
+    await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars);
+    cancelledCount++;
+
+    const feeNote = feeStatus === "pending" ? ` A cancellation fee of $${feeAmountDollars.toFixed(2)} applies.` : "";
+    await createNotification({
+      userId: otherPartyId,
+      type: "booking_cancelled",
+      title: "Booking Cancelled",
+      body: `A booking on ${booking.scheduledAt.toLocaleDateString()} was cancelled because the other party deleted their account.${feeNote}`,
+      relatedId: booking.id,
+    });
+  }
+
+  // Hard-delete all user data (order matters for FK constraints)
+  await db.delete(notifications).where(eq(notifications.userId, userId));
+  await db.delete(techFollows).where(or(eq(techFollows.clientId, userId), eq(techFollows.techId, userId)));
+  await db.delete(savedPosts).where(eq(savedPosts.userId, userId));
+  await db.delete(likes).where(eq(likes.userId, userId));
+  await db.delete(postReports).where(eq(postReports.reporterId, userId));
+  await db.delete(reviews).where(or(eq(reviews.clientId, userId), eq(reviews.techId, userId)));
+  await db.delete(messages).where(or(eq(messages.senderId, userId)));
+  await db.delete(conversations).where(or(eq(conversations.clientId, userId), eq(conversations.techId, userId)));
+  // Delete postAnalytics for this tech's posts (two-step: fetch IDs first)
+  const techPostIds = await db.select({ id: posts.id }).from(posts).where(eq(posts.techId, userId));
+  if (techPostIds.length > 0) {
+    await db.delete(postAnalytics).where(inArray(postAnalytics.postId, techPostIds.map(p => p.id)));
+    await db.delete(savedPosts).where(inArray(savedPosts.postId, techPostIds.map(p => p.id)));
+    await db.delete(postReports).where(inArray(postReports.postId, techPostIds.map(p => p.id)));
+  }
+  await db.delete(posts).where(eq(posts.techId, userId));
+  await db.delete(techServices).where(eq(techServices.techId, userId));
+  await db.delete(availability).where(eq(availability.techId, userId));
+  await db.delete(scheduleBlocks).where(eq(scheduleBlocks.techId, userId));
+  await db.delete(bookings).where(or(eq(bookings.clientId, userId), eq(bookings.techId, userId)));
+  await db.delete(subscriptions).where(eq(subscriptions.userId, userId));
+  await db.delete(notificationPreferences).where(eq(notificationPreferences.userId, userId));
+  await db.delete(privacySettings).where(eq(privacySettings.userId, userId));
+  await db.delete(blockedUsers).where(or(eq(blockedUsers.blockerId, userId), eq(blockedUsers.blockedId, userId)));
+  await db.delete(cancellationPolicies).where(eq(cancellationPolicies.techId, userId));
+  await db.delete(collections).where(eq(collections.userId, userId));
+
+  // Finally delete the user row
+  await db.delete(users).where(eq(users.id, userId));
+
+  return { cancelledCount };
+}

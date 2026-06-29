@@ -319,3 +319,14 @@
 - [x] Frontend: Hide option — unlisted, tooltip "Not in discover feed, direct link still works"
 - [x] Frontend: Delete option — confirmation dialog with "This cannot be undone" warning
 - [x] Frontend: Tech Dashboard Posts tab — show archived/hidden posts in a separate section with Restore button
+
+## Account Deactivation & Permanent Deletion
+
+- [x] Backend: deactivateAccount procedure — cancel all upcoming bookings (client pays fee if they are the cancelling party), hide tech posts (status→hidden), set user.status = "deactivated", send in-app notification to the other party on each cancelled booking
+- [x] Backend: reactivateAccount procedure — set user.status = "active", restore tech posts (status→published)
+- [x] Backend: permanentDeleteAccount procedure — cancel upcoming bookings (same fee logic), notify other party, hard-delete all user data (posts, bookings, services, messages, reviews, notifications, follows), delete user row
+- [x] Backend: auth.me returns deactivated flag when user.status = "deactivated" so frontend can gate access
+- [x] Frontend: Settings — replace single "Deactivate" button with two side-by-side options: "Deactivate Account" and "Delete Account Permanently"
+- [x] Frontend: Deactivation warning modal — list upcoming bookings that will be cancelled, state cancellation fees apply for client-initiated cancellations, require typed confirmation ("DEACTIVATE")
+- [x] Frontend: Permanent deletion warning modal — same booking/fee warning plus stronger language ("all data will be erased, this cannot be undone"), require typed confirmation ("DELETE")
+- [x] Frontend: Reactivation gate — after sign-in, if account is deactivated show full-screen "Your account is deactivated" page with single "Reactivate My Account" button before granting access to the app

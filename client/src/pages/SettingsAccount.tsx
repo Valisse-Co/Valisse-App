@@ -3,13 +3,12 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { ChevronLeft, User, Link2, LogOut, Trash2, Pencil, Check, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronLeft, User, Link2, LogOut, Trash2, Pencil, Check, X, AlertTriangle, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -26,6 +25,9 @@ export default function SettingsAccount() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(user?.name ?? "");
   const [showDeactivate, setShowDeactivate] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deactivateConfirm, setDeactivateConfirm] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
@@ -44,12 +46,32 @@ export default function SettingsAccount() {
   });
 
   const deactivate = trpc.settings.deactivateAccount.useMutation({
-    onSuccess: () => {
-      toast.success("Account deactivated. You have been signed out.");
+    onSuccess: (data) => {
+      const msg = data.cancelledCount > 0
+        ? `Account deactivated. ${data.cancelledCount} upcoming booking(s) were cancelled.`
+        : "Account deactivated.";
+      toast.success(msg);
       logout();
       navigate("/login");
     },
     onError: (e) => toast.error(e.message),
+  });
+
+  const permanentDelete = trpc.settings.permanentDeleteAccount.useMutation({
+    onSuccess: (data) => {
+      const msg = data.cancelledCount > 0
+        ? `Account permanently deleted. ${data.cancelledCount} upcoming booking(s) were cancelled.`
+        : "Account permanently deleted.";
+      toast.success(msg);
+      logout();
+      navigate("/login");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Fetch upcoming bookings so we can warn the user
+  const { data: upcomingBookings = [] } = trpc.settings.getUpcomingBookings.useQuery(undefined, {
+    enabled: showDeactivate || showDelete,
   });
 
   const handleSaveName = () => {
@@ -57,7 +79,6 @@ export default function SettingsAccount() {
     updateProfile.mutate({ name: nameInput.trim() });
   };
 
-  // Determine connected account provider from openId prefix
   const openId = (user as any)?.openId ?? "";
   const provider = openId.startsWith("google") ? "Google" : openId.startsWith("apple") ? "Apple" : "Manus";
 
@@ -90,24 +111,17 @@ export default function SettingsAccount() {
                     if (e.key === "Escape") setEditingName(false);
                   }}
                 />
-                <button
-                  onClick={handleSaveName}
-                  disabled={updateProfile.isPending}
-                  className="w-9 h-9 rounded-lg bg-primary text-white flex items-center justify-center flex-shrink-0"
-                >
-                  <Check size={16} />
+                <button onClick={handleSaveName} disabled={updateProfile.isPending} className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center">
+                  <Check size={15} />
                 </button>
-                <button
-                  onClick={() => { setEditingName(false); setNameInput(user?.name ?? ""); }}
-                  className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0"
-                >
-                  <X size={16} />
+                <button onClick={() => setEditingName(false)} className="w-8 h-8 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground">
+                  <X size={15} />
                 </button>
               </div>
             ) : (
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-foreground">{user?.name ?? "—"}</p>
+                  <p className="text-sm font-medium text-foreground">{user?.name ?? "No name set"}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Shown on your profile and bookings</p>
                 </div>
                 <button
@@ -174,38 +188,138 @@ export default function SettingsAccount() {
           <div className="px-4 py-3 border-b border-destructive/20">
             <p className="text-xs font-semibold text-destructive uppercase tracking-wider">Danger Zone</p>
           </div>
+          {/* Deactivate */}
           <button
-            onClick={() => setShowDeactivate(true)}
+            onClick={() => { setDeactivateConfirm(""); setShowDeactivate(true); }}
+            className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-destructive/5 transition-colors text-left"
+          >
+            <div className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
+              <EyeOff size={18} className="text-destructive" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">Deactivate Account</p>
+              <p className="text-xs text-muted-foreground">Your profile is hidden. Sign back in to reactivate anytime.</p>
+            </div>
+          </button>
+          <Separator className="ml-[68px] border-destructive/10" />
+          {/* Permanent delete */}
+          <button
+            onClick={() => { setDeleteConfirm(""); setShowDelete(true); }}
             className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-destructive/5 transition-colors text-left"
           >
             <div className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
               <Trash2 size={18} className="text-destructive" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-medium text-destructive">Deactivate Account</p>
-              <p className="text-xs text-muted-foreground">Your profile will be hidden. You can reactivate by signing back in.</p>
+              <p className="text-sm font-medium text-destructive">Delete Account Permanently</p>
+              <p className="text-xs text-muted-foreground">All data is erased forever. This cannot be undone.</p>
             </div>
           </button>
         </div>
       </div>
 
-      {/* Deactivate confirmation */}
-      <AlertDialog open={showDeactivate} onOpenChange={setShowDeactivate}>
-        <AlertDialogContent>
+      {/* ── Deactivate modal ─────────────────────────────────────────────────── */}
+      <AlertDialog open={showDeactivate} onOpenChange={(open) => { if (!deactivate.isPending) setShowDeactivate(open); }}>
+        <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Deactivate your account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Your profile will be hidden from Discover and you won't receive new bookings. Your data is preserved — sign back in at any time to reactivate.
+            <AlertDialogTitle className="flex items-center gap-2">
+              <EyeOff size={18} className="text-destructive" />
+              Deactivate your account?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>Your profile will be hidden from Discover and you won't receive new bookings. Your data is preserved — sign back in at any time to reactivate.</p>
+                {upcomingBookings.length > 0 && (
+                  <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-3 space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-destructive font-medium text-xs">
+                      <AlertTriangle size={13} />
+                      {upcomingBookings.length} upcoming booking{upcomingBookings.length > 1 ? "s" : ""} will be cancelled
+                    </p>
+                    <p className="text-xs">Cancellation fees apply for any bookings you cancel as a client within the late-cancel window.</p>
+                    <ul className="text-xs space-y-0.5 mt-1">
+                      {upcomingBookings.slice(0, 5).map((b: any) => (
+                        <li key={b.id} className="text-muted-foreground">
+                          • {new Date(b.scheduledAt).toLocaleDateString()} at {new Date(b.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </li>
+                      ))}
+                      {upcomingBookings.length > 5 && <li className="text-muted-foreground">• …and {upcomingBookings.length - 5} more</li>}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-1.5 text-foreground font-medium">Type <span className="font-mono bg-muted px-1 rounded">DEACTIVATE</span> to confirm</p>
+                  <Input
+                    value={deactivateConfirm}
+                    onChange={(e) => setDeactivateConfirm(e.target.value)}
+                    placeholder="DEACTIVATE"
+                    className="font-mono"
+                  />
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
+            <AlertDialogCancel disabled={deactivate.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deactivateConfirm !== "DEACTIVATE" || deactivate.isPending}
               onClick={() => deactivate.mutate()}
             >
-              {deactivate.isPending ? "Deactivating…" : "Deactivate"}
-            </AlertDialogAction>
+              {deactivate.isPending ? "Deactivating…" : "Deactivate Account"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Permanent delete modal ───────────────────────────────────────────── */}
+      <AlertDialog open={showDelete} onOpenChange={(open) => { if (!permanentDelete.isPending) setShowDelete(open); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 size={18} className="text-destructive" />
+              Delete your account forever?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p className="text-destructive font-medium">This action is permanent and cannot be undone. All your data — posts, bookings, messages, services, and reviews — will be erased immediately.</p>
+                {upcomingBookings.length > 0 && (
+                  <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-3 space-y-1.5">
+                    <p className="flex items-center gap-1.5 text-destructive font-medium text-xs">
+                      <AlertTriangle size={13} />
+                      {upcomingBookings.length} upcoming booking{upcomingBookings.length > 1 ? "s" : ""} will be cancelled
+                    </p>
+                    <p className="text-xs">Cancellation fees apply for any bookings you cancel as a client within the late-cancel window.</p>
+                    <ul className="text-xs space-y-0.5 mt-1">
+                      {upcomingBookings.slice(0, 5).map((b: any) => (
+                        <li key={b.id} className="text-muted-foreground">
+                          • {new Date(b.scheduledAt).toLocaleDateString()} at {new Date(b.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </li>
+                      ))}
+                      {upcomingBookings.length > 5 && <li className="text-muted-foreground">• …and {upcomingBookings.length - 5} more</li>}
+                    </ul>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-1.5 text-foreground font-medium">Type <span className="font-mono bg-muted px-1 rounded">DELETE</span> to confirm</p>
+                  <Input
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    placeholder="DELETE"
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={permanentDelete.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleteConfirm !== "DELETE" || permanentDelete.isPending}
+              onClick={() => permanentDelete.mutate()}
+            >
+              {permanentDelete.isPending ? "Deleting…" : "Delete Forever"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
