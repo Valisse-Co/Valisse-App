@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { ArrowLeft, MapPin, Star, MessageCircle, Calendar, Instagram } from "lucide-react";
+import { ArrowLeft, MapPin, Star, MessageCircle, Calendar, Instagram, Clock, DollarSign, ChevronRight, Image as ImageIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -19,6 +19,7 @@ export default function TechProfile({ techId }: Props) {
   const { data: profileData, isLoading } = trpc.users.getProfile.useQuery({ userId: techId });
   const { data: postsData } = trpc.posts.techPosts.useQuery({ techId });
   const { data: reviewsData } = trpc.reviews.techReviews.useQuery({ techId });
+  const { data: techServices = [] } = trpc.settings.getServicesByTechId.useQuery({ techId });
   const { data: followData, refetch: refetchFollow } = trpc.techFollows.isFollowing.useQuery(
     { techId },
     { enabled: isAuthenticated }
@@ -64,9 +65,10 @@ export default function TechProfile({ techId }: Props) {
     getOrCreateConv.mutate({ techId });
   };
 
-  const handleBook = () => {
+  const handleBook = (serviceId?: number) => {
     if (!isAuthenticated) { toast.error("Sign in to book"); return; }
-    navigate(`/book/${techId}`);
+    if (serviceId) navigate(`/book/${techId}?serviceId=${serviceId}`);
+    else navigate(`/book/${techId}`);
   };
 
   const posts = postsData?.filter(p => p.post.status === "published") ?? [];
@@ -157,15 +159,51 @@ export default function TechProfile({ techId }: Props) {
           <p className="mt-4 text-sm text-foreground leading-relaxed">{tech.bio}</p>
         )}
 
-        {/* Services & Price */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {(tech.services as string[] | null)?.map(s => (
-            <span key={s} className="px-3 py-1 bg-accent text-accent-foreground rounded-full text-xs">{s}</span>
-          ))}
-          {tech.priceRange && (
-            <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-medium">{tech.priceRange}</span>
-          )}
-        </div>
+        {/* Services offered */}
+        {techServices.length > 0 && (
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold mb-2">Services</h3>
+            <div className="flex flex-col gap-2">
+              {techServices.map((svc) => {
+                const displayName = svc.customName || svc.category;
+                const price = svc.priceInCents > 0 ? `$${(svc.priceInCents / 100).toFixed(0)}` : "Free";
+                const h = Math.floor(svc.durationMinutes / 60);
+                const m = svc.durationMinutes % 60;
+                const dur = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+                return (
+                  <motion.button
+                    key={svc.id}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleBook(svc.id)}
+                    className="flex items-center gap-3 bg-card border border-border rounded-xl p-3 text-left w-full hover:border-primary/40 transition-colors group"
+                  >
+                    <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex-shrink-0">
+                      {svc.photoUrl ? (
+                        <img src={svc.photoUrl} alt={displayName} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                          <ImageIcon size={16} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="flex items-center gap-1 text-xs text-primary font-medium">
+                          <DollarSign size={11} />{price.replace("$", "")}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock size={11} />{dur}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0" />
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* CTA Buttons */}
         <div className="flex gap-3 mt-5">
@@ -189,7 +227,7 @@ export default function TechProfile({ techId }: Props) {
             <MessageCircle size={16} />
             Message
           </button>
-          <button onClick={handleBook} className="flex-1 btn-valisse py-3 flex items-center justify-center gap-2">
+          <button onClick={() => handleBook()} className="flex-1 btn-valisse py-3 flex items-center justify-center gap-2">
             <Calendar size={16} />
             Book a Look
           </button>

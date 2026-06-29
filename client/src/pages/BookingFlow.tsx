@@ -58,6 +58,7 @@ export default function BookingFlow() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const postId = new URLSearchParams(search).get("postId");
+  const preselectedServiceId = new URLSearchParams(search).get("serviceId");
   const { isAuthenticated } = useAuth();
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -164,28 +165,47 @@ export default function BookingFlow() {
   );
   const postData = postQuery.data?.post;
 
-  // ── Auto-select service from post and skip to date step ──────────────────
+  // ── Auto-select service from post OR from profile service tap ───────────────
   const [autoSelected, setAutoSelected] = useState(false);
   useEffect(() => {
     if (autoSelected) return;
-    if (!postData || !techServicesQuery.data) return;
+    if (!techServicesQuery.data) return;
+    const raw = techServicesQuery.data as any[];
+
+    // Priority 1: service tapped directly on tech profile page
+    if (preselectedServiceId) {
+      const match = raw.find((s: any) => String(s.id) === preselectedServiceId);
+      if (match) {
+        setSelectedService({
+          id: String(match.id),
+          label: match.customName || match.category || match.name,
+          duration: match.durationMinutes,
+          price: match.priceInCents != null ? match.priceInCents / 100 : null,
+          photoUrl: match.photoUrl ?? null,
+        });
+        setStep(1);
+        setAutoSelected(true);
+        return;
+      }
+    }
+
+    // Priority 2: booking from a post with a linked service
+    if (!postData) return;
     const linkedServiceId = (postData as any).serviceId;
     if (!linkedServiceId) return;
-    const raw = techServicesQuery.data as any[];
     const match = raw.find((s: any) => s.id === linkedServiceId);
     if (match) {
-      const svc: BookingService = {
+      setSelectedService({
         id: String(match.id),
         label: match.customName || match.category || match.name,
         duration: match.durationMinutes,
         price: match.priceInCents != null ? match.priceInCents / 100 : null,
         photoUrl: match.photoUrl ?? null,
-      };
-      setSelectedService(svc);
-      setStep(1); // skip service selection, go straight to date
+      });
+      setStep(1);
       setAutoSelected(true);
     }
-  }, [postData, techServicesQuery.data, autoSelected]);
+  }, [postData, techServicesQuery.data, autoSelected, preselectedServiceId]);
 
   const utils = trpc.useUtils();
   const createBooking = trpc.bookings.create.useMutation({
