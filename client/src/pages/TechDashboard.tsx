@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -11,6 +11,153 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DialogFooter } from "@/components/ui/dialog";
+import { useRef } from "react";
+
+// ─── Service helpers (mirrored from SettingsProfile) ─────────────────────────
+type ServiceForm = {
+  id?: number;
+  category: string;
+  customName: string;
+  priceInCents: number;
+  durationMinutes: number;
+  photoUrl?: string;
+  photoKey?: string;
+};
+
+const SERVICE_CATEGORIES = [
+  "Gel Manicure", "Acrylic Nails", "Dip Powder", "Nail Art",
+  "Manicure", "Pedicure", "Nail Extensions", "Press-On", "Custom",
+];
+
+const DURATION_OPTIONS = Array.from({ length: 72 }, (_, i) => {
+  const mins = (i + 1) * 5;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return { value: mins, label: h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m` };
+});
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function DashServiceCard({ service, onEdit, onDelete }: { service: ServiceForm; onEdit: () => void; onDelete: () => void }) {
+  const displayName = service.customName || service.category;
+  const price = service.priceInCents > 0 ? `$${(service.priceInCents / 100).toFixed(0)}` : "Free";
+  const dur = DURATION_OPTIONS.find((d) => d.value === service.durationMinutes)?.label ?? `${service.durationMinutes}m`;
+  return (
+    <div className="flex items-center gap-3 bg-background border border-border rounded-xl p-3">
+      <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex-shrink-0">
+        {service.photoUrl ? (
+          <img src={service.photoUrl} alt={displayName} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImageIcon size={16} />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-primary font-medium">{price}</span>
+          <span className="text-xs text-muted-foreground">·</span>
+          <span className="text-xs text-muted-foreground">{dur}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <button onClick={onEdit} className="w-7 h-7 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground">
+          <Pencil size={13} />
+        </button>
+        <button onClick={onDelete} className="w-7 h-7 rounded-lg hover:bg-destructive/10 flex items-center justify-center text-destructive">
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DashServiceDialog({ open, initial, onSave, onClose, isLoading }: {
+  open: boolean; initial: ServiceForm | null; onSave: (form: ServiceForm & { _pendingPhotoBase64?: string }) => void;
+  onClose: () => void; isLoading: boolean;
+}) {
+  const [form, setForm] = useState<ServiceForm>(initial ?? { category: "Gel Manicure", customName: "", priceInCents: 5500, durationMinutes: 60 });
+  const [photoPreview, setPhotoPreview] = useState<string | null>(initial?.photoUrl ?? null);
+  const [pendingPhotoBase64, setPendingPhotoBase64] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const uploadPhoto = trpc.settings.uploadServicePhoto.useMutation({
+    onSuccess: (data) => setForm((f) => ({ ...f, photoUrl: data.url, photoKey: data.key })),
+  });
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setPhotoPreview(URL.createObjectURL(file));
+    setPendingPhotoBase64(await fileToBase64(file));
+  };
+  const handleSave = async () => {
+    let finalForm = { ...form };
+    if (pendingPhotoBase64 && form.id) {
+      const result = await uploadPhoto.mutateAsync({ serviceId: form.id, base64: pendingPhotoBase64, mimeType: "image/jpeg" });
+      finalForm = { ...finalForm, photoUrl: result.url, photoKey: result.key };
+    }
+    onSave({ ...finalForm, _pendingPhotoBase64: pendingPhotoBase64 } as any);
+  };
+  const priceDisplay = form.priceInCents > 0 ? (form.priceInCents / 100).toFixed(0) : "";
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm mx-4 rounded-2xl">
+        <DialogHeader><DialogTitle className="font-display font-light text-xl">{initial?.id ? "Edit Service" : "Add Service"}</DialogTitle></DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-xl bg-muted overflow-hidden flex-shrink-0 cursor-pointer border-2 border-dashed border-border hover:border-primary/50 transition" onClick={() => fileRef.current?.click()}>
+              {photoPreview ? <img src={photoPreview} alt="Service" className="w-full h-full object-cover" /> : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground"><Upload size={18} /><span className="text-[10px]">Add photo</span></div>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+            <p className="text-xs text-muted-foreground flex-1">Upload a photo of this service as an example for clients</p>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Service Category</Label>
+            <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{SERVICE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Display Name (optional)</Label>
+            <Input placeholder='e.g. "Glitter Gel Set"' value={form.customName} onChange={(e) => setForm((f) => ({ ...f, customName: e.target.value }))} />
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Price</Label>
+            <div className="relative">
+              <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input type="number" min={0} placeholder="55" className="pl-8" value={priceDisplay}
+                onChange={(e) => setForm((f) => ({ ...f, priceInCents: Math.round(parseFloat(e.target.value || "0") * 100) }))} />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">Duration</Label>
+            <Select value={String(form.durationMinutes)} onValueChange={(v) => setForm((f) => ({ ...f, durationMinutes: parseInt(v) }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent className="max-h-48">{DURATION_OPTIONS.map((d) => <SelectItem key={d.value} value={String(d.value)}>{d.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={isLoading || !form.category}>{isLoading ? "Saving…" : "Save Service"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function TechDashboard() {
   const { user, isAuthenticated } = useAuth();
@@ -26,6 +173,33 @@ export default function TechDashboard() {
   const { data: slots, refetch: refetchSlots } = trpc.lastMinute.mySlots.useQuery(undefined, { enabled: isAuthenticated });
   const { data: subscription } = trpc.subscriptions.mySubscription.useQuery(undefined, { enabled: isAuthenticated });
   const utils = trpc.useUtils();
+
+  // Services
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [editingService, setEditingService] = useState<ServiceForm | null>(null);
+  const { data: services = [], refetch: refetchServices } = trpc.settings.getServices.useQuery(undefined, { enabled: isAuthenticated });
+  const upsertService = trpc.settings.upsertService.useMutation({
+    onSuccess: () => { refetchServices(); setServiceDialogOpen(false); setEditingService(null); toast.success("Service saved"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteService = trpc.settings.deleteService.useMutation({
+    onSuccess: () => { refetchServices(); toast.success("Service removed"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const uploadServicePhoto = trpc.settings.uploadServicePhoto.useMutation();
+  const handleSaveService = async (form: ServiceForm & { _pendingPhotoBase64?: string }) => {
+    const { _pendingPhotoBase64, ...serviceData } = form;
+    const result = await upsertService.mutateAsync({
+      id: serviceData.id, category: serviceData.category,
+      customName: serviceData.customName || undefined,
+      priceInCents: serviceData.priceInCents, durationMinutes: serviceData.durationMinutes,
+      photoUrl: serviceData.photoUrl, photoKey: serviceData.photoKey,
+    });
+    if (_pendingPhotoBase64 && result.id) {
+      await uploadServicePhoto.mutateAsync({ serviceId: result.id, base64: _pendingPhotoBase64, mimeType: "image/jpeg" });
+      refetchServices();
+    }
+  };
 
   const [managePostId, setManagePostId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
@@ -160,6 +334,46 @@ export default function TechDashboard() {
               <div className="flex justify-between text-sm mt-2">
                 <span className="text-muted-foreground">Open slots</span>
                 <span className="font-medium">{slots?.length ?? 0}</span>
+              </div>
+            </div>
+
+            {/* Services Offered */}
+            <div className="bg-card rounded-2xl border border-border overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Services Offered</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Clients see these when booking</p>
+                </div>
+                <button
+                  onClick={() => { setEditingService(null); setServiceDialogOpen(true); }}
+                  className="flex items-center gap-1.5 text-xs text-primary font-medium hover:text-primary/80 transition"
+                >
+                  <Plus size={14} /> Add
+                </button>
+              </div>
+              <div className="p-3 flex flex-col gap-2">
+                {services.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Clock size={28} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No services yet</p>
+                    <p className="text-xs mt-1">Add your first service to start accepting bookings</p>
+                    <button
+                      onClick={() => { setEditingService(null); setServiceDialogOpen(true); }}
+                      className="mt-3 btn-valisse px-4 py-2 text-xs"
+                    >
+                      + Add Service
+                    </button>
+                  </div>
+                ) : (
+                  services.map((svc) => (
+                    <DashServiceCard
+                      key={svc.id}
+                      service={svc as ServiceForm}
+                      onEdit={() => { setEditingService(svc as ServiceForm); setServiceDialogOpen(true); }}
+                      onDelete={() => deleteService.mutate({ serviceId: svc.id })}
+                    />
+                  ))
+                )}
               </div>
             </div>
 
@@ -424,6 +638,15 @@ export default function TechDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Add / Edit Service dialog ── */}
+      <DashServiceDialog
+        open={serviceDialogOpen}
+        initial={editingService}
+        onSave={handleSaveService}
+        onClose={() => { setServiceDialogOpen(false); setEditingService(null); }}
+        isLoading={upsertService.isPending || uploadServicePhoto.isPending}
+      />
     </div>
   );
 }

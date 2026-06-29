@@ -15,7 +15,7 @@ export default function TermsOfService() {
       <div className="max-w-2xl mx-auto px-6 py-8 prose prose-sm dark:prose-invert text-foreground">
         <p className="text-xs text-muted-foreground mb-6">
           <strong>Effective Date:</strong> [Insert Date] &nbsp;|&nbsp; <strong>Company:</strong> Valisse Co LLC &nbsp;|&nbsp; <strong>Contact:</strong>{" "}
-          <a href="mailto:info@valisseco.org" className="text-primary">info@valisseco.org</a>
+          <a href="mailto:info@valisseco.com" className="text-primary">info@valisseco.com</a>
         </p>
 
         <section className="mb-6">
@@ -108,7 +108,7 @@ export default function TermsOfService() {
         <section className="mb-6">
           <h2 className="text-base font-semibold mb-2">13. Contact</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            <a href="mailto:info@valisseco.org" className="text-primary">info@valisseco.org</a>
+            <a href="mailto:info@valisseco.com" className="text-primary">info@valisseco.com</a>
           </p>
         </section>
       </div>

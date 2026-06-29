@@ -15,7 +15,7 @@ export default function PrivacyPolicy() {
       <div className="max-w-2xl mx-auto px-6 py-8 text-foreground">
         <p className="text-xs text-muted-foreground mb-6">
           <strong>Effective Date:</strong> [Insert Date] &nbsp;|&nbsp; <strong>Company:</strong> Valisse Co LLC &nbsp;|&nbsp; <strong>Contact:</strong>{" "}
-          <a href="mailto:info@valisseco.org" className="text-primary">info@valisseco.org</a>
+          <a href="mailto:info@valisseco.com" className="text-primary">info@valisseco.com</a>
         </p>
 
         <section className="mb-6">
@@ -57,7 +57,7 @@ export default function PrivacyPolicy() {
           <h2 className="text-base font-semibold mb-2">6. Your Rights</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
             You may request access to or deletion of your personal data by contacting us at{" "}
-            <a href="mailto:info@valisseco.org" className="text-primary">info@valisseco.org</a>.
+            <a href="mailto:info@valisseco.com" className="text-primary">info@valisseco.com</a>.
           </p>
         </section>
 
@@ -85,7 +85,7 @@ export default function PrivacyPolicy() {
         <section className="mb-6">
           <h2 className="text-base font-semibold mb-2">10. Contact</h2>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            <a href="mailto:info@valisseco.org" className="text-primary">info@valisseco.org</a>
+            <a href="mailto:info@valisseco.com" className="text-primary">info@valisseco.com</a>
           </p>
         </section>
       </div>

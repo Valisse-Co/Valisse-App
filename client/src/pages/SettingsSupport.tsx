@@ -56,7 +56,7 @@ export default function SettingsSupport() {
           label: "Contact Support",
           description: "Get help from the Valisse team",
           action: () => {
-            window.open("mailto:support@valisse.com?subject=Valisse Support", "_blank");
+            window.open("mailto:info@valisseco.com?subject=Valisse Support", "_blank");
           },
           external: true,
         },
