@@ -14,12 +14,13 @@ interface Props { techId: number }
 export default function TechProfile({ techId }: Props) {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState<"portfolio" | "reviews">("portfolio");
+  const [activeTab, setActiveTab] = useState<"portfolio" | "reviews" | "schedule">("portfolio");
 
   const { data: profileData, isLoading } = trpc.users.getProfile.useQuery({ userId: techId });
   const { data: postsData } = trpc.posts.techPosts.useQuery({ techId });
   const { data: reviewsData } = trpc.reviews.techReviews.useQuery({ techId });
   const { data: techServices = [] } = trpc.settings.getServicesByTechId.useQuery({ techId });
+  const { data: scheduleData = [] } = trpc.availability.get.useQuery({ techId });
   const { data: followData, refetch: refetchFollow } = trpc.techFollows.isFollowing.useQuery(
     { techId },
     { enabled: isAuthenticated }
@@ -236,7 +237,7 @@ export default function TechProfile({ techId }: Props) {
 
       {/* Tabs */}
       <div className="flex border-b border-border px-5">
-        {(["portfolio", "reviews"] as const).map(tab => (
+        {(["portfolio", "reviews", "schedule"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -273,6 +274,57 @@ export default function TechProfile({ techId }: Props) {
                   )}
                 </motion.div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Schedule */}
+      {activeTab === "schedule" && (
+        <div className="px-5 py-4 pb-24">
+          {scheduleData.filter((s: any) => s.isActive).length === 0 ? (
+            <div className="py-16 text-center text-muted-foreground text-sm">
+              <Calendar size={32} className="mx-auto mb-3 opacity-30" />
+              <p>No schedule posted yet</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((dayName, idx) => {
+                const row = (scheduleData as any[]).find((s: any) => Number(s.dayOfWeek) === idx);
+                const isOpen = row?.isActive;
+                const fmt = (t: string) => {
+                  if (!t) return "";
+                  const [h, m] = t.split(":").map(Number);
+                  const ampm = h >= 12 ? "PM" : "AM";
+                  const h12 = h % 12 || 12;
+                  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                };
+                return (
+                  <div
+                    key={dayName}
+                    className={cn(
+                      "flex items-center justify-between px-4 py-3 rounded-xl border",
+                      isOpen ? "bg-card border-border" : "bg-muted/40 border-border/50"
+                    )}
+                  >
+                    <span className={cn("text-sm font-medium w-28", !isOpen && "text-muted-foreground")}>{dayName}</span>
+                    {isOpen ? (
+                      <div className="text-right">
+                        <span className="text-sm text-foreground">
+                          {fmt(row.startTime)} – {fmt(row.endTime)}
+                        </span>
+                        {row.breakStart && row.breakEnd && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Break {fmt(row.breakStart)} – {fmt(row.breakEnd)}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Closed</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
