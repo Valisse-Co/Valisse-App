@@ -164,14 +164,19 @@ export default function BookingFlow() {
     }
     // Fallback defaults when tech hasn't set up services yet
     return [
-      { id: "gel_manicure",  label: "Gel Manicure",     duration: 60,  price: null, photoUrl: null },
-      { id: "acrylic_full",  label: "Acrylic Full Set", duration: 90,  price: null, photoUrl: null },
-      { id: "nail_art",      label: "Nail Art",          duration: 90,  price: null, photoUrl: null },
-      { id: "gel_pedicure",  label: "Gel Pedicure",      duration: 75,  price: null, photoUrl: null },
-      { id: "dip_powder",    label: "Dip Powder",        duration: 60,  price: null, photoUrl: null },
-      { id: "nail_removal",  label: "Nail Removal",      duration: 45,  price: null, photoUrl: null },
-      { id: "nail_repair",   label: "Nail Repair",       duration: 30,  price: null, photoUrl: null },
-      { id: "custom_design", label: "Custom Design",     duration: 120, price: null, photoUrl: null },
+      { id: "gel_manicure",        label: "Gel Manicure",                  duration: 60,  price: null, photoUrl: null },
+      { id: "structured_gel",      label: "Structured Gel / Builder Gel",  duration: 75,  price: null, photoUrl: null },
+      { id: "acrylic_full",        label: "Acrylic Full Set",              duration: 90,  price: null, photoUrl: null },
+      { id: "acrylic_fill",        label: "Acrylic Fill",                  duration: 60,  price: null, photoUrl: null },
+      { id: "gel_x",               label: "Gel-X / Soft Gel Extensions",   duration: 75,  price: null, photoUrl: null },
+      { id: "dip_powder",          label: "Dip Powder",                    duration: 60,  price: null, photoUrl: null },
+      { id: "manicure",            label: "Manicure",                      duration: 45,  price: null, photoUrl: null },
+      { id: "pedicure",            label: "Pedicure",                      duration: 60,  price: null, photoUrl: null },
+      { id: "nail_art",            label: "Nail Art / Add-Ons",            duration: 45,  price: null, photoUrl: null },
+      { id: "removal",             label: "Removal / Soak-Off",            duration: 45,  price: null, photoUrl: null },
+      { id: "repair",              label: "Repair",                        duration: 30,  price: null, photoUrl: null },
+      { id: "press_on",            label: "Press-On Nails",                duration: 45,  price: null, photoUrl: null },
+      { id: "custom",              label: "Custom / Not Sure",             duration: 60,  price: null, photoUrl: null },
     ];
   }, [techServicesQuery.data]);
 

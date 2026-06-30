@@ -42,14 +42,18 @@ import {
 
 const SERVICE_CATEGORIES = [
   "Gel Manicure",
-  "Acrylic Nails",
+  "Structured Gel / Builder Gel",
+  "Acrylic Full Set",
+  "Acrylic Fill",
+  "Gel-X / Soft Gel Extensions",
   "Dip Powder",
-  "Nail Art",
   "Manicure",
   "Pedicure",
-  "Nail Extensions",
-  "Press-On",
-  "Custom",
+  "Nail Art / Add-Ons",
+  "Removal / Soak-Off",
+  "Repair",
+  "Press-On Nails",
+  "Custom / Not Sure",
 ];
 
 // Duration options: 5-min increments, max 6 hours

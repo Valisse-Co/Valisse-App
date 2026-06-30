@@ -14,7 +14,21 @@ import ConsentStep from "./ConsentStep";
 const STYLE_OPTIONS = ["Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
 const COLOR_OPTIONS = ["Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold", "Multicolor"];
 const SHAPE_OPTIONS = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin", "Ballerina"];
-const SERVICE_OPTIONS = ["Gel Manicure", "Acrylic Nails", "Nail Art", "Pedicure", "Nail Extensions", "Dip Powder", "Natural Nails"];
+const SERVICE_OPTIONS = [
+  "Gel Manicure",
+  "Structured Gel / Builder Gel",
+  "Acrylic Full Set",
+  "Acrylic Fill",
+  "Gel-X / Soft Gel Extensions",
+  "Dip Powder",
+  "Manicure",
+  "Pedicure",
+  "Nail Art / Add-Ons",
+  "Removal / Soak-Off",
+  "Repair",
+  "Press-On Nails",
+  "Custom / Not Sure",
+];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];
 
 type UserType = "client" | "nail_tech";

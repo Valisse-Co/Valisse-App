@@ -12,7 +12,19 @@ import { STYLE_TAG_GROUPS, NAIL_COLORS, MAX_STYLE_TAGS } from "@shared/const";
 const SHAPES = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin", "Ballerina"];
 
 const SERVICE_CATEGORIES = [
-  "Gel", "Acrylic", "Dip Powder", "Nail Art", "Manicure", "Pedicure", "Extensions", "Press-On", "Other"
+  "Gel Manicure",
+  "Structured Gel / Builder Gel",
+  "Acrylic Full Set",
+  "Acrylic Fill",
+  "Gel-X / Soft Gel Extensions",
+  "Dip Powder",
+  "Manicure",
+  "Pedicure",
+  "Nail Art / Add-Ons",
+  "Removal / Soak-Off",
+  "Repair",
+  "Press-On Nails",
+  "Custom / Not Sure",
 ];
 
 interface Props { postId?: number }

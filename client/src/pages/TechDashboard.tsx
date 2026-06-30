@@ -29,8 +29,19 @@ type ServiceForm = {
 };
 
 const SERVICE_CATEGORIES = [
-  "Gel Manicure", "Acrylic Nails", "Dip Powder", "Nail Art",
-  "Manicure", "Pedicure", "Nail Extensions", "Press-On", "Custom",
+  "Gel Manicure",
+  "Structured Gel / Builder Gel",
+  "Acrylic Full Set",
+  "Acrylic Fill",
+  "Gel-X / Soft Gel Extensions",
+  "Dip Powder",
+  "Manicure",
+  "Pedicure",
+  "Nail Art / Add-Ons",
+  "Removal / Soak-Off",
+  "Repair",
+  "Press-On Nails",
+  "Custom / Not Sure",
 ];
 
 const DURATION_OPTIONS = Array.from({ length: 72 }, (_, i) => {
