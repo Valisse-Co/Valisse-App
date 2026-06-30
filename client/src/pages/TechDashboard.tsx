@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload, Sparkles, CheckCircle2, MessageSquare, ChevronDown, ChevronUp } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -166,13 +166,29 @@ export default function TechDashboard() {
   const [slotDate, setSlotDate] = useState("");
   const [slotTime, setSlotTime] = useState("");
   const [slotNote, setSlotNote] = useState("");
-  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots" | "bookings" | "smartmatch">("overview");
 
   const { data: analytics } = trpc.analytics.techAnalytics.useQuery(undefined, { enabled: isAuthenticated });
   const { data: postsData, refetch: refetchPosts } = trpc.posts.myPosts.useQuery(undefined, { enabled: isAuthenticated });
   const { data: slots, refetch: refetchSlots } = trpc.lastMinute.mySlots.useQuery(undefined, { enabled: isAuthenticated });
   const { data: subscription } = trpc.subscriptions.mySubscription.useQuery(undefined, { enabled: isAuthenticated });
   const utils = trpc.useUtils();
+
+  // Bookings
+  const { data: techBookingsData, refetch: refetchBookings } = trpc.bookings.techBookings.useQuery(undefined, { enabled: isAuthenticated });
+  const reviewAction = trpc.smartMatch.reviewAction.useMutation({
+    onSuccess: () => { refetchBookings(); toast.success("Booking updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const [expandedBookingId, setExpandedBookingId] = useState<number | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
+
+  // Smart Match configs
+  const { data: smConfigs, refetch: refetchSmConfigs } = trpc.smartMatch.getAllConfigs.useQuery(undefined, { enabled: isAuthenticated });
+  const upsertSmConfig = trpc.smartMatch.upsertConfig.useMutation({
+    onSuccess: () => { refetchSmConfigs(); toast.success("Smart Match config saved"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
@@ -295,16 +311,20 @@ export default function TechDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border px-4">
-        {(["overview", "posts", "slots"] as const).map(tab => (
+      <div className="flex border-b border-border px-4 overflow-x-auto">
+        {(["overview", "posts", "bookings", "slots", "smartmatch"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "flex-1 py-3 text-sm font-medium capitalize transition-all border-b-2 -mb-px",
+              "flex-shrink-0 py-3 px-2 text-sm font-medium capitalize transition-all border-b-2 -mb-px",
               activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground"
             )}
-          >{tab === "slots" ? "Last-Minute" : tab}</button>
+          >{
+            tab === "slots" ? "Last-Minute" :
+            tab === "smartmatch" ? "Smart Match" :
+            tab
+          }</button>
         ))}
       </div>
 
@@ -535,6 +555,182 @@ export default function TechDashboard() {
             )}
           </div>
         )}
+
+        {/* Bookings tab */}
+        {activeTab === "bookings" && (() => {
+          const allBookings = (techBookingsData as any[]) ?? [];
+          const needsReview = allBookings.filter((b: any) => b.needsReview);
+          const others = allBookings.filter((b: any) => !b.needsReview);
+          const sorted = [...needsReview, ...others];
+
+          if (!sorted.length) {
+            return (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-3">
+                  <Clock size={24} className="text-muted-foreground" />
+                </div>
+                <p className="font-medium text-foreground">No bookings yet</p>
+                <p className="text-sm text-muted-foreground mt-1">Bookings from clients will appear here.</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-3">
+              {sorted.map((b: any) => {
+                const isExpanded = expandedBookingId === b.id;
+                const answers = b.reviewAnswers ? (typeof b.reviewAnswers === "string" ? JSON.parse(b.reviewAnswers) : b.reviewAnswers) : null;
+                return (
+                  <div key={b.id} className={cn(
+                    "rounded-2xl border bg-card overflow-hidden transition-all",
+                    b.needsReview ? "border-amber-300 dark:border-amber-700" : "border-border"
+                  )}>
+                    <div
+                      className="p-4 flex items-start gap-3 cursor-pointer"
+                      onClick={() => setExpandedBookingId(isExpanded ? null : b.id)}
+                    >
+                      {b.needsReview && (
+                        <div className="flex-shrink-0 mt-0.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                            <Sparkles size={10} /> Needs Review
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{b.client?.name ?? "Client"}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{b.serviceType ?? "Service"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(b.scheduledAt as any).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                          {" · "}
+                          {new Date(b.scheduledAt as any).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize",
+                          b.status === "confirmed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                          b.status === "pending" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                          "bg-muted text-muted-foreground"
+                        )}>{b.status}</span>
+                        {isExpanded ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+                      </div>
+                    </div>
+
+                    {/* Expanded review panel */}
+                    {isExpanded && b.needsReview && (
+                      <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
+                        {answers && (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Client Answers</p>
+                            {Object.entries(answers).map(([k, v]) => (
+                              <p key={k} className="text-xs text-muted-foreground"><span className="text-foreground font-medium">{k}:</span> {String(v)}</p>
+                            ))}
+                          </div>
+                        )}
+                        {b.reviewRecommendedService && (
+                          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">
+                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Suggested service</p>
+                            <p className="text-sm font-medium text-foreground mt-0.5">{b.reviewRecommendedService}</p>
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-xs text-muted-foreground mb-1 block">Notes to client (optional)</label>
+                          <textarea
+                            value={reviewNotes}
+                            onChange={e => setReviewNotes(e.target.value)}
+                            rows={2}
+                            placeholder="Add a note for the client…"
+                            className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            size="sm"
+                            className="rounded-xl"
+                            onClick={() => reviewAction.mutate({ bookingId: b.id, action: "approve", techNotes: reviewNotes || undefined })}
+                            disabled={reviewAction.isPending}
+                          >
+                            <CheckCircle2 size={13} className="mr-1" /> Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() => reviewAction.mutate({ bookingId: b.id, action: "changeService", serviceType: b.reviewRecommendedService ?? undefined, techNotes: reviewNotes || undefined })}
+                            disabled={reviewAction.isPending}
+                          >
+                            <Sparkles size={13} className="mr-1" /> Use Suggestion
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl col-span-2"
+                            onClick={() => reviewAction.mutate({ bookingId: b.id, action: "requestInfo", techNotes: reviewNotes || undefined })}
+                            disabled={reviewAction.isPending}
+                          >
+                            <MessageSquare size={13} className="mr-1" /> Request More Info
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {/* Smart Match tab */}
+        {activeTab === "smartmatch" && (() => {
+          const configs = (smConfigs as any[]) ?? [];
+          return (
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Sparkles size={16} className="text-primary" />
+                  <h2 className="font-semibold text-foreground">Smart Service Match</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">Customize the questionnaire clients see when booking each service category. Toggle categories on or off to control when Smart Match activates.</p>
+              </div>
+              {configs.map((cfg: any) => (
+                <div key={cfg.serviceCategory} className="rounded-2xl border border-border bg-card overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <p className="text-sm font-medium text-foreground">{cfg.serviceCategory}</p>
+                    <button
+                      onClick={() => upsertSmConfig.mutate({ serviceCategory: cfg.serviceCategory, isEnabled: !cfg.effective?.isEnabled })}
+                      className={cn(
+                        "relative w-10 h-5 rounded-full transition-colors",
+                        cfg.effective?.isEnabled !== false ? "bg-primary" : "bg-muted"
+                      )}
+                    >
+                      <span className={cn(
+                        "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+                        cfg.effective?.isEnabled !== false ? "translate-x-5" : "translate-x-0.5"
+                      )} />
+                    </button>
+                  </div>
+                  {cfg.effective?.isEnabled !== false && (
+                    <div className="border-t border-border px-4 py-3 space-y-2">
+                      {(cfg.effective?.questions ?? []).map((q: any, i: number) => (
+                        <div key={q.id} className="text-xs">
+                          <span className="font-medium text-foreground">{i + 1}. {q.text}</span>
+                          <span className="text-muted-foreground ml-1">({q.options.join(", ")})</span>
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-muted-foreground mt-1">Full question editor coming soon — contact support to customize questions.</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {configs.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Sparkles size={28} className="text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Loading Smart Match configurations…</p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Add Slot Dialog */}

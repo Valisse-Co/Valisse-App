@@ -7,6 +7,7 @@ import { MediaCarousel } from "@/components/MediaCarousel";
 import {
   ArrowLeft,
   Calendar,
+  Camera,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
   Scissors,
   Shield,
   Sparkles,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -50,7 +52,11 @@ function formatDateStr(str: string) {
   });
 }
 
-const STEPS = ["Service", "Date", "Time", "Confirm"];
+const STEPS = ["Service", "Smart Match", "Date", "Time", "Confirm"];
+
+// ─── Smart Match types ────────────────────────────────────────────────────────
+type SMQuestion = { id: string; text: string; options: string[] };
+type SMOutcome = "match" | "recommend" | "review";
 
 export default function BookingFlow() {
   const [, params] = useRoute("/book/:techId");
@@ -64,6 +70,14 @@ export default function BookingFlow() {
   // ── State ────────────────────────────────────────────────────────────────
   const [step, setStep]                   = useState(0);
   const [selectedService, setSelectedService] = useState<BookingService | null>(null);
+
+  // ── Smart Match state ─────────────────────────────────────────────────────
+  const [smAnswers, setSmAnswers]           = useState<Record<string, string>>({});
+  const [smOutcome, setSmOutcome]           = useState<SMOutcome | null>(null);
+  const [smRecommended, setSmRecommended]   = useState<string | null>(null);
+  const [smPhotoFiles, setSmPhotoFiles]     = useState<File[]>([]);
+  const [smPhotoPreviews, setSmPhotoPreviews] = useState<string[]>([]);
+  const [smSkipped, setSmSkipped]           = useState(false);
   const [calMonth, setCalMonth]           = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -72,6 +86,17 @@ export default function BookingFlow() {
   const [selectedTime, setSelectedTime]   = useState<string | null>(null);
   const [notes, setNotes]                 = useState("");
   const [booked, setBooked]               = useState(false);
+
+  // ── Smart Match queries ───────────────────────────────────────────────────
+  const smEnabledQuery = trpc.smartMatch.isEnabled.useQuery(
+    { techId, serviceId: selectedService ? Number(selectedService.id) : 0 },
+    { enabled: techId > 0 && !!selectedService && !isNaN(Number(selectedService.id)) }
+  );
+  const smConfigQuery = trpc.smartMatch.getConfig.useQuery(
+    { techId, serviceCategory: selectedService?.label ?? "" },
+    { enabled: techId > 0 && !!selectedService }
+  );
+  const smEvaluate = trpc.smartMatch.evaluate.useMutation();
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const techQuery = trpc.users.getProfile.useQuery(
@@ -183,7 +208,7 @@ export default function BookingFlow() {
           price: match.priceInCents != null ? match.priceInCents / 100 : null,
           photoUrl: match.photoUrl ?? null,
         });
-        setStep(1);
+        setStep(1); // go to Smart Match step
         setAutoSelected(true);
         return;
       }
@@ -202,7 +227,7 @@ export default function BookingFlow() {
         price: match.priceInCents != null ? match.priceInCents / 100 : null,
         photoUrl: match.photoUrl ?? null,
       });
-      setStep(1);
+      setStep(1); // go to Smart Match step
       setAutoSelected(true);
     }
   }, [postData, techServicesQuery.data, autoSelected, preselectedServiceId]);
@@ -268,15 +293,34 @@ export default function BookingFlow() {
 
   function canAdvance() {
     if (step === 0) return !!selectedService;
-    if (step === 1) return !!selectedDate;
-    if (step === 2) return !!selectedTime;
-    if (step === 3) return true; // confirm screen always enabled
+    if (step === 1) return true; // Smart Match — always can continue (skip allowed)
+    if (step === 2) return !!selectedDate;
+    if (step === 3) return !!selectedTime;
+    if (step === 4) return true;
     return false;
   }
 
-  function advance() {
-    if (step === 3) { handleConfirm(); }
-    else { setStep(s => s + 1); }
+  async function advance() {
+    if (step === 4) { handleConfirm(); return; }
+    // When leaving Smart Match step, evaluate if answers were provided
+    if (step === 1 && !smSkipped && Object.keys(smAnswers).length > 0) {
+      const cfg = smConfigQuery.data as any;
+      if (cfg) {
+        const result = await smEvaluate.mutateAsync({
+          techId,
+          serviceCategory: selectedService?.label ?? "",
+          answers: smAnswers,
+        });
+        setSmOutcome(result.outcome as SMOutcome);
+        setSmRecommended(result.recommendedService);
+        // If outcome is "review" or "recommend", stay on step 1 to show outcome screen
+        if (result.outcome !== "match") {
+          setSmOutcome(result.outcome as SMOutcome);
+          return; // show outcome screen
+        }
+      }
+    }
+    setStep(s => s + 1);
   }
 
   useEffect(() => { if (!techId) navigate("/discover"); }, [techId]);
@@ -416,8 +460,165 @@ export default function BookingFlow() {
             </div>
           )}
 
-          {/* Step 1 — Calendar */}
-          {step === 1 && (
+          {/* Step 1 — Smart Match Questionnaire */}
+          {step === 1 && (() => {
+            const smEnabled = smEnabledQuery.data;
+            const cfg = smConfigQuery.data as any;
+            const questions: SMQuestion[] = cfg?.questions ?? [];
+
+            // If Smart Match is disabled for this service, auto-skip to date step
+            if (smEnabledQuery.isFetched && smEnabled === false) {
+              setTimeout(() => setStep(2), 0);
+              return null;
+            }
+
+            // Outcome screen — recommend
+            if (smOutcome === "recommend" && smRecommended) {
+              return (
+                <div className="space-y-5">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
+                      <Sparkles className="w-7 h-7 text-amber-500" />
+                    </div>
+                    <h1 className="text-xl font-serif font-semibold text-foreground">We have a suggestion</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Based on your answers, this service may be a better fit:</p>
+                  </div>
+                  <Card className="p-4 rounded-2xl border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                    <p className="font-semibold text-foreground">{smRecommended}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Your nail tech will confirm the details after reviewing your booking.</p>
+                  </Card>
+                  <div className="flex flex-col gap-2">
+                    <Button className="w-full" onClick={() => setStep(2)}>Book with Recommendation</Button>
+                    <Button variant="ghost" className="w-full" onClick={() => { setSmOutcome(null); setStep(2); }}>Continue with Original Service</Button>
+                  </div>
+                </div>
+              );
+            }
+
+            // Outcome screen — needs review
+            if (smOutcome === "review") {
+              return (
+                <div className="space-y-5">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <Sparkles className="w-7 h-7 text-primary" />
+                    </div>
+                    <h1 className="text-xl font-serif font-semibold text-foreground">Sending to your nail tech</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Your answers suggest a custom consultation. Your nail tech will review and confirm the best service for you.</p>
+                  </div>
+                  <Card className="p-4 rounded-2xl border-border space-y-2">
+                    {Object.entries(smAnswers).map(([qId, ans]) => {
+                      const q = questions.find((q: SMQuestion) => q.id === qId);
+                      return q ? (
+                        <div key={qId} className="text-sm">
+                          <span className="text-muted-foreground">{q.text}: </span>
+                          <span className="font-medium text-foreground">{ans}</span>
+                        </div>
+                      ) : null;
+                    })}
+                  </Card>
+                  <Button className="w-full" onClick={() => setStep(2)}>Continue to Booking</Button>
+                </div>
+              );
+            }
+
+            // Loading state
+            if (smConfigQuery.isLoading || smEnabledQuery.isLoading) {
+              return (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              );
+            }
+
+            // No questions configured or SM disabled globally — skip
+            if (!questions.length) {
+              setTimeout(() => setStep(2), 0);
+              return null;
+            }
+
+            // Questionnaire
+            return (
+              <div className="space-y-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <h1 className="text-xl font-serif font-semibold text-foreground">Smart Service Match</h1>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Answer a few quick questions so we can make sure you're booked for the right service.</p>
+                </div>
+
+                {questions.map((q: SMQuestion) => (
+                  <div key={q.id} className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">{q.text}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {q.options.map((opt: string) => (
+                        <button
+                          key={opt}
+                          onClick={() => setSmAnswers(prev => ({ ...prev, [q.id]: opt }))}
+                          className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                            smAnswers[q.id] === opt
+                              ? "border-primary bg-primary/10 text-primary font-medium"
+                              : "border-border text-muted-foreground hover:border-primary/40"
+                          }`}
+                        >{opt}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Photo upload */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-foreground">Inspiration photos <span className="text-muted-foreground font-normal">(optional)</span></p>
+                  <div className="flex flex-wrap gap-2">
+                    {smPhotoPreviews.map((src, i) => (
+                      <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-border">
+                        <img src={src} alt="" className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => {
+                            setSmPhotoFiles(f => f.filter((_, j) => j !== i));
+                            setSmPhotoPreviews(p => p.filter((_, j) => j !== i));
+                          }}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 flex items-center justify-center"
+                        ><X className="w-2.5 h-2.5 text-white" /></button>
+                      </div>
+                    ))}
+                    {smPhotoPreviews.length < 5 && (
+                      <label className="w-16 h-16 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/40 transition-colors">
+                        <Camera className="w-5 h-5 text-muted-foreground" />
+                        <span className="text-[10px] text-muted-foreground mt-0.5">Add</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={e => {
+                            const files = Array.from(e.target.files ?? []);
+                            files.forEach(file => {
+                              const reader = new FileReader();
+                              reader.onload = ev => {
+                                setSmPhotoPreviews(p => [...p, ev.target?.result as string]);
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                            setSmPhotoFiles(f => [...f, ...files]);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => { setSmSkipped(true); setStep(2); }}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+                >Skip and continue without Smart Match</button>
+              </div>
+            );
+          })()}
+
+          {/* Step 2 — Calendar */}
+          {step === 2 && (
             <div className="space-y-4">
               <div>
                 <h1 className="text-xl font-serif font-semibold text-foreground">Pick a date</h1>
@@ -533,8 +734,8 @@ export default function BookingFlow() {
             </div>
           )}
 
-          {/* Step 2 — Time slots */}
-          {step === 2 && (
+          {/* Step 3 — Time slots */}
+          {step === 3 && (
             <div className="space-y-4">
               <div>
                 <h1 className="text-xl font-serif font-semibold text-foreground">Choose a time</h1>
@@ -667,8 +868,8 @@ export default function BookingFlow() {
             </div>
           )}
 
-          {/* Step 3 — Confirm */}
-          {step === 3 && (
+          {/* Step 4 — Confirm */}
+          {step === 4 && (
             <div className="space-y-5">
               <div>
                 <h1 className="text-xl font-serif font-semibold text-foreground">Confirm booking</h1>
@@ -793,8 +994,8 @@ export default function BookingFlow() {
           >
             {createBooking.isPending ? (
               <><Loader2 className="w-4 h-4 animate-spin mr-2" />Requesting…</>
-            ) : step === 3 ? "Confirm & Request"
-              : step === 2 ? "Review Booking"
+            ) : step === 4 ? "Confirm & Request"
+              : step === 3 ? "Review Booking"
               : "Continue"}
           </Button>
         </div>

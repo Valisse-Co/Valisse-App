@@ -110,6 +110,18 @@ import {
   initTechSubscription,
 } from "./db";
 import { storagePut } from "./storage";
+import {
+  getSmartMatchConfig,
+  getAllSmartMatchConfigsForTech,
+  upsertSmartMatchConfig,
+  saveSmartMatchResponse,
+  evaluateSmartMatch,
+  isSmartMatchEnabled,
+  applyTechReviewAction,
+  SYSTEM_DEFAULTS,
+  getSmartMatchGlobalEnabled,
+  setSmartMatchGlobalEnabled,
+} from "./smartMatch";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 const authRouter = router({
@@ -1317,6 +1329,132 @@ const settingsRouter = router({
     }),
 });
 
+// ─── Smart Match ─────────────────────────────────────────────────────────────
+const smartMatchRouter = router({
+  // Get the effective config (tech override or system default) for a category
+  getConfig: publicProcedure
+    .input(z.object({ techId: z.number(), serviceCategory: z.string() }))
+    .query(async ({ input }) => {
+      return await getSmartMatchConfig(input.techId, input.serviceCategory);
+    }),
+
+  // Check if smart match is enabled for a tech+service combo
+  isEnabled: publicProcedure
+    .input(z.object({ techId: z.number(), serviceId: z.number() }))
+    .query(async ({ input }) => {
+      return await isSmartMatchEnabled(input.techId, input.serviceId);
+    }),
+
+  // Get all category configs for a tech (dashboard editor)
+  getAllConfigs: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      return await getAllSmartMatchConfigsForTech(ctx.user.id);
+    }),
+
+  // Evaluate answers against rules (client-side call before booking is created)
+  evaluate: publicProcedure
+    .input(z.object({
+      techId: z.number(),
+      serviceCategory: z.string(),
+      answers: z.record(z.string(), z.string()),
+    }))
+    .mutation(async ({ input }) => {
+      const cfg = await getSmartMatchConfig(input.techId, input.serviceCategory);
+      if (!cfg) return { outcome: "match" as const, recommendedService: null };
+      return evaluateSmartMatch(input.answers, cfg.rules as { if: string[]; recommend: string; outcome: "match" | "recommend" | "review" }[]);
+    }),
+
+  // Save response + flag booking if needed
+  saveResponse: protectedProcedure
+    .input(z.object({
+      bookingId: z.number(),
+      techId: z.number(),
+      serviceCategory: z.string(),
+      answers: z.record(z.string(), z.string()),
+      outcome: z.enum(["match", "recommend", "review"]),
+      recommendedService: z.string().nullable(),
+      photoUrls: z.array(z.string()).default([]),
+    }))
+    .mutation(async ({ input }) => {
+      await saveSmartMatchResponse({
+        bookingId: input.bookingId,
+        techId: input.techId,
+        serviceCategory: input.serviceCategory,
+        answers: input.answers as Record<string, string>,
+        outcome: input.outcome,
+        recommendedService: input.recommendedService,
+        photoUrls: input.photoUrls,
+      });
+      return { success: true };
+    }),
+
+  // Tech: upsert a config override
+  upsertConfig: protectedProcedure
+    .input(z.object({
+      serviceCategory: z.string(),
+      questions: z.array(z.object({
+        id: z.string(),
+        text: z.string(),
+        options: z.array(z.string()),
+      })).optional(),
+      rules: z.array(z.object({
+        if: z.array(z.string()),
+        recommend: z.string(),
+        outcome: z.enum(["match", "recommend", "review"]),
+      })).optional(),
+      isEnabled: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      await upsertSmartMatchConfig(ctx.user.id, input.serviceCategory, {
+        questions: input.questions,
+        rules: input.rules,
+        isEnabled: input.isEnabled,
+      });
+      return { success: true };
+    }),
+
+  // Tech: apply review action on a flagged booking
+  reviewAction: protectedProcedure
+    .input(z.object({
+      bookingId: z.number(),
+      action: z.enum(["approve", "changeService", "requestInfo", "adjustPriceDuration"]),
+      serviceType: z.string().optional(),
+      techNotes: z.string().optional(),
+      duration: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      await applyTechReviewAction(input.bookingId, input.action, {
+        serviceType: input.serviceType,
+        techNotes: input.techNotes,
+        duration: input.duration,
+      });
+      return { success: true };
+    }),
+
+  // Get system default categories list (for UI dropdowns)
+  getCategories: publicProcedure.query(() => {
+    return SYSTEM_DEFAULTS.map((d) => d.serviceCategory);
+  }),
+
+  // Get global Smart Match toggle for the authenticated tech
+  getGlobalEnabled: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.userType !== "nail_tech") return true;
+    return await getSmartMatchGlobalEnabled(ctx.user.id);
+  }),
+
+  // Set global Smart Match toggle for the authenticated tech
+  setGlobalEnabled: protectedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      await setSmartMatchGlobalEnabled(ctx.user.id, input.enabled);
+      return { success: true };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -1335,6 +1473,7 @@ export const appRouter = router({
   reports: reportsRouter,
   cancellation: cancellationRouter,
   settings: settingsRouter,
+  smartMatch: smartMatchRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -56,6 +56,8 @@ export const users = mysqlTable("users", {
   // Dual-role account system
   hasDualRole: boolean("hasDualRole").default(false).notNull(),
   activeMode: mysqlEnum("activeMode", ["client", "nail_tech"]).default("client").notNull(),
+  // Smart Service Match global toggle (tech only)
+  smartMatchEnabled: boolean("smartMatchEnabled").default(true).notNull(),
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),
@@ -243,6 +245,11 @@ export const bookings = mysqlTable("bookings", {
   cancelledAt: timestamp("cancelledAt"),
   cancellationFeeStatus: mysqlEnum("cancellationFeeStatus", ["none", "pending", "waived", "charged"]).default("none").notNull(),
   cancellationFeeAmount: float("cancellationFeeAmount"), // resolved fee in dollars at time of cancel
+  // Smart Service Match
+  needsReview: boolean("needsReview").default(false).notNull(),
+  reviewAnswers: json("reviewAnswers").$type<Record<string, string>>(),
+  reviewRecommendedService: varchar("reviewRecommendedService", { length: 128 }),
+  reviewPhotoUrls: json("reviewPhotoUrls").$type<string[]>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -375,12 +382,49 @@ export const techServices = mysqlTable("tech_services", {
   durationMinutes: int("durationMinutes").default(60).notNull(), // 5-min increments, max 360
   sortOrder: int("sortOrder").default(0).notNull(),
   isActive: boolean("isActive").default(true).notNull(),
+  smartMatchEnabled: boolean("smartMatchEnabled").default(true).notNull(), // per-service Smart Match toggle
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type TechService = typeof techServices.$inferSelect;
 export type InsertTechService = typeof techServices.$inferInsert;
+
+// ─── Smart Match Configs ──────────────────────────────────────────────────────
+// System defaults have techId = null. Tech overrides have a techId.
+// questions: Array<{ id: string; text: string; options: string[] }>
+// rules: Array<{ if: string[]; recommend: string; outcome: 'match'|'recommend'|'review' }>
+export const smartMatchConfigs = mysqlTable("smart_match_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId"),           // null = system default
+  serviceCategory: varchar("serviceCategory", { length: 128 }).notNull(),
+  questions: json("questions").$type<Array<{ id: string; text: string; options: string[] }>>().notNull(),
+  rules: json("rules").$type<Array<{ if: string[]; recommend: string; outcome: "match" | "recommend" | "review" }>>().notNull(),
+  isEnabled: boolean("isEnabled").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SmartMatchConfig = typeof smartMatchConfigs.$inferSelect;
+export type InsertSmartMatchConfig = typeof smartMatchConfigs.$inferInsert;
+
+// ─── Smart Match Responses ────────────────────────────────────────────────────
+// Stores the client's questionnaire answers and the resulting outcome.
+// photoUrls: S3 URLs for any inspiration photos uploaded during the questionnaire.
+export const smartMatchResponses = mysqlTable("smart_match_responses", {
+  id: int("id").autoincrement().primaryKey(),
+  bookingId: int("bookingId").notNull(),
+  techId: int("techId").notNull(),
+  serviceCategory: varchar("serviceCategory", { length: 128 }).notNull(),
+  answers: json("answers").$type<Record<string, string>>().notNull(),
+  outcome: mysqlEnum("outcome", ["match", "recommend", "review"]).notNull(),
+  recommendedService: varchar("recommendedService", { length: 128 }),
+  photoUrls: json("photoUrls").$type<string[]>().default([]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SmartMatchResponse = typeof smartMatchResponses.$inferSelect;
+export type InsertSmartMatchResponse = typeof smartMatchResponses.$inferInsert;
 
 // ─── Notification Preferences ─────────────────────────────────────────────────
 // Per-user, per-type channel preferences (in-app, SMS, email).

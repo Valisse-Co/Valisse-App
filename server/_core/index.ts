@@ -31,6 +31,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Seed Smart Match default questionnaires (no-op if already seeded)
+  try {
+    const { seedSmartMatchDefaults } = await import("../smartMatch");
+    await seedSmartMatchDefaults();
+  } catch (e) {
+    console.warn("[SmartMatch] Seed skipped:", e);
+  }
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

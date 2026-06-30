@@ -330,3 +330,26 @@
 - [x] Frontend: Deactivation warning modal — list upcoming bookings that will be cancelled, state cancellation fees apply for client-initiated cancellations, require typed confirmation ("DEACTIVATE")
 - [x] Frontend: Permanent deletion warning modal — same booking/fee warning plus stronger language ("all data will be erased, this cannot be undone"), require typed confirmation ("DELETE")
 - [x] Frontend: Reactivation gate — after sign-in, if account is deactivated show full-screen "Your account is deactivated" page with single "Reactivate My Account" button before granting access to the app
+
+## Smart Service Match
+- [x] Schema: smart_match_configs table (id, techId nullable, serviceCategory, questions JSON, rules JSON, isEnabled, createdAt, updatedAt); smart_match_responses table (id, bookingId, techId, serviceCategory, answers JSON, outcome, recommendedService, photoUrls JSON, createdAt); bookings.needsReview bool default false, bookings.reviewAnswers JSON, bookings.reviewRecommendedService; migration + apply
+- [x] Seed: 13 default questionnaire configs (Gel Manicure, Structured Gel, Acrylic Full Set, Acrylic Fill, Gel-X, Dip Powder, Manicure, Pedicure, Nail Art/Add-Ons, Removal, Repair, Press-On, Custom/Not Sure) as system defaults (techId=null)
+- [x] Backend: getSmartMatchConfig(techId, serviceCategory) — returns tech-customized config if exists, else system default
+- [x] Backend: evaluateSmartMatchRules(answers, rules) — pure function returning outcome (match|recommend|review) + recommendedService
+- [x] Backend: submitSmartMatchResponse — save answers, outcome, photo S3 uploads, link to booking; if outcome=review set booking.needsReview=true
+- [x] Backend: getTechBookings — sort needsReview=true first, then by scheduledAt; include reviewAnswers + reviewRecommendedService
+- [x] Backend: techReviewAction procedure — approve | changeService | requestInfo | adjustPriceDuration
+- [x] Backend: getSmartMatchConfigs (tech dashboard) — list all categories with tech overrides
+- [x] Backend: updateSmartMatchConfig — tech can edit questions/rules/isEnabled per category
+- [x] Backend: globalSmartMatchToggle — settings.updateProfile adds smartMatchEnabled bool to tech profile
+- [x] Backend: perServiceSmartMatch — tech_services.smartMatchEnabled bool column; migration + apply
+- [x] Frontend: BookingFlow — after service selected, check if smart match is enabled (global + per-service); if yes insert Smart Match step before date picker
+- [x] Frontend: Smart Match questionnaire UI — progress indicator (Q 1 of 3), large touch-target choice buttons, back navigation, smooth step transitions
+- [x] Frontend: Smart Match photo upload step — shown for Nail Art/Add-Ons and Custom categories; S3 upload, preview thumbnails
+- [x] Frontend: Smart Match outcome — Match screen (green check, "Great! Your selected service looks like the right choice", continue to date picker)
+- [x] Frontend: Smart Match outcome — Recommend screen (recommended service name, 3 action buttons: Switch / Send to Tech / Continue Anyway)
+- [x] Frontend: Smart Match outcome — Review screen (send to tech as primary, continue anyway, go back)
+- [x] Frontend: Tech Dashboard — Smart Match tab with category list; per-category toggle + question/rule editor (add/edit/delete questions, edit rules)
+- [x] Frontend: Tech Dashboard Bookings tab — Needs Review cards sorted to top with amber badge; expandable panel showing client answers + recommended service; action buttons (Approve / Change Service / Request Info / Adjust Price+Duration)
+- [x] Frontend: Settings Profile — global Smart Match on/off toggle for tech (smartMatchEnabled)
+- [x] Frontend: Service create/edit dialog — per-service Smart Match toggle (smartMatchEnabled on tech_services row)

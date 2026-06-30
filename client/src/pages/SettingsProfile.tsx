@@ -23,6 +23,7 @@ import {
   Pencil,
   Check,
   X,
+  Sparkles,
 } from "lucide-react";
 import {
   Dialog,
@@ -302,6 +303,15 @@ export default function SettingsProfile() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>((user as any)?.avatarUrl ?? null);
   const avatarRef = useRef<HTMLInputElement>(null);
 
+  // Smart Match global toggle
+  const { data: smGlobalEnabled, refetch: refetchSmGlobal } = trpc.smartMatch.getGlobalEnabled.useQuery(undefined, {
+    enabled: user?.userType === "nail_tech",
+  });
+  const setSmGlobal = trpc.smartMatch.setGlobalEnabled.useMutation({
+    onSuccess: () => { refetchSmGlobal(); toast.success("Smart Match setting saved"); },
+    onError: (e) => toast.error(e.message),
+  });
+
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<ServiceForm | null>(null);
@@ -496,6 +506,32 @@ export default function SettingsProfile() {
                     <Input className="pl-7" placeholder="yourhandle" value={instagramHandle} onChange={(e) => setInstagramHandle(e.target.value)} />
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Smart Match global toggle */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} className="text-primary" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Smart Service Match</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Ask clients a few questions before booking to ensure the right service</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSmGlobal.mutate({ enabled: !(smGlobalEnabled ?? true) })}
+                  disabled={setSmGlobal.isPending}
+                  className={cn(
+                    "relative w-10 h-5 rounded-full transition-colors flex-shrink-0",
+                    (smGlobalEnabled ?? true) ? "bg-primary" : "bg-muted"
+                  )}
+                >
+                  <span className={cn(
+                    "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+                    (smGlobalEnabled ?? true) ? "translate-x-5" : "translate-x-0.5"
+                  )} />
+                </button>
               </div>
             </div>
 
