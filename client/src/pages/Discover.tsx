@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap } from "lucide-react";
+import { SaveAlbumSheet } from "@/components/SaveAlbumSheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -100,25 +101,21 @@ export default function Discover() {
     };
   }, [rawFeed]);
 
-  const { data: userSaves } = trpc.collections.savedPosts.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: savedPostIdsData } = trpc.collections.savedPostIds.useQuery(undefined, { enabled: isAuthenticated });
   const savedSet = useMemo(
-    () => new Set((userSaves ?? []).map((s: any) => s.savedPost?.postId ?? s.post?.id)),
-    [userSaves]
+    () => new Set<number>(savedPostIdsData ?? []),
+    [savedPostIdsData]
   );
 
+  // Album sheet state
+  const [albumSheetPostId, setAlbumSheetPostId] = useState<number | null>(null);
+  const [localSavedOverrides, setLocalSavedOverrides] = useState<Map<number, boolean>>(new Map());
   const utils = trpc.useUtils();
-  const toggleSave = trpc.posts.toggleSave.useMutation({
-    onSuccess: (data) => {
-      toast.success(data.saved ? "Saved to collection" : "Removed from saved");
-      utils.collections.savedPosts.invalidate();
-      utils.posts.feed.invalidate();
-    },
-  });
 
   const handleSave = (postId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!isAuthenticated) { toast.error("Sign in to save posts"); return; }
-    toggleSave.mutate({ postId });
+    setAlbumSheetPostId(postId);
   };
 
   const clearAll = () => {
@@ -446,7 +443,7 @@ export default function Discover() {
                     item._slotCard
                       ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
-                          saved={savedSet.has(item.post.id)} onSave={handleSave}
+                          saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
                           onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
                   )}
                 </div>
@@ -455,7 +452,7 @@ export default function Discover() {
                     item._slotCard
                       ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
-                          saved={savedSet.has(item.post.id)} onSave={handleSave}
+                          saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
                           onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
                   )}
                 </div>
@@ -479,14 +476,14 @@ export default function Discover() {
                 <div className="flex-1 flex flex-col gap-3">
                   {partialCols.left.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      saved={localSavedOverrides.has(post.id) ? localSavedOverrides.get(post.id)! : savedSet.has(post.id)} onSave={handleSave}
                       onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
                 <div className="flex-1 flex flex-col gap-3 mt-6">
                   {partialCols.right.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                      saved={savedSet.has(post.id)} onSave={handleSave}
+                      saved={localSavedOverrides.has(post.id) ? localSavedOverrides.get(post.id)! : savedSet.has(post.id)} onSave={handleSave}
                       onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
@@ -495,6 +492,23 @@ export default function Discover() {
           </>
         )}
       </div>
+
+      {/* Album picker sheet */}
+      {albumSheetPostId !== null && (
+        <SaveAlbumSheet
+          postId={albumSheetPostId}
+          open={albumSheetPostId !== null}
+          onOpenChange={(open) => { if (!open) setAlbumSheetPostId(null); }}
+          onSaveStateChange={(isSaved) => {
+            setLocalSavedOverrides(prev => {
+              const next = new Map(Array.from(prev.entries()));
+              next.set(albumSheetPostId!, isSaved);
+              return next;
+            });
+            utils.collections.savedPostIds.invalidate();
+          }}
+        />
+      )}
     </div>
   );
 }

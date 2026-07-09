@@ -155,6 +155,17 @@ export const savedPosts = mysqlTable("saved_posts", {
 
 export type SavedPost = typeof savedPosts.$inferSelect;
 
+// ─── Post Album Memberships (many-to-many: saved post ↔ custom album) ────────
+export const postAlbumMemberships = mysqlTable("post_album_memberships", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  postId: int("postId").notNull(),
+  collectionId: int("collectionId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PostAlbumMembership = typeof postAlbumMemberships.$inferSelect;
+
 // ─── Follows ──────────────────────────────────────────────────────────────────
 export const follows = mysqlTable("follows", {
   id: int("id").autoincrement().primaryKey(),

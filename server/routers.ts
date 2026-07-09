@@ -36,7 +36,13 @@ import {
   getUserConversations,
   getUserLikes,
   getUserNotifications,
-  getUserSavedPosts,
+  getSavedPostIds,
+  getSavedPostsForAlbum,
+  getCollectionsWithMeta,
+  getPostSaveState,
+  savePost,
+  unsavePost,
+  setAlbumMemberships,
   incrementPostViews,
   markMessagesRead,
   markNotificationsRead,
@@ -435,6 +441,29 @@ const postsRouter = router({
     .input(z.object({ postId: z.number(), collectionId: z.number().optional() }))
     .mutation(async ({ ctx, input }) => toggleSave(ctx.user.id, input.postId, input.collectionId)),
 
+  /** Save a post (idempotent — always ends up saved) */
+  save: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => savePost(ctx.user.id, input.postId)),
+
+  /** Unsave a post and remove all album memberships */
+  unsave: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .mutation(async ({ ctx, input }) => unsavePost(ctx.user.id, input.postId)),
+
+  /** Get save state + album membership for a single post */
+  saveState: protectedProcedure
+    .input(z.object({ postId: z.number() }))
+    .query(async ({ ctx, input }) => getPostSaveState(ctx.user.id, input.postId)),
+
+  /** Replace album memberships for a post (must already be saved) */
+  setAlbumMemberships: protectedProcedure
+    .input(z.object({ postId: z.number(), collectionIds: z.array(z.number()) }))
+    .mutation(async ({ ctx, input }) => {
+      await setAlbumMemberships(ctx.user.id, input.postId, input.collectionIds);
+      return { success: true };
+    }),
+
   userLikes: protectedProcedure
     .input(z.object({ postIds: z.array(z.number()) }))
     .query(async ({ ctx, input }) => getUserLikes(ctx.user.id, input.postIds)),
@@ -460,6 +489,10 @@ const postsRouter = router({
 
 // ─── Collections ──────────────────────────────────────────────────────────────
 const collectionsRouter = router({
+  /** All custom albums with post count + cover image for the Saved tab grid */
+  listWithMeta: protectedProcedure.query(async ({ ctx }) => getCollectionsWithMeta(ctx.user.id)),
+
+  /** Legacy list — kept for any existing callers */
   list: protectedProcedure.query(async ({ ctx }) => getUserCollections(ctx.user.id)),
 
   create: protectedProcedure
@@ -484,7 +517,16 @@ const collectionsRouter = router({
       return { success: true };
     }),
 
-  savedPosts: protectedProcedure.query(async ({ ctx }) => getUserSavedPosts(ctx.user.id)),
+  /** Posts in a specific album (collectionId=null means All Saved) */
+  postsInAlbum: protectedProcedure
+    .input(z.object({ collectionId: z.number().nullable() }))
+    .query(async ({ ctx, input }) => getSavedPostsForAlbum(ctx.user.id, input.collectionId)),
+
+  /** Batch saved post IDs for feed icon state */
+  savedPostIds: protectedProcedure.query(async ({ ctx }) => getSavedPostIds(ctx.user.id)),
+
+  /** Legacy savedPosts — kept for any remaining callers */
+  savedPosts: protectedProcedure.query(async ({ ctx }) => getSavedPostsForAlbum(ctx.user.id, null)),
 });
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────

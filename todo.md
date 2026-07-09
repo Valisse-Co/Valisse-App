@@ -373,3 +373,18 @@
 - [x] Frontend: Slot notification card — gradient accent bar, Zap icon, pulsing "new" badge, "Book Now" CTA
 - [x] Frontend: Slot section header — pulsing dot + count badge ("2 new") when unread slots exist
 - [x] Frontend: Regular notifications shown below with "Other Notifications" divider
+
+## Save / Album Feature Rebuild
+- [x] Schema: add unique constraint on saved_posts(userId, postId) for canonical save row; add post_album_memberships table (id, userId, postId, collectionId, createdAt) for multi-album membership; migration + apply
+- [x] Backend: savePost helper (upsert canonical save row, increment analytics.saves); unsavePost helper (delete save row + all album memberships, decrement analytics.saves)
+- [x] Backend: setAlbumMemberships(userId, postId, collectionIds[]) — replaces all album memberships for a post in one call
+- [x] Backend: getPostSaveState(userId, postId) — returns { isSaved, albumIds[] }
+- [x] Backend: getSavedPostIds(userId) — batch saved post IDs for feed icon state
+- [x] Backend: getSavedPostsForAlbum(userId, collectionId | null) — null = All Saved
+- [x] Backend: getCollectionsWithMeta(userId) — returns collections with post count and cover image
+- [x] Backend: tRPC procedures — posts.saveState, posts.save, posts.unsave, posts.setAlbumMemberships, collections.listWithMeta, collections.postsInAlbum, collections.savedPostIds
+- [x] Frontend: SaveAlbumSheet component — bottom sheet with checkbox list of custom albums, "New Album" inline input, Save/Done button
+- [x] Frontend: Discover feed — bookmark icon opens SaveAlbumSheet; green when isSaved; sheet pre-checks current albums
+- [x] Frontend: PostDetail — bookmark icon opens SaveAlbumSheet; green when isSaved
+- [x] Frontend: Saved page — grid tiles: "All Saved" first, then custom album tiles; tap tile navigates to album detail view
+- [x] Frontend: Album detail view — grid of posts in that album, with unsave/remove option

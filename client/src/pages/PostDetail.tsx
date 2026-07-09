@@ -3,6 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { ArrowLeft, Bookmark, Share2, Star, MapPin, ChevronRight, Eye, Flag } from "lucide-react";
+import { SaveAlbumSheet } from "@/components/SaveAlbumSheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -30,13 +31,10 @@ export default function PostDetail({ postId }: Props) {
     { enabled: !!data?.post?.techId }
   );
 
-  const toggleSave = trpc.posts.toggleSave.useMutation({
-    onSuccess: (res) => {
-      toast.success(res.saved ? "Saved!" : "Removed from saved");
-      utils.posts.getById.invalidate({ postId });
-      utils.posts.feed.invalidate();
-    },
-  });
+  const [albumSheetOpen, setAlbumSheetOpen] = useState(false);
+  const { data: saveState } = trpc.posts.saveState.useQuery({ postId }, { enabled: isAuthenticated });
+  const [localIsSaved, setLocalIsSaved] = useState<boolean | null>(null);
+  const isSaved = localIsSaved !== null ? localIsSaved : (saveState?.isSaved ?? false);
   const getOrCreateConv = trpc.messaging.getOrCreateConversation.useMutation({
     onSuccess: (conv) => navigate(`/chat/${conv.id}`),
   });
@@ -132,10 +130,13 @@ export default function PostDetail({ postId }: Props) {
         {!isPreview && (
           <div className="absolute top-12 right-4 flex flex-col gap-2">
             <button
-              onClick={() => isAuthenticated ? toggleSave.mutate({ postId }) : toast.error("Sign in to save")}
-              className="w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
+              onClick={() => isAuthenticated ? setAlbumSheetOpen(true) : toast.error("Sign in to save")}
+              className={cn(
+                "w-10 h-10 rounded-full backdrop-blur-sm flex items-center justify-center transition-all",
+                isSaved ? "bg-primary text-white" : "bg-black/30 text-white"
+              )}
             >
-              <Bookmark size={18} />
+              <Bookmark size={18} fill={isSaved ? "currentColor" : "none"} />
             </button>
             <button
               onClick={() => { navigator.clipboard?.writeText(window.location.href); toast.success("Link copied!"); }}
@@ -320,6 +321,19 @@ export default function PostDetail({ postId }: Props) {
           postId={postId}
           open={reportOpen}
           onOpenChange={setReportOpen}
+        />
+      )}
+
+      {/* Album picker sheet */}
+      {isAuthenticated && (
+        <SaveAlbumSheet
+          postId={postId}
+          open={albumSheetOpen}
+          onOpenChange={setAlbumSheetOpen}
+          onSaveStateChange={(saved) => {
+            setLocalIsSaved(saved);
+            utils.collections.savedPostIds.invalidate();
+          }}
         />
       )}
     </div>

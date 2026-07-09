@@ -22,6 +22,7 @@ import {
   posts,
   reviews,
   savedPosts,
+  postAlbumMemberships,
   scheduleBlocks,
   subscriptions,
   cancellationPolicies,
@@ -444,30 +445,156 @@ export async function getUserLikes(userId: number, postIds: number[]) {
 }
 
 // ─── Saves / Collections ──────────────────────────────────────────────────────
-export async function toggleSave(userId: number, postId: number, collectionId?: number) {
+/** Save a post (idempotent). Returns { saved: true } always. */
+export async function savePost(userId: number, postId: number): Promise<{ saved: true }> {
   const db = await getDb();
-  if (!db) return { saved: false };
+  if (!db) return { saved: true };
   const existing = await db
-    .select()
+    .select({ id: savedPosts.id })
     .from(savedPosts)
     .where(and(eq(savedPosts.userId, userId), eq(savedPosts.postId, postId)))
     .limit(1);
-
-  if (existing.length > 0) {
-    await db.delete(savedPosts).where(and(eq(savedPosts.userId, userId), eq(savedPosts.postId, postId)));
-    await db
-      .update(postAnalytics)
-      .set({ saves: sql`GREATEST(${postAnalytics.saves} - 1, 0)` })
-      .where(eq(postAnalytics.postId, postId));
-    return { saved: false };
-  } else {
-    await db.insert(savedPosts).values({ userId, postId, collectionId: collectionId ?? null });
+  if (existing.length === 0) {
+    await db.insert(savedPosts).values({ userId, postId });
     await db
       .update(postAnalytics)
       .set({ saves: sql`${postAnalytics.saves} + 1` })
       .where(eq(postAnalytics.postId, postId));
-    return { saved: true };
   }
+  return { saved: true };
+}
+
+/** Unsave a post and remove all album memberships. Returns { saved: false } always. */
+export async function unsavePost(userId: number, postId: number): Promise<{ saved: false }> {
+  const db = await getDb();
+  if (!db) return { saved: false };
+  const existing = await db
+    .select({ id: savedPosts.id })
+    .from(savedPosts)
+    .where(and(eq(savedPosts.userId, userId), eq(savedPosts.postId, postId)))
+    .limit(1);
+  if (existing.length > 0) {
+    await db.delete(savedPosts).where(and(eq(savedPosts.userId, userId), eq(savedPosts.postId, postId)));
+    await db.delete(postAlbumMemberships).where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.postId, postId)));
+    await db
+      .update(postAnalytics)
+      .set({ saves: sql`GREATEST(${postAnalytics.saves} - 1, 0)` })
+      .where(eq(postAnalytics.postId, postId));
+  }
+  return { saved: false };
+}
+
+/** Replace all album memberships for a post. Pass empty array to clear all. */
+export async function setAlbumMemberships(userId: number, postId: number, collectionIds: number[]): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(postAlbumMemberships).where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.postId, postId)));
+  if (collectionIds.length > 0) {
+    await db.insert(postAlbumMemberships).values(
+      collectionIds.map(collectionId => ({ userId, postId, collectionId }))
+    );
+  }
+}
+
+/** Get save state + album membership for a single post. */
+export async function getPostSaveState(userId: number, postId: number): Promise<{ isSaved: boolean; albumIds: number[] }> {
+  const db = await getDb();
+  if (!db) return { isSaved: false, albumIds: [] };
+  const [saveRow, memberships] = await Promise.all([
+    db.select({ id: savedPosts.id }).from(savedPosts).where(and(eq(savedPosts.userId, userId), eq(savedPosts.postId, postId))).limit(1),
+    db.select({ collectionId: postAlbumMemberships.collectionId }).from(postAlbumMemberships).where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.postId, postId))),
+  ]);
+  return { isSaved: saveRow.length > 0, albumIds: memberships.map(m => m.collectionId) };
+}
+
+/** Batch: get saved post IDs for a user (for feed icon state). */
+export async function getSavedPostIds(userId: number): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ postId: savedPosts.postId }).from(savedPosts).where(eq(savedPosts.userId, userId));
+  return rows.map(r => r.postId);
+}
+
+/** Get saved posts for a user, optionally filtered to a specific album. null = All Saved. */
+export async function getSavedPostsForAlbum(userId: number, collectionId: number | null) {
+  const db = await getDb();
+  if (!db) return [];
+  if (collectionId === null) {
+    // All Saved
+    return db
+      .select({ savedPost: savedPosts, post: posts, tech: users })
+      .from(savedPosts)
+      .leftJoin(posts, eq(savedPosts.postId, posts.id))
+      .leftJoin(users, eq(posts.techId, users.id))
+      .where(eq(savedPosts.userId, userId))
+      .orderBy(desc(savedPosts.createdAt));
+  } else {
+    // Specific album
+    return db
+      .select({ savedPost: savedPosts, post: posts, tech: users })
+      .from(postAlbumMemberships)
+      .innerJoin(savedPosts, and(eq(postAlbumMemberships.postId, savedPosts.postId), eq(postAlbumMemberships.userId, savedPosts.userId)))
+      .leftJoin(posts, eq(postAlbumMemberships.postId, posts.id))
+      .leftJoin(users, eq(posts.techId, users.id))
+      .where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.collectionId, collectionId)))
+      .orderBy(desc(postAlbumMemberships.createdAt));
+  }
+}
+
+/** Get collections with post count and cover image for the Saved tab grid. */
+export async function getCollectionsWithMeta(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const cols = await db.select().from(collections).where(eq(collections.userId, userId)).orderBy(desc(collections.createdAt));
+  const allSavedCount = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(savedPosts)
+    .where(eq(savedPosts.userId, userId));
+  const membershipCounts = await db
+    .select({ collectionId: postAlbumMemberships.collectionId, count: sql<number>`COUNT(*)` })
+    .from(postAlbumMemberships)
+    .where(eq(postAlbumMemberships.userId, userId))
+    .groupBy(postAlbumMemberships.collectionId);
+  // Cover image: first saved post image for All Saved; first membership image per album
+  const allSavedCover = await db
+    .select({ url: posts.imageUrls })
+    .from(savedPosts)
+    .leftJoin(posts, eq(savedPosts.postId, posts.id))
+    .where(eq(savedPosts.userId, userId))
+    .orderBy(desc(savedPosts.createdAt))
+    .limit(1);
+  const albumCovers = await Promise.all(
+    cols.map(async col => {
+      const row = await db!
+        .select({ url: posts.imageUrls })
+        .from(postAlbumMemberships)
+        .leftJoin(posts, eq(postAlbumMemberships.postId, posts.id))
+        .where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.collectionId, col.id)))
+        .orderBy(desc(postAlbumMemberships.createdAt))
+        .limit(1);
+      return { id: col.id, coverUrl: (row[0]?.url as string[] | null)?.[0] ?? null };
+    })
+  );
+  const coverMap = new Map(albumCovers.map(a => [a.id, a.coverUrl]));
+  const countMap = new Map(membershipCounts.map(m => [m.collectionId, Number(m.count)]));
+  return {
+    allSaved: {
+      count: Number(allSavedCount[0]?.count ?? 0),
+      coverUrl: (allSavedCover[0]?.url as string[] | null)?.[0] ?? null,
+    },
+    albums: cols.map(col => ({
+      ...col,
+      postCount: countMap.get(col.id) ?? 0,
+      coverUrl: coverMap.get(col.id) ?? null,
+    })),
+  };
+}
+
+/** Legacy alias kept for any remaining callers — delegates to savePost/unsavePost. */
+export async function toggleSave(userId: number, postId: number, _collectionId?: number) {
+  const existing = await getPostSaveState(userId, postId);
+  if (existing.isSaved) return unsavePost(userId, postId);
+  return savePost(userId, postId);
 }
 
 export async function getUserSavedPosts(userId: number) {
