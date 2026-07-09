@@ -155,6 +155,17 @@ export default function PostDetail({ postId }: Props) {
 
       {/* Content */}
       <div className="px-4 pt-5 pb-32">
+
+        {/* ── Book This Look — primary CTA, right below photo ── */}
+        {!isPreview && (
+          <button
+            onClick={handleBook}
+            className="w-full btn-valisse py-4 text-sm font-semibold mb-5 rounded-2xl"
+          >
+            Book This Look
+          </button>
+        )}
+
         {/* Tags */}
         <ColorTagGroup post={post} />
         <div className="flex flex-wrap gap-2 mb-4">
@@ -243,37 +254,53 @@ export default function PostDetail({ postId }: Props) {
                 </motion.div>
               ))}
             </div>
+
+            {/* ── Book Another Look — below the grid ── */}
+            {!isPreview && tech && (
+              <button
+                onClick={() => {
+                  if (!isAuthenticated) { toast.error("Sign in to book"); return; }
+                  navigate(`/book/${tech.id}`);
+                }}
+                className="w-full mt-4 btn-valisse-outline py-3.5 text-sm font-semibold rounded-2xl"
+              >
+                Book Another Look
+              </button>
+            )}
           </div>
+        )}
+
+        {/* Book Another Look when there are no more posts to show */}
+        {moreFromArtist.length === 0 && !isPreview && tech && (
+          <button
+            onClick={() => {
+              if (!isAuthenticated) { toast.error("Sign in to book"); return; }
+              navigate(`/book/${tech.id}`);
+            }}
+            className="w-full mt-4 btn-valisse-outline py-3.5 text-sm font-semibold rounded-2xl"
+          >
+            Book Another Look
+          </button>
         )}
       </div>
 
-      {/* Fixed CTA buttons */}
+      {/* Fixed bottom bar — Message only (Book buttons are inline) */}
       <div className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-40">
-        <div className="flex flex-col gap-2 bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
-          <div className="flex gap-3">
+        <div className="bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
+          {isPreview ? (
+            <button
+              onClick={handleBook}
+              className="w-full btn-valisse py-3.5 text-sm font-semibold"
+            >
+              Book With {techName}
+            </button>
+          ) : (
             <button
               onClick={handleMessage}
               disabled={getOrCreateConv.isPending}
-              className="flex-1 btn-valisse-outline py-3.5 text-sm font-medium"
+              className="w-full btn-valisse-outline py-3.5 text-sm font-medium"
             >
               Message
-            </button>
-            <button
-              onClick={handleBook}
-              className="flex-1 btn-valisse py-3.5 text-sm font-semibold"
-            >
-              {isPreview ? `Book With ${techName}` : "Book This Look"}
-            </button>
-          </div>
-          {!isPreview && (
-            <button
-              onClick={() => {
-                if (!isAuthenticated) { toast.error("Sign in to book"); return; }
-                navigate(`/book/${tech?.id}`);
-              }}
-              className="w-full py-2.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors text-center"
-            >
-              Book another look with this tech
             </button>
           )}
         </div>
