@@ -23,6 +23,7 @@ export default function TechProfile({ techId }: Props) {
   const { data: reviewsData } = trpc.reviews.techReviews.useQuery({ techId });
   const { data: techServices = [] } = trpc.settings.getServicesByTechId.useQuery({ techId });
   const { data: scheduleData = [] } = trpc.availability.get.useQuery({ techId });
+  const { data: activeSlots = [] } = trpc.lastMinute.forTech.useQuery({ techId });
   const { data: followData, refetch: refetchFollow } = trpc.techFollows.isFollowing.useQuery(
     { techId },
     { enabled: isAuthenticated }
@@ -283,52 +284,92 @@ export default function TechProfile({ techId }: Props) {
 
       {/* Schedule */}
       {activeTab === "schedule" && (
-        <div className="px-5 py-4 pb-24">
-          {scheduleData.filter((s: any) => s.isActive).length === 0 ? (
+        <div className="px-5 py-4 pb-24 space-y-5">
+          {/* Last-minute slots */}
+          {(activeSlots as any[]).length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                <p className="text-xs font-semibold text-primary uppercase tracking-wider">Last-Minute Openings</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                {(activeSlots as any[]).map((slot: any) => {
+                  const fmt12 = (t: string) => { const [h, m] = t.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; };
+                  const dateLabel = new Date(`${slot.slotDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                  return (
+                    <div key={slot.id} className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
+                      <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Clock size={16} className="text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-foreground">{dateLabel}</p>
+                        <p className="text-xs text-primary">{fmt12(slot.startTime)} – {fmt12(slot.endTime)}</p>
+                        {slot.note && <p className="text-xs text-muted-foreground mt-0.5">{slot.note}</p>}
+                      </div>
+                      <button
+                        onClick={() => navigate(`/booking?techId=${techId}&from=/tech/${techId}`)}
+                        className="text-xs bg-primary text-white px-3 py-1.5 rounded-lg font-medium"
+                      >
+                        Book
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Weekly hours */}
+          {scheduleData.filter((s: any) => s.isActive).length === 0 && (activeSlots as any[]).length === 0 ? (
             <div className="py-16 text-center text-muted-foreground text-sm">
               <Calendar size={32} className="mx-auto mb-3 opacity-30" />
               <p>No schedule posted yet</p>
             </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((dayName, idx) => {
-                const row = (scheduleData as any[]).find((s: any) => Number(s.dayOfWeek) === idx);
-                const isOpen = row?.isActive;
-                const fmt = (t: string) => {
-                  if (!t) return "";
-                  const [h, m] = t.split(":").map(Number);
-                  const ampm = h >= 12 ? "PM" : "AM";
-                  const h12 = h % 12 || 12;
-                  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                };
-                return (
-                  <div
-                    key={dayName}
-                    className={cn(
-                      "flex items-center justify-between px-4 py-3 rounded-xl border",
-                      isOpen ? "bg-card border-border" : "bg-muted/40 border-border/50"
-                    )}
-                  >
-                    <span className={cn("text-sm font-medium w-28", !isOpen && "text-muted-foreground")}>{dayName}</span>
-                    {isOpen ? (
-                      <div className="text-right">
-                        <span className="text-sm text-foreground">
-                          {fmt(row.startTime)} – {fmt(row.endTime)}
-                        </span>
-                        {row.breakStart && row.breakEnd && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Break {fmt(row.breakStart)} – {fmt(row.breakEnd)}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Closed</span>
-                    )}
-                  </div>
-                );
-              })}
+          ) : scheduleData.filter((s: any) => s.isActive).length > 0 ? (
+            <div>
+              {(activeSlots as any[]).length > 0 && (
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Weekly Hours</p>
+              )}
+              <div className="flex flex-col gap-2">
+                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((dayName, idx) => {
+                  const row = (scheduleData as any[]).find((s: any) => Number(s.dayOfWeek) === idx);
+                  const isOpen = row?.isActive;
+                  const fmt = (t: string) => {
+                    if (!t) return "";
+                    const [h, m] = t.split(":").map(Number);
+                    const ampm = h >= 12 ? "PM" : "AM";
+                    const h12 = h % 12 || 12;
+                    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                  };
+                  return (
+                    <div
+                      key={dayName}
+                      className={cn(
+                        "flex items-center justify-between px-4 py-3 rounded-xl border",
+                        isOpen ? "bg-card border-border" : "bg-muted/40 border-border/50"
+                      )}
+                    >
+                      <span className={cn("text-sm font-medium w-28", !isOpen && "text-muted-foreground")}>{dayName}</span>
+                      {isOpen ? (
+                        <div className="text-right">
+                          <span className="text-sm text-foreground">
+                            {fmt(row.startTime)} – {fmt(row.endTime)}
+                          </span>
+                          {row.breakStart && row.breakEnd && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Break {fmt(row.breakStart)} – {fmt(row.breakEnd)}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Closed</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

@@ -355,11 +355,11 @@
 - [x] Frontend: Service create/edit dialog — per-service Smart Match toggle (smartMatchEnabled on tech_services row)
 
 ## Last-Minute Slots (Enhanced)
-- [ ] Schema: update last_minute_slots table — add date (DATE), startTime (VARCHAR), endTime (VARCHAR), note (TEXT), isPushed (BOOLEAN), expiresAt (BIGINT); migration applied
-- [ ] Backend: createLastMinuteSlot, deleteLastMinuteSlot, getActiveSlotsForTech (public, filters expired), getTechOwnSlots (protected) helpers in db.ts
-- [ ] Backend: lastMinuteSlots router — create (sends follower in-app notifications; $5 push placeholder), delete, list public, list own
-- [ ] Backend: getDiscoverFeed injects active slot cards into feed results (mixed in, not separate section)
-- [ ] Frontend: TechDashboard — "Post Last-Minute Slot" sheet: date picker (today + 7 days), start/end time dropdowns (AM/PM), optional note, "Push for $5" placeholder button (Stripe coming soon)
-- [ ] Frontend: Discover feed — LastMinuteSlotCard component (urgent styling, date, time range, tech name/avatar, Book Now CTA)
-- [ ] Frontend: TechProfile Schedule tab — active last-minute slots shown above weekly hours
-- [ ] Auto-expiry: slots filtered out of feed/profile when current time > slot end time on the slot date
+- [x] Schema: update last_minute_slots table — add date (DATE), startTime (VARCHAR), endTime (VARCHAR), note (TEXT), isPushed (BOOLEAN), expiresAt (BIGINT); migration applied
+- [x] Backend: createLastMinuteSlot, deleteLastMinuteSlot, getActiveSlotsForTech (public, filters expired), getTechOwnSlots (protected) helpers in db.ts
+- [x] Backend: lastMinuteSlots router — create (sends follower in-app notifications; $5 push placeholder), delete, list public, list own
+- [x] Backend: getDiscoverFeed injects active slot cards into feed results (mixed in, not separate section)
+- [x] Frontend: TechDashboard — "Post Last-Minute Slot" sheet: date picker (today + 7 days), start/end time dropdowns (AM/PM), optional note, "Push for $5" placeholder button (Stripe coming soon)
+- [x] Frontend: Discover feed — LastMinuteSlotCard component (urgent styling, date, time range, tech name/avatar, Book Now CTA)
+- [x] Frontend: TechProfile Schedule tab — active last-minute slots shown above weekly hours
+- [x] Auto-expiry: slots filtered out of feed/profile when current time > slot end time on the slot date

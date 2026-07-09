@@ -719,6 +719,10 @@ const lastMinuteRouter = router({
 
   openSlots: publicProcedure.query(async () => getOpenLastMinuteSlots()),
 
+  forTech: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => getActiveSlotsForTech(input.techId)),
+
   create: protectedProcedure
     .input(
       z.object({

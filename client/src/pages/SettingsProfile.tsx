@@ -43,6 +43,7 @@ import {
 const SERVICE_CATEGORIES = [
   "Gel Manicure",
   "Structured Gel / Builder Gel",
+  "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
   "Gel-X / Soft Gel Extensions",

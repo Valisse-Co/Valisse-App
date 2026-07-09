@@ -31,6 +31,7 @@ type ServiceForm = {
 const SERVICE_CATEGORIES = [
   "Gel Manicure",
   "Structured Gel / Builder Gel",
+  "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
   "Gel-X / Soft Gel Extensions",
@@ -777,8 +778,26 @@ export default function TechDashboard() {
               <label className="text-xs text-muted-foreground mb-1 block">Note (optional)</label>
               <Input placeholder="e.g. Gel manicure available" value={slotNote} onChange={e => setSlotNote(e.target.value)} className="rounded-xl h-11" />
             </div>
+
+            {/* Push option — Stripe coming soon */}
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Zap size={14} className="text-primary" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">Push to All Nearby Clients</p>
+                    <span className="text-[9px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full uppercase tracking-wider">Coming Soon</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Reach all Valisse clients within 25 mi · <span className="font-medium text-foreground">$5.00</span></p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Stripe payments launching soon. Your free slot still notifies your followers.</p>
+                </div>
+              </div>
+            </div>
+
             <button onClick={handleCreateSlot} disabled={createSlot.isPending} className="btn-valisse py-3 mt-1">
-              {createSlot.isPending ? "Publishing..." : "Publish Slot"}
+              {createSlot.isPending ? "Publishing..." : "Publish Slot (Free)"}
             </button>
           </div>
         </DialogContent>

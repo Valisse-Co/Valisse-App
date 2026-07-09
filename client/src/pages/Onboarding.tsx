@@ -17,6 +17,7 @@ const SHAPE_OPTIONS = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"
 const SERVICE_OPTIONS = [
   "Gel Manicure",
   "Structured Gel / Builder Gel",
+  "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
   "Gel-X / Soft Gel Extensions",

@@ -32,64 +32,96 @@ export interface SMConfig {
 // ─── System Default Questionnaires ───────────────────────────────────────────
 
 export const SYSTEM_DEFAULTS: SMConfig[] = [
+  // ── 1. Gel Manicure ──────────────────────────────────────────────────────────
   {
     serviceCategory: "Gel Manicure",
     questions: [
       {
         id: "q1",
         text: "Do you currently have anything on your nails that needs to be removed?",
-        options: ["No, my nails are bare", "Yes, regular polish", "Yes, gel polish", "Yes, acrylic/dip/extensions", "I'm not sure"],
+        options: ["No, my nails are bare", "Yes, regular polish", "Yes, gel polish", "Yes, acrylic, dip, or extensions", "I'm not sure"],
       },
       {
         id: "q2",
-        text: "Are you wanting to add length?",
-        options: ["No, natural nail only", "Maybe a little", "Yes, I want extensions", "I'm not sure"],
+        text: "Are you looking to add any length?",
+        options: ["No, I want to keep my natural nail length", "Yes, I'd like a little extra length", "Yes, I want full extensions", "I'm not sure"],
       },
       {
         id: "q3",
-        text: "What type of design are you wanting?",
-        options: ["One solid color", "Simple design/French/chrome", "Detailed nail art", "I'm not sure yet"],
+        text: "What type of design are you going for?",
+        options: ["One solid color", "Simple design, French, or chrome", "Detailed nail art", "I'm not sure yet"],
       },
     ],
     rules: [
-      { if: ["Yes, acrylic/dip/extensions"], recommend: "Removal / Soak-Off", outcome: "recommend" },
-      { if: ["Yes, I want extensions"], recommend: "Gel-X / Soft Gel Extensions", outcome: "recommend" },
+      { if: ["Yes, acrylic, dip, or extensions"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["Yes, I want full extensions"], recommend: "Gel-X / Soft Gel Extensions", outcome: "recommend" },
       { if: ["Detailed nail art"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
     ],
   },
+
+  // ── 2. Structured Gel / Builder Gel ──────────────────────────────────────────
   {
     serviceCategory: "Structured Gel / Builder Gel",
     questions: [
       {
         id: "q1",
         text: "Do you currently have any product on your nails?",
-        options: ["No, bare nails", "Yes, gel polish", "Yes, acrylic or dip", "I'm not sure"],
+        options: ["No, bare nails", "Yes, gel polish only", "Yes, acrylic or dip", "Yes, structured gel (needs fill)", "I'm not sure"],
       },
       {
         id: "q2",
         text: "What is your main goal for this appointment?",
-        options: ["Strengthen my natural nails", "Add length with extensions", "Just a color change", "I'm not sure"],
+        options: ["Strengthen and protect my natural nails", "Add length with a structured overlay", "Just a color change", "I'm not sure"],
       },
       {
         id: "q3",
         text: "How long has it been since your last nail appointment?",
-        options: ["Less than 3 weeks", "3–5 weeks", "More than 5 weeks", "First time / not sure"],
+        options: ["Less than 3 weeks", "3–5 weeks", "More than 5 weeks", "This is my first time / not sure"],
       },
     ],
     rules: [
       { if: ["Just a color change"], recommend: "Gel Manicure", outcome: "recommend" },
-      { if: ["Add length with extensions"], recommend: "Gel-X / Extensions", outcome: "recommend" },
-      { if: ["acrylic or dip"], recommend: "Removal", outcome: "recommend" },
-      { if: ["More than 5 weeks"], recommend: "Full Set", outcome: "review" },
+      { if: ["Yes, structured gel (needs fill)"], recommend: "Structured Gel / Builder Gel Fill", outcome: "recommend" },
+      { if: ["Yes, acrylic or dip"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["More than 5 weeks"], recommend: "Structured Gel / Builder Gel", outcome: "review" },
     ],
   },
+
+  // ── 3. Structured Gel / Builder Gel Fill ─────────────────────────────────────
+  {
+    serviceCategory: "Structured Gel / Builder Gel Fill",
+    questions: [
+      {
+        id: "q1",
+        text: "How long ago was your last structured gel appointment?",
+        options: ["Less than 3 weeks", "3–4 weeks", "5 weeks or more", "I'm not sure"],
+      },
+      {
+        id: "q2",
+        text: "How is the current condition of your structured gel?",
+        options: ["Mostly intact with minor grow-out", "Some lifting or chips", "Significant lifting or damage", "I'm not sure"],
+      },
+      {
+        id: "q3",
+        text: "Are you wanting to change your length or shape significantly?",
+        options: ["No, keeping the same", "Minor adjustment", "Yes, significant change", "I'm not sure"],
+      },
+    ],
+    rules: [
+      { if: ["5 weeks or more"], recommend: "Structured Gel / Builder Gel", outcome: "recommend" },
+      { if: ["Significant lifting or damage"], recommend: "Structured Gel / Builder Gel", outcome: "review" },
+      { if: ["Yes, significant change"], recommend: "Structured Gel / Builder Gel", outcome: "review" },
+    ],
+  },
+
+  // ── 4. Acrylic Full Set ───────────────────────────────────────────────────────
   {
     serviceCategory: "Acrylic Full Set",
     questions: [
       {
         id: "q1",
-        text: "Do you currently have acrylic nails?",
-        options: ["No, starting fresh", "Yes, grown out and need a fill", "Yes, need removal first", "I'm not sure"],
+        text: "Do you currently have acrylic nails or any product on your nails?",
+        options: ["No, starting fresh with bare nails", "Yes, grown-out acrylics that need a fill", "Yes, I need removal before a new set", "I'm not sure"],
       },
       {
         id: "q2",
@@ -103,12 +135,14 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
     ],
     rules: [
-      { if: ["grown out and need a fill"], recommend: "Acrylic Fill", outcome: "recommend" },
-      { if: ["need removal first"], recommend: "Removal", outcome: "recommend" },
+      { if: ["Yes, grown-out acrylics that need a fill"], recommend: "Acrylic Fill", outcome: "recommend" },
+      { if: ["Yes, I need removal before a new set"], recommend: "Removal / Soak-Off", outcome: "recommend" },
       { if: ["Short / natural looking"], recommend: "Structured Gel / Builder Gel", outcome: "recommend" },
-      { if: ["Detailed nail art"], recommend: "Nail Art Add-On", outcome: "recommend" },
+      { if: ["Detailed nail art"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
     ],
   },
+
+  // ── 5. Acrylic Fill ───────────────────────────────────────────────────────────
   {
     serviceCategory: "Acrylic Fill",
     questions: [
@@ -119,13 +153,13 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
       {
         id: "q2",
-        text: "How many nails are broken or missing?",
-        options: ["None", "1–2 nails", "3 or more nails", "I'm not sure"],
+        text: "How many nails are broken, lifted, or missing?",
+        options: ["None — all nails are intact", "1–2 nails", "3 or more nails", "I'm not sure"],
       },
       {
         id: "q3",
         text: "Are you wanting a major shape or length change?",
-        options: ["No, keeping the same", "Minor adjustment", "Yes, significant change", "I'm not sure"],
+        options: ["No, keeping the same shape and length", "Minor adjustment", "Yes, significant change", "I'm not sure"],
       },
     ],
     rules: [
@@ -134,63 +168,69 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       { if: ["Yes, significant change"], recommend: "Acrylic Full Set", outcome: "review" },
     ],
   },
+
+  // ── 6. Gel-X / Soft Gel Extensions ───────────────────────────────────────────
   {
     serviceCategory: "Gel-X / Soft Gel Extensions",
     questions: [
       {
         id: "q1",
-        text: "Are you looking to add length?",
-        options: ["Yes, I want extensions", "No, just strengthen natural nails", "I'm not sure"],
+        text: "Are you looking to add length with extensions?",
+        options: ["Yes, I want Gel-X or soft gel extensions", "No, I just want to strengthen my natural nails", "I'm not sure"],
       },
       {
         id: "q2",
         text: "Do you have any existing product on your nails?",
-        options: ["No, bare nails", "Yes, gel polish", "Yes, acrylic or hard gel", "I'm not sure"],
+        options: ["No, bare nails", "Yes, gel polish only", "Yes, acrylic or hard gel", "I'm not sure"],
       },
       {
         id: "q3",
         text: "What type of design are you wanting?",
-        options: ["Solid color", "Simple design", "Detailed nail art", "I'm not sure yet"],
+        options: ["Solid color", "Simple design or French", "Detailed nail art", "I'm not sure yet"],
       },
     ],
     rules: [
-      { if: ["No, just strengthen natural nails"], recommend: "Gel Manicure", outcome: "recommend" },
-      { if: ["acrylic or hard gel"], recommend: "Removal", outcome: "recommend" },
-      { if: ["Detailed nail art"], recommend: "Nail Art Add-On", outcome: "recommend" },
+      { if: ["No, I just want to strengthen my natural nails"], recommend: "Structured Gel / Builder Gel", outcome: "recommend" },
+      { if: ["Yes, acrylic or hard gel"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["Detailed nail art"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
     ],
   },
+
+  // ── 7. Dip Powder ─────────────────────────────────────────────────────────────
   {
     serviceCategory: "Dip Powder",
     questions: [
       {
         id: "q1",
         text: "Do you have any existing product on your nails?",
-        options: ["No, bare nails", "Yes, gel polish", "Yes, acrylic or extensions", "Yes, dip powder", "I'm not sure"],
+        options: ["No, bare nails", "Yes, gel polish", "Yes, acrylic or extensions", "Yes, dip powder (needs removal/fill)", "I'm not sure"],
       },
       {
         id: "q2",
-        text: "Are you looking to add length?",
+        text: "Are you looking to add any length?",
         options: ["No, natural length only", "Yes, with tips", "Yes, significant length", "I'm not sure"],
       },
       {
         id: "q3",
-        text: "How would you describe your nail health?",
-        options: ["Healthy and strong", "Thin or damaged", "Peeling or breaking", "I'm not sure"],
+        text: "How would you describe your nail health right now?",
+        options: ["Healthy and strong", "Thin or slightly damaged", "Peeling, breaking, or very damaged", "I'm not sure"],
       },
     ],
     rules: [
-      { if: ["acrylic or extensions"], recommend: "Removal", outcome: "recommend" },
+      { if: ["Yes, acrylic or extensions"], recommend: "Removal / Soak-Off", outcome: "recommend" },
       { if: ["Yes, significant length"], recommend: "Acrylic Full Set", outcome: "recommend" },
-      { if: ["Peeling or breaking"], recommend: "Tech Review", outcome: "review" },
+      { if: ["Peeling, breaking, or very damaged"], recommend: "Tech Review", outcome: "review" },
     ],
   },
+
+  // ── 8. Manicure ───────────────────────────────────────────────────────────────
   {
     serviceCategory: "Manicure",
     questions: [
       {
         id: "q1",
         text: "What type of finish are you looking for?",
-        options: ["Regular polish", "Gel polish", "No polish / just shape and clean", "I'm not sure"],
+        options: ["Regular polish", "Gel polish", "No polish — just shape and clean", "I'm not sure"],
       },
       {
         id: "q2",
@@ -199,28 +239,30 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
       {
         id: "q3",
-        text: "Are you looking to add length?",
+        text: "Are you looking to add any length?",
         options: ["No, natural length only", "Yes, with extensions", "I'm not sure"],
       },
     ],
     rules: [
       { if: ["Gel polish"], recommend: "Gel Manicure", outcome: "recommend" },
-      { if: ["acrylic or gel extensions"], recommend: "Removal", outcome: "recommend" },
-      { if: ["Yes, with extensions"], recommend: "Gel-X / Extensions", outcome: "recommend" },
+      { if: ["Yes, acrylic or gel extensions"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["Yes, with extensions"], recommend: "Gel-X / Soft Gel Extensions", outcome: "recommend" },
     ],
   },
+
+  // ── 9. Pedicure ───────────────────────────────────────────────────────────────
   {
     serviceCategory: "Pedicure",
     questions: [
       {
         id: "q1",
-        text: "Do you have gel polish on your toenails that needs to be removed?",
+        text: "Do you have any existing product on your toenails?",
         options: ["No, bare nails", "Yes, gel polish", "Yes, regular polish", "I'm not sure"],
       },
       {
         id: "q2",
         text: "Are you looking for any extra foot care?",
-        options: ["Standard pedicure is fine", "Yes, callus treatment", "Yes, spa/luxury upgrade", "I'm not sure"],
+        options: ["Standard pedicure is fine", "Yes, callus or dry skin treatment", "Yes, a spa or luxury upgrade", "I'm not sure"],
       },
       {
         id: "q3",
@@ -230,10 +272,12 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
     ],
     rules: [
       { if: ["Yes, gel polish"], recommend: "Gel Removal Add-On", outcome: "recommend" },
-      { if: ["callus treatment", "spa/luxury upgrade"], recommend: "Spa Pedicure Upgrade", outcome: "recommend" },
-      { if: ["Detailed nail art"], recommend: "Nail Art Add-On", outcome: "recommend" },
+      { if: ["Yes, callus or dry skin treatment", "Yes, a spa or luxury upgrade"], recommend: "Spa Pedicure Upgrade", outcome: "recommend" },
+      { if: ["Detailed nail art"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
     ],
   },
+
+  // ── 10. Nail Art / Add-Ons ────────────────────────────────────────────────────
   {
     serviceCategory: "Nail Art / Add-Ons",
     questions: [
@@ -245,7 +289,7 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       {
         id: "q2",
         text: "How complex is the design you have in mind?",
-        options: ["Simple (one or two accents)", "Moderate (pattern or gradient)", "Complex / detailed artwork", "I want to show a reference photo"],
+        options: ["Simple (one or two accent nails)", "Moderate (pattern, gradient, or chrome)", "Complex / detailed artwork", "I want to show a reference photo"],
       },
       {
         id: "q3",
@@ -255,9 +299,12 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
     ],
     rules: [
       { if: ["No, I only want nail art"], recommend: "Gel Manicure + Nail Art", outcome: "review" },
-      { if: ["Complex / detailed artwork", "I want to show a reference photo"], recommend: "Tech Review for Pricing", outcome: "review" },
+      { if: ["Complex / detailed artwork"], recommend: "Tech Review for Pricing", outcome: "review" },
+      { if: ["I want to show a reference photo"], recommend: "Tech Review for Pricing", outcome: "review" },
     ],
   },
+
+  // ── 11. Removal / Soak-Off ────────────────────────────────────────────────────
   {
     serviceCategory: "Removal / Soak-Off",
     questions: [
@@ -269,12 +316,12 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       {
         id: "q2",
         text: "Are you booking another service after the removal?",
-        options: ["Yes, a new set or manicure", "No, just removal", "I'm not sure yet"],
+        options: ["Yes, a new set or manicure", "No, just the removal", "I'm not sure yet"],
       },
       {
         id: "q3",
-        text: "Are your nails experiencing any pain, lifting, or damage?",
-        options: ["No, they look fine", "Some lifting", "Pain or significant damage", "I'm not sure"],
+        text: "Are your nails experiencing any pain, significant lifting, or damage?",
+        options: ["No, they look fine", "Some minor lifting", "Pain or significant damage", "I'm not sure"],
       },
     ],
     rules: [
@@ -282,6 +329,8 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       { if: ["Pain or significant damage"], recommend: "Tech Review", outcome: "review" },
     ],
   },
+
+  // ── 12. Repair ────────────────────────────────────────────────────────────────
   {
     serviceCategory: "Repair",
     questions: [
@@ -297,8 +346,8 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
       {
         id: "q3",
-        text: "What type of product is on your nails?",
-        options: ["Acrylic", "Gel / Builder Gel", "Dip powder", "I'm not sure"],
+        text: "What type of product is currently on your nails?",
+        options: ["Acrylic", "Structured gel / builder gel", "Dip powder", "I'm not sure"],
       },
     ],
     rules: [
@@ -306,6 +355,8 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       { if: ["5 weeks or more"], recommend: "Full Set", outcome: "review" },
     ],
   },
+
+  // ── 13. Press-On Nails ────────────────────────────────────────────────────────
   {
     serviceCategory: "Press-On Nails",
     questions: [
@@ -322,21 +373,24 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       {
         id: "q3",
         text: "When do you need the press-ons by?",
-        options: ["Within a week", "1–2 weeks", "Flexible timeline", "I'm not sure"],
+        options: ["Within a week", "1–2 weeks out", "Flexible timeline", "I'm not sure"],
       },
     ],
     rules: [
       { if: ["No, I need a sizing kit"], recommend: "Sizing Kit / Consultation", outcome: "recommend" },
-      { if: ["Custom artwork", "Detailed / intricate design"], recommend: "Custom Quote Approval", outcome: "review" },
+      { if: ["Custom artwork"], recommend: "Custom Quote Approval", outcome: "review" },
+      { if: ["Detailed / intricate design"], recommend: "Custom Quote Approval", outcome: "review" },
     ],
   },
+
+  // ── 14. Custom / Not Sure ─────────────────────────────────────────────────────
   {
     serviceCategory: "Custom / Not Sure",
     questions: [
       {
         id: "q1",
         text: "What is the main thing you'd like done at this appointment?",
-        options: ["New set of nails", "Fill or maintenance", "Remove existing nails", "Nail art or design only", "I'm not sure"],
+        options: ["A brand new set of nails", "Fill or maintenance on existing nails", "Remove my existing nails", "Nail art or design only", "I'm not sure — I need help deciding"],
       },
       {
         id: "q2",
@@ -350,11 +404,11 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
     ],
     rules: [
-      { if: ["New set of nails", "Long and dramatic"], recommend: "Acrylic Full Set or Gel-X", outcome: "review" },
-      { if: ["Fill or maintenance"], recommend: "Acrylic Fill", outcome: "recommend" },
-      { if: ["Remove existing nails"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["A brand new set of nails", "Long and dramatic"], recommend: "Acrylic Full Set or Gel-X", outcome: "review" },
+      { if: ["Fill or maintenance on existing nails"], recommend: "Acrylic Fill", outcome: "recommend" },
+      { if: ["Remove my existing nails"], recommend: "Removal / Soak-Off", outcome: "recommend" },
       { if: ["Nail art or design only"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
-      { if: ["I'm not sure", "I'm open to suggestions"], recommend: "Tech Review", outcome: "review" },
+      { if: ["I'm not sure — I need help deciding", "I'm open to suggestions"], recommend: "Tech Review", outcome: "review" },
     ],
   },
 ];

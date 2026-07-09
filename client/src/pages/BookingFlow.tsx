@@ -177,6 +177,7 @@ export default function BookingFlow() {
     return [
       { id: "gel_manicure",        label: "Gel Manicure",                  duration: 60,  price: null, photoUrl: null },
       { id: "structured_gel",      label: "Structured Gel / Builder Gel",  duration: 75,  price: null, photoUrl: null },
+      { id: "structured_gel_fill",  label: "Structured Gel / Builder Gel Fill", duration: 60, price: null, photoUrl: null },
       { id: "acrylic_full",        label: "Acrylic Full Set",              duration: 90,  price: null, photoUrl: null },
       { id: "acrylic_fill",        label: "Acrylic Fill",                  duration: 60,  price: null, photoUrl: null },
       { id: "gel_x",               label: "Gel-X / Soft Gel Extensions",   duration: 75,  price: null, photoUrl: null },

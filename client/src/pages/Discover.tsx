@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -87,6 +87,7 @@ export default function Discover() {
   }), [activeStyles, activeShape, activeColors, multiColorOnly, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly]);
 
   const { data: rawFeed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
+  const { data: openSlots = [] } = trpc.lastMinute.openSlots.useQuery();
 
   // Separate exact matches from partial matches using the _divider marker
   const { exactFeed, partialFeed } = useMemo(() => {
@@ -145,7 +146,22 @@ export default function Discover() {
     right: items.filter((_, i) => i % 2 === 1),
   });
 
-  const exactCols = buildCols(exactFeed);
+  // Inject slot cards into the exact feed (1 slot card after every 4 post cards)
+  const exactFeedWithSlots = useMemo(() => {
+    if ((openSlots as any[]).length === 0) return exactFeed;
+    const result: any[] = [];
+    let slotIdx = 0;
+    exactFeed.forEach((item: any, i: number) => {
+      result.push(item);
+      if ((i + 1) % 4 === 0 && slotIdx < (openSlots as any[]).length) {
+        result.push({ _slotCard: true, slot: (openSlots as any[])[slotIdx] });
+        slotIdx++;
+      }
+    });
+    return result;
+  }, [exactFeed, openSlots]);
+
+  const exactCols = buildCols(exactFeedWithSlots);
   const partialCols = buildCols(partialFeed);
   const hasPartial = partialFeed.length > 0;
 
@@ -426,18 +442,22 @@ export default function Discover() {
             {exactFeed.length > 0 && (
               <div className="flex gap-3">
                 <div className="flex-1 flex flex-col gap-3">
-                  {exactCols.left.map(({ post, tech, analytics }: any) => (
-                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                      saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
-                  ))}
+                  {exactCols.left.map((item: any) =>
+                    item._slotCard
+                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
+                      : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
+                          saved={savedSet.has(item.post.id)} onSave={handleSave}
+                          onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
+                  )}
                 </div>
                 <div className="flex-1 flex flex-col gap-3 mt-6">
-                  {exactCols.right.map(({ post, tech, analytics }: any) => (
-                    <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
-                      saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
-                  ))}
+                  {exactCols.right.map((item: any) =>
+                    item._slotCard
+                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
+                      : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
+                          saved={savedSet.has(item.post.id)} onSave={handleSave}
+                          onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
+                  )}
                 </div>
               </div>
             )}
@@ -476,6 +496,49 @@ export default function Discover() {
         )}
       </div>
     </div>
+  );
+}
+
+function LastMinuteSlotCard({ slot, onBook }: { slot: any; onBook: (techId: number) => void }) {
+  const fmt12 = (t: string) => { const [h, m] = t.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; };
+  const dateLabel = new Date(`${slot.slotDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const tech = slot.tech;
+  return (
+    <motion.div
+      whileTap={{ scale: 0.97 }}
+      className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-4 cursor-pointer shadow-sm"
+      onClick={() => onBook(slot.techId)}
+    >
+      <div className="flex items-center gap-1.5 mb-3">
+        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+          <Zap size={10} className="text-white fill-white" />
+        </div>
+        <span className="text-[10px] font-semibold text-primary uppercase tracking-wider">Last-Minute Opening</span>
+      </div>
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 text-sm font-semibold text-primary">
+          {(tech?.businessName ?? tech?.name ?? "T").charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{tech?.businessName ?? tech?.name ?? "Nail Tech"}</p>
+          {tech?.location && <p className="text-[10px] text-muted-foreground truncate">{tech.location}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 mb-3">
+        <Clock size={13} className="text-primary flex-shrink-0" />
+        <div>
+          <p className="text-xs font-medium text-foreground">{dateLabel}</p>
+          <p className="text-xs text-primary">{fmt12(slot.startTime)} – {fmt12(slot.endTime)}</p>
+        </div>
+      </div>
+      {slot.note && <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{slot.note}</p>}
+      <button
+        onClick={(e) => { e.stopPropagation(); onBook(slot.techId); }}
+        className="w-full py-2 rounded-xl bg-primary text-white text-xs font-semibold"
+      >
+        Book Now
+      </button>
+    </motion.div>
   );
 }
 
