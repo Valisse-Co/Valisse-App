@@ -72,6 +72,7 @@ import {
   getTechFollowerCount,
   getFollowedTechIds,
   getUnreadNotificationCount,
+  getUnreadSlotNotificationCount,
   markSingleNotificationRead,
   notifyTechFollowers,
   submitReport,
@@ -924,6 +925,11 @@ const notificationsRouter = router({
 
   unreadCount: protectedProcedure.query(async ({ ctx }) => {
     const count = await getUnreadNotificationCount(ctx.user.id);
+    return { count };
+  }),
+
+  unreadSlotCount: protectedProcedure.query(async ({ ctx }) => {
+    const count = await getUnreadSlotNotificationCount(ctx.user.id);
     return { count };
   }),
 

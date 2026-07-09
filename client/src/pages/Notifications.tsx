@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
-import { Bell, BellOff, ArrowLeft, MapPin, Star, X, Sparkles } from "lucide-react";
+import { Bell, BellOff, ArrowLeft, MapPin, Star, X, Sparkles, Zap, Clock, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,9 +32,7 @@ function AltTechsModal({ bookingId, onClose }: AltTechsModalProps) {
         exit={{ opacity: 0, y: 40 }}
         className="relative bg-background rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl max-h-[80vh] flex flex-col"
       >
-        {/* Handle */}
         <div className="w-10 h-1 rounded-full bg-border mx-auto mt-3 mb-1 sm:hidden" />
-
         <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
           <div>
             <p className="font-semibold text-foreground text-sm">Available Alternatives</p>
@@ -44,7 +42,6 @@ function AltTechsModal({ bookingId, onClose }: AltTechsModalProps) {
             <X size={20} />
           </button>
         </div>
-
         <div className="overflow-y-auto flex-1 px-4 py-3 space-y-3 pb-6">
           {isLoading ? (
             Array.from({ length: 3 }).map((_, i) => (
@@ -106,6 +103,82 @@ function AltTechsModal({ bookingId, onClose }: AltTechsModalProps) {
   );
 }
 
+// ─── Last-Minute Slot Notification Card ──────────────────────────────────────
+function SlotNotifCard({ n, onNavigate }: { n: any; onNavigate: (n: any) => void }) {
+  const fmt12 = (t: string) => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
+
+  // Parse "Mon, Jul 14 · 2:00 PM–3:00 PM" from body
+  const body: string = n.body ?? "";
+
+  return (
+    <motion.button
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={() => onNavigate(n)}
+      className={cn(
+        "w-full text-left mx-4 mb-3 rounded-2xl overflow-hidden border shadow-sm transition-all",
+        n.isRead
+          ? "bg-card border-border"
+          : "bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30"
+      )}
+      style={{ width: "calc(100% - 2rem)" }}
+    >
+      {/* Accent bar */}
+      {!n.isRead && (
+        <div className="h-1 w-full bg-gradient-to-r from-primary to-primary/60" />
+      )}
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          {/* Icon */}
+          <div className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
+            n.isRead ? "bg-muted" : "bg-primary/15"
+          )}>
+            <Zap size={18} className={cn(n.isRead ? "text-muted-foreground" : "text-primary")} fill={n.isRead ? "none" : "currentColor"} />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className={cn("text-sm leading-snug", !n.isRead && "font-semibold text-foreground")}>
+                {n.title}
+              </p>
+              {!n.isRead && (
+                <span className="flex-shrink-0 text-[9px] font-bold bg-primary text-white px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                  New
+                </span>
+              )}
+            </div>
+            {body && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <Clock size={11} className="text-primary flex-shrink-0" />
+                <p className={cn("text-xs leading-snug", n.isRead ? "text-muted-foreground" : "text-primary font-medium")}>
+                  {body}
+                </p>
+              </div>
+            )}
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-[10px] text-muted-foreground">
+                {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+              </p>
+              <span className={cn(
+                "text-[10px] font-semibold flex items-center gap-0.5",
+                n.isRead ? "text-muted-foreground" : "text-primary"
+              )}>
+                Book Now <ChevronRight size={10} />
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.button>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Notifications() {
   const { isAuthenticated } = useAuth();
@@ -114,27 +187,41 @@ export default function Notifications() {
 
   const { data: notifications, refetch } = trpc.notifications.list.useQuery(undefined, {
     enabled: isAuthenticated,
+    refetchInterval: 30_000,
+  });
+  const { data: unreadSlotData, refetch: refetchSlotCount } = trpc.notifications.unreadSlotCount.useQuery(undefined, {
+    enabled: isAuthenticated,
+    refetchInterval: 30_000,
   });
   const { refetch: refetchCount } = trpc.notifications.unreadCount.useQuery(undefined, {
     enabled: isAuthenticated,
   });
 
   const markAll = trpc.notifications.markRead.useMutation({
-    onSuccess: () => { refetch(); refetchCount(); },
+    onSuccess: () => { refetch(); refetchCount(); refetchSlotCount(); },
   });
   const markOne = trpc.notifications.markOne.useMutation({
-    onSuccess: () => { refetch(); refetchCount(); },
+    onSuccess: () => { refetch(); refetchCount(); refetchSlotCount(); },
   });
 
   const handleNotifClick = (n: any) => {
     if (!n.isRead) markOne.mutate({ notificationId: n.id });
-    if (n.type === "new_post" && n.relatedId) navigate(`/post/${n.relatedId}?from=/notifications`);
-    if (n.type === "booking_cancelled_by_tech" && n.relatedId) {
+    if (n.type === "last_minute_slot" && n.relatedId) {
+      // relatedId is the slot id; navigate to discover to find and book
+      navigate(`/discover`);
+    } else if (n.type === "new_post" && n.relatedId) {
+      navigate(`/post/${n.relatedId}?from=/notifications`);
+    } else if (n.type === "booking_cancelled_by_tech" && n.relatedId) {
       setAltTechsBookingId(n.relatedId);
     }
   };
 
-  const unreadCount = (notifications ?? []).filter((n: any) => !n.isRead).length;
+  const allNotifs = notifications ?? [];
+  const slotNotifs = allNotifs.filter((n: any) => n.type === "last_minute_slot");
+  const otherNotifs = allNotifs.filter((n: any) => n.type !== "last_minute_slot");
+  const unreadSlotCount = unreadSlotData?.count ?? 0;
+  const unreadOtherCount = otherNotifs.filter((n: any) => !n.isRead).length;
+  const totalUnread = allNotifs.filter((n: any) => !n.isRead).length;
 
   return (
     <div className="min-h-screen bg-background page-enter">
@@ -148,14 +235,14 @@ export default function Notifications() {
             >
               <ArrowLeft size={20} />
             </button>
-            <h1 className="text-xl font-semibold">Notifications</h1>
-            {unreadCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold">
-                {unreadCount}
+            <h1 className="text-xl font-semibold">Alerts</h1>
+            {totalUnread > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-primary text-white text-xs font-bold">
+                {totalUnread}
               </span>
             )}
           </div>
-          {unreadCount > 0 && (
+          {totalUnread > 0 && (
             <button
               onClick={() => markAll.mutate()}
               className="text-xs text-primary font-medium"
@@ -166,58 +253,101 @@ export default function Notifications() {
         </div>
       </div>
 
-      {/* Notification list */}
-      <div className="divide-y divide-border">
-        {!notifications || notifications.length === 0 ? (
+      <div className="pb-24">
+        {allNotifs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4 text-muted-foreground">
             <BellOff size={40} className="opacity-30" />
             <p className="text-sm">No notifications yet</p>
-            <p className="text-xs opacity-70">Subscribe to nail techs to get notified when they post</p>
+            <p className="text-xs opacity-70 text-center px-8">Subscribe to nail techs to get notified when they post or open last-minute slots</p>
           </div>
         ) : (
-          notifications.map((n: any) => (
-            <button
-              key={n.id}
-              onClick={() => handleNotifClick(n)}
-              className={cn(
-                "w-full text-left px-4 py-4 flex items-start gap-3 transition-colors",
-                n.isRead ? "bg-background" : "bg-primary/5"
-              )}
-            >
-              {/* Icon */}
-              <div className={cn(
-                "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5",
-                n.type === "new_post" ? "bg-primary/10 text-primary"
-                  : n.type === "booking_cancelled_by_tech" ? "bg-destructive/10 text-destructive"
-                  : "bg-accent text-accent-foreground"
-              )}>
-                <Bell size={16} />
-              </div>
+          <>
+            {/* ── Last-Minute Slot Notifications ── */}
+            {slotNotifs.length > 0 && (
+              <div className="pt-4">
+                {/* Section header with badge */}
+                <div className="flex items-center gap-2 px-4 mb-3">
+                  <div className="w-6 h-6 rounded-lg bg-primary flex items-center justify-center">
+                    <Zap size={13} className="text-white fill-white" />
+                  </div>
+                  <p className="text-xs font-bold text-foreground uppercase tracking-wider">Last-Minute Openings</p>
+                  {unreadSlotCount > 0 && (
+                    <span className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      {unreadSlotCount} new
+                    </span>
+                  )}
+                </div>
 
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <p className={cn("text-sm leading-snug", !n.isRead && "font-semibold")}>
-                  {n.title}
-                </p>
-                {n.body && (
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
-                )}
-                {n.type === "booking_cancelled_by_tech" && n.relatedId && (
-                  <span className="inline-block mt-1.5 text-xs text-primary font-medium underline underline-offset-2">
-                    See available alternatives →
-                  </span>
-                )}
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
-                </p>
-              </div>
+                {/* Slot cards */}
+                <div className="flex flex-col">
+                  {slotNotifs.map((n: any) => (
+                    <SlotNotifCard key={n.id} n={n} onNavigate={handleNotifClick} />
+                  ))}
+                </div>
 
-              {/* Unread dot */}
-              {!n.isRead && (
-                <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1.5" />
-              )}
-            </button>
-          ))
+                {/* Divider before regular notifications */}
+                {otherNotifs.length > 0 && (
+                  <div className="relative flex items-center my-2 px-4">
+                    <div className="flex-1 border-t border-border/50" />
+                    <span className="mx-3 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-widest whitespace-nowrap">
+                      Other Notifications
+                    </span>
+                    <div className="flex-1 border-t border-border/50" />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Regular Notifications ── */}
+            {otherNotifs.length > 0 && (
+              <div className={cn("divide-y divide-border", slotNotifs.length === 0 && "pt-0")}>
+                {otherNotifs.map((n: any) => (
+                  <button
+                    key={n.id}
+                    onClick={() => handleNotifClick(n)}
+                    className={cn(
+                      "w-full text-left px-4 py-4 flex items-start gap-3 transition-colors",
+                      n.isRead ? "bg-background" : "bg-primary/5"
+                    )}
+                  >
+                    {/* Icon */}
+                    <div className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5",
+                      n.type === "new_post" ? "bg-primary/10 text-primary"
+                        : n.type === "booking_cancelled_by_tech" ? "bg-destructive/10 text-destructive"
+                        : "bg-accent text-accent-foreground"
+                    )}>
+                      <Bell size={16} />
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <p className={cn("text-sm leading-snug", !n.isRead && "font-semibold")}>
+                        {n.title}
+                      </p>
+                      {n.body && (
+                        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
+                      )}
+                      {n.type === "booking_cancelled_by_tech" && n.relatedId && (
+                        <span className="inline-block mt-1.5 text-xs text-primary font-medium underline underline-offset-2">
+                          See available alternatives →
+                        </span>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                      </p>
+                    </div>
+
+                    {/* Unread dot */}
+                    {!n.isRead && (
+                      <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1.5" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 

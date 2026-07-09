@@ -10,6 +10,7 @@ import {
   Settings,
   Bell,
   Flag,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode, useEffect, useRef } from "react";
@@ -42,6 +43,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
   const unreadCount = unreadData?.count ?? 0;
 
+  // Fetch unread last-minute slot notification count (poll every 30s)
+  const { data: unreadSlotData } = trpc.notifications.unreadSlotCount.useQuery(
+    undefined,
+    { enabled: isAuthenticated, refetchInterval: 30_000 }
+  );
+  const unreadSlotCount = unreadSlotData?.count ?? 0;
+
   // Fetch notifications list to detect new_post toasts
   const { data: notifList, refetch: refetchList } = trpc.notifications.list.useQuery(
     undefined,
@@ -57,19 +65,27 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       seenIdsRef.current = new Set(notifList.map((n: any) => n.id));
       return;
     }
-    // Subsequent polls: only toast genuinely new unread new_post notifications
+    // Subsequent polls: toast genuinely new unread notifications
     const newOnes = notifList.filter(
-      (n: any) => n.type === "new_post" && !n.isRead && !seenIdsRef.current!.has(n.id)
+      (n: any) => (n.type === "new_post" || n.type === "last_minute_slot") && !n.isRead && !seenIdsRef.current!.has(n.id)
     );
     newOnes.forEach((n: any) => {
       seenIdsRef.current!.add(n.id);
-      toast(n.title, {
-        description: n.body ?? undefined,
-        duration: 5000,
-        action: n.relatedId
-          ? { label: "View", onClick: () => navigate(`/post/${n.relatedId}?from=/notifications`) }
-          : undefined,
-      });
+      if (n.type === "last_minute_slot") {
+        toast.warning(n.title, {
+          description: n.body ?? "Tap to view and book",
+          duration: 8000,
+          action: { label: "Book Now", onClick: () => navigate("/notifications") },
+        });
+      } else {
+        toast(n.title, {
+          description: n.body ?? undefined,
+          duration: 5000,
+          action: n.relatedId
+            ? { label: "View", onClick: () => navigate(`/post/${n.relatedId}?from=/notifications`) }
+            : undefined,
+        });
+      }
     });
   }, [notifList, navigate]);
 
@@ -80,7 +96,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     { label: "Saved", icon: <Bookmark size={22} />, href: "/saved" },
     {
       label: "Alerts",
-      icon: <Bell size={22} />,
+      icon: unreadSlotCount > 0
+        ? <Zap size={22} className="text-primary" fill="currentColor" />
+        : <Bell size={22} />,
       href: "/notifications",
       badge: unreadCount > 0 ? unreadCount : undefined,
     },

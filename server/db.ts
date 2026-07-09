@@ -1530,6 +1530,20 @@ export async function getUnreadNotificationCount(userId: number): Promise<number
   return Number(rows[0]?.count ?? 0);
 }
 
+export async function getUnreadSlotNotificationCount(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(notifications)
+    .where(and(
+      eq(notifications.userId, userId),
+      eq(notifications.isRead, false),
+      eq(notifications.type, "last_minute_slot")
+    ));
+  return Number(rows[0]?.count ?? 0);
+}
+
 export async function markSingleNotificationRead(notificationId: number, userId: number) {
   const db = await getDb();
   if (!db) return;

@@ -363,3 +363,13 @@
 - [x] Frontend: Discover feed — LastMinuteSlotCard component (urgent styling, date, time range, tech name/avatar, Book Now CTA)
 - [x] Frontend: TechProfile Schedule tab — active last-minute slots shown above weekly hours
 - [x] Auto-expiry: slots filtered out of feed/profile when current time > slot end time on the slot date
+
+## Alerts Tab — Last-Minute Slot Badge
+- [x] Backend: getUnreadSlotNotificationCount helper (filters by type=last_minute_slot, isRead=false)
+- [x] Backend: notifications.unreadSlotCount tRPC procedure (polled every 30s)
+- [x] Frontend: AppLayout — Alerts nav icon switches to filled Zap when unreadSlotCount > 0
+- [x] Frontend: AppLayout — toast.warning for new last_minute_slot notifications (8s, "Book Now" action)
+- [x] Frontend: Notifications page — slot notifications pinned at top in dedicated "Last-Minute Openings" section
+- [x] Frontend: Slot notification card — gradient accent bar, Zap icon, pulsing "new" badge, "Book Now" CTA
+- [x] Frontend: Slot section header — pulsing dot + count badge ("2 new") when unread slots exist
+- [x] Frontend: Regular notifications shown below with "Other Notifications" divider
