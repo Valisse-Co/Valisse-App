@@ -67,7 +67,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         description: n.body ?? undefined,
         duration: 5000,
         action: n.relatedId
-          ? { label: "View", onClick: () => navigate(`/post/${n.relatedId}`) }
+          ? { label: "View", onClick: () => navigate(`/post/${n.relatedId}?from=/notifications`) }
           : undefined,
       });
     });

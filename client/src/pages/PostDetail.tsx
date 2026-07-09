@@ -17,7 +17,9 @@ export default function PostDetail({ postId }: Props) {
   const [, navigate] = useLocation();
   const [reportOpen, setReportOpen] = useState(false);
   const search = useSearch();
-  const isPreview = new URLSearchParams(search).get("preview") === "1";
+  const searchParams = new URLSearchParams(search);
+  const isPreview = searchParams.get("preview") === "1";
+  const fromPath = searchParams.get("from") || "/discover";
 
   const { data, isLoading } = trpc.posts.getById.useQuery({ postId });
   const utils = trpc.useUtils();
@@ -120,7 +122,7 @@ export default function PostDetail({ postId }: Props) {
 
         {/* Back button */}
         <button
-          onClick={() => isPreview ? navigate("/dashboard") : navigate(-1 as any)}
+          onClick={() => isPreview ? navigate("/dashboard") : navigate(fromPath)}
           className="absolute top-12 left-4 w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
         >
           <ArrowLeft size={20} />
@@ -255,7 +257,7 @@ export default function PostDetail({ postId }: Props) {
                 <motion.div
                   key={p.id}
                   whileTap={{ scale: 0.96 }}
-                  onClick={() => navigate(`/post/${p.id}${isPreview ? "?preview=1" : ""}`)}
+                  onClick={() => navigate(`/post/${p.id}${isPreview ? "?preview=1" : `?from=/post/${postId}`}`)}
                   className="aspect-square rounded-xl overflow-hidden bg-muted cursor-pointer"
                 >
                   {p.imageUrls?.[0] ? (

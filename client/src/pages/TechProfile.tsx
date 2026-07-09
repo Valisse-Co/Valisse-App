@@ -264,7 +264,7 @@ export default function TechProfile({ techId }: Props) {
                 <motion.div
                   key={post.id}
                   whileTap={{ scale: 0.95 }}
-                  onClick={() => navigate(`/post/${post.id}`)}
+                  onClick={() => navigate(`/post/${post.id}?from=/tech/${techId}`)}
                   className="aspect-square rounded-lg overflow-hidden cursor-pointer bg-muted"
                 >
                   {post.imageUrls?.[0] ? (

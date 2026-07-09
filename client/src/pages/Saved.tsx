@@ -116,7 +116,7 @@ export default function Saved() {
                   key={savedPost.id}
                   whileTap={{ scale: 0.97 }}
                   className="relative rounded-2xl overflow-hidden cursor-pointer bg-muted"
-                  onClick={() => navigate(`/post/${post.id}`)}
+                  onClick={() => navigate(`/post/${post.id}?from=/saved`)}
                 >
                   {post.imageUrls?.[0] ? (
                     <img src={post.imageUrls[0]} alt="" className="w-full object-cover" style={{ aspectRatio: "3/4" }} />

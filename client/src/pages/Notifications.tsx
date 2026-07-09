@@ -128,7 +128,7 @@ export default function Notifications() {
 
   const handleNotifClick = (n: any) => {
     if (!n.isRead) markOne.mutate({ notificationId: n.id });
-    if (n.type === "new_post" && n.relatedId) navigate(`/post/${n.relatedId}`);
+    if (n.type === "new_post" && n.relatedId) navigate(`/post/${n.relatedId}?from=/notifications`);
     if (n.type === "booking_cancelled_by_tech" && n.relatedId) {
       setAltTechsBookingId(n.relatedId);
     }

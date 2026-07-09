@@ -429,14 +429,14 @@ export default function Discover() {
                   {exactCols.left.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}`)} />
+                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
                 <div className="flex-1 flex flex-col gap-3 mt-6">
                   {exactCols.right.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}`)} />
+                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
               </div>
@@ -460,14 +460,14 @@ export default function Discover() {
                   {partialCols.left.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}`)} />
+                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
                 <div className="flex-1 flex flex-col gap-3 mt-6">
                   {partialCols.right.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={savedSet.has(post.id)} onSave={handleSave}
-                      onClick={() => navigate(`/post/${post.id}`)} />
+                      onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
               </div>
