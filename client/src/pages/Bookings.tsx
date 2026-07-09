@@ -281,7 +281,7 @@ export default function Bookings() {
                 {tab === "past" && booking.status === "completed" && (
                   <div className="mt-3 pt-3 border-t border-border">
                     <button
-                      onClick={() => navigate(`/tech/${tech?.id}`)}
+                      onClick={() => navigate(`/tech/${tech?.id}?from=/bookings`)}
                       className="w-full text-xs btn-valisse py-2"
                     >
                       Leave a Review

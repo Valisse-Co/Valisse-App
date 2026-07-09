@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { ArrowLeft, MapPin, Star, MessageCircle, Calendar, Instagram, Clock, DollarSign, ChevronRight, Image as ImageIcon } from "lucide-react";
@@ -14,6 +14,8 @@ interface Props { techId: number }
 export default function TechProfile({ techId }: Props) {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const fromPath = new URLSearchParams(search).get("from");
   const [activeTab, setActiveTab] = useState<"portfolio" | "reviews" | "schedule">("portfolio");
 
   const { data: profileData, isLoading } = trpc.users.getProfile.useQuery({ userId: techId });
@@ -83,7 +85,7 @@ export default function TechProfile({ techId }: Props) {
         <div className="h-32 bg-gradient-to-br from-[#0F8F6F]/20 via-[#E6F5F1] to-[#D0EDE6]" />
 
         <button
-          onClick={() => navigate(-1 as any)}
+          onClick={() => navigate(fromPath || "/discover")}
           className="absolute top-12 left-4 w-10 h-10 rounded-full bg-white/70 backdrop-blur-sm flex items-center justify-center shadow-sm"
         >
           <ArrowLeft size={20} />

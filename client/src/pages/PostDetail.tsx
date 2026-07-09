@@ -199,7 +199,7 @@ export default function PostDetail({ postId }: Props) {
             {/* Avatar + name — tappable to go to profile */}
             <div
               className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
-              onClick={() => !isPreview && navigate(`/tech/${tech.id}`)}
+              onClick={() => !isPreview && navigate(`/tech/${tech.id}?from=/post/${postId}`)}
             >
               <Avatar className="w-14 h-14 border-2 border-border shrink-0">
                 <AvatarImage src={tech.avatarUrl ?? undefined} />
@@ -243,7 +243,7 @@ export default function PostDetail({ postId }: Props) {
               <h3 className="text-sm font-semibold text-foreground">More from {techName}</h3>
               {!isPreview && tech && (
                 <button
-                  onClick={() => navigate(`/tech/${tech.id}`)}
+                  onClick={() => navigate(`/tech/${tech.id}?from=/post/${postId}`)}
                   className="text-xs text-primary font-medium"
                 >
                   View all

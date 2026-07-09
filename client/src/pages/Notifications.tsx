@@ -65,7 +65,7 @@ function AltTechsModal({ bookingId, onClose }: AltTechsModalProps) {
             techs.map((tech) => (
               <button
                 key={tech.id}
-                onClick={() => { onClose(); navigate(`/tech/${tech.id}`); }}
+                onClick={() => { onClose(); navigate(`/tech/${tech.id}?from=/notifications`); }}
                 className="w-full flex items-center gap-3 bg-card rounded-2xl p-3 border border-border hover:border-primary/40 transition-colors text-left"
               >
                 <Avatar className="w-12 h-12 border border-border shrink-0">
@@ -143,7 +143,7 @@ export default function Notifications() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate(-1 as any)}
+              onClick={() => navigate("/discover")}
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-accent transition-colors"
             >
               <ArrowLeft size={20} />
