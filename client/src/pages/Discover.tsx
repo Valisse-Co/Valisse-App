@@ -621,15 +621,29 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
 
       {/* Multi-color chip */}
       {isMultiColor && postColors.length >= 2 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setColorChipExpanded(v => !v); }}
-          className="absolute top-2 left-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full z-10"
-        >
-          <Layers size={9} />
-          {colorChipExpanded
-            ? postColors.join(", ")
-            : `Multi-Color`}
-        </button>
+        <div className="absolute top-2 left-2 z-10">
+          {colorChipExpanded ? (
+            <div className="flex flex-wrap gap-1 max-w-[140px]">
+              {postColors.map((c: string) => (
+                <span key={c} className="bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded-full">{c}</span>
+              ))}
+              <button
+                onClick={(e) => { e.stopPropagation(); setColorChipExpanded(false); }}
+                className="bg-black/60 backdrop-blur-sm text-white/70 text-[9px] px-1.5 py-0.5 rounded-full"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); setColorChipExpanded(true); }}
+              className="flex items-center gap-1 bg-black/50 backdrop-blur-sm text-white text-[9px] px-2 py-0.5 rounded-full"
+            >
+              <Layers size={9} />
+              Multi-Color
+            </button>
+          )}
+        </div>
       )}
 
       {/* Bookmark button */}

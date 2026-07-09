@@ -171,10 +171,7 @@ export default function PostDetail({ postId }: Props) {
 
         {/* Tags */}
         <ColorTagGroup post={post} />
-        <div className="flex flex-wrap gap-2 mb-4">
-          {post.style && <Tag label={post.style} />}
-          {post.shape && <Tag label={post.shape} />}
-        </div>
+        <PostTagGroup post={post} />
 
         {/* Caption */}
         {post.caption && (
@@ -344,6 +341,34 @@ function Tag({ label }: { label: string }) {
     <span className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-medium">
       {label}
     </span>
+  );
+}
+
+/** Renders style tags (JSON array or plain string) + shape as individual clean pills */
+function PostTagGroup({ post }: { post: any }) {
+  const styleTags: string[] = (() => {
+    if (!post.style) return [];
+    try {
+      const parsed = JSON.parse(post.style);
+      return Array.isArray(parsed) ? parsed : [post.style];
+    } catch {
+      // Could be a plain comma-separated legacy string — split and clean
+      return post.style.split(",").map((s: string) => s.trim()).filter(Boolean);
+    }
+  })();
+
+  const allTags = [
+    ...styleTags,
+    post.shape ? post.shape : null,
+    post.serviceType ? post.serviceType : null,
+  ].filter(Boolean) as string[];
+
+  if (allTags.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 mb-4">
+      {allTags.map((tag, i) => <Tag key={`${tag}-${i}`} label={tag} />)}
+    </div>
   );
 }
 
