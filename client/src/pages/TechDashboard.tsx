@@ -175,7 +175,8 @@ export default function TechDashboard() {
   const [, navigate] = useLocation();
   const [showSlotDialog, setShowSlotDialog] = useState(false);
   const [slotDate, setSlotDate] = useState("");
-  const [slotTime, setSlotTime] = useState("");
+  const [slotStartTime, setSlotStartTime] = useState("09:00");
+  const [slotEndTime, setSlotEndTime] = useState("10:00");
   const [slotNote, setSlotNote] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots" | "bookings" | "smartmatch">("overview");
 
@@ -249,7 +250,7 @@ export default function TechDashboard() {
   const createSlot = trpc.lastMinute.create.useMutation({
     onSuccess: () => {
       setShowSlotDialog(false);
-      setSlotDate(""); setSlotTime(""); setSlotNote("");
+      setSlotDate(""); setSlotStartTime("09:00"); setSlotEndTime("10:00"); setSlotNote("");
       refetchSlots();
       toast.success("Last-minute slot published!");
     },
@@ -259,12 +260,12 @@ export default function TechDashboard() {
     onSuccess: () => { refetchSlots(); toast.success("Slot removed"); },
   });
 
+  const to12h = (t: string) => { const [h, m] = t.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; };
+
   const handleCreateSlot = () => {
-    if (!slotDate || !slotTime) { toast.error("Please select date and time"); return; }
-    const [year, month, day] = slotDate.split("-").map(Number);
-    const [hours, minutes] = slotTime.split(":").map(Number);
-    const slotDateTime = new Date(year, month - 1, day, hours, minutes).getTime();
-    createSlot.mutate({ slotDate: slotDateTime, duration: 60, note: slotNote || undefined });
+    if (!slotDate || !slotStartTime || !slotEndTime) { toast.error("Please select date and time range"); return; }
+    if (slotStartTime >= slotEndTime) { toast.error("End time must be after start time"); return; }
+    createSlot.mutate({ slotDate, startTime: slotStartTime, endTime: slotEndTime, note: slotNote || undefined, isPushed: false });
   };
 
   if (!isAuthenticated) return null;
@@ -548,10 +549,10 @@ export default function TechDashboard() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium">
-                      {new Date(slot.slotDate as any).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      {new Date(`${slot.slotDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(slot.slotDate as any).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} · {slot.duration} min
+                      {to12h(slot.startTime)} – {to12h(slot.endTime)}
                     </p>
                     {slot.note && <p className="text-xs text-muted-foreground mt-0.5">{slot.note}</p>}
                   </div>
@@ -753,11 +754,24 @@ export default function TechDashboard() {
           <div className="flex flex-col gap-3 pt-2">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Date</label>
-              <Input type="date" value={slotDate} onChange={e => setSlotDate(e.target.value)} className="rounded-xl h-11" />
+              <Input
+                type="date"
+                value={slotDate}
+                min={new Date().toISOString().split("T")[0]}
+                max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                onChange={e => setSlotDate(e.target.value)}
+                className="rounded-xl h-11"
+              />
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Time</label>
-              <Input type="time" value={slotTime} onChange={e => setSlotTime(e.target.value)} className="rounded-xl h-11" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Start Time</label>
+                <Input type="time" value={slotStartTime} onChange={e => setSlotStartTime(e.target.value)} className="rounded-xl h-11" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">End Time</label>
+                <Input type="time" value={slotEndTime} onChange={e => setSlotEndTime(e.target.value)} className="rounded-xl h-11" />
+              </div>
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Note (optional)</label>

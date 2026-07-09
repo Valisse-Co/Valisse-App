@@ -353,3 +353,13 @@
 - [x] Frontend: Tech Dashboard Bookings tab — Needs Review cards sorted to top with amber badge; expandable panel showing client answers + recommended service; action buttons (Approve / Change Service / Request Info / Adjust Price+Duration)
 - [x] Frontend: Settings Profile — global Smart Match on/off toggle for tech (smartMatchEnabled)
 - [x] Frontend: Service create/edit dialog — per-service Smart Match toggle (smartMatchEnabled on tech_services row)
+
+## Last-Minute Slots (Enhanced)
+- [ ] Schema: update last_minute_slots table — add date (DATE), startTime (VARCHAR), endTime (VARCHAR), note (TEXT), isPushed (BOOLEAN), expiresAt (BIGINT); migration applied
+- [ ] Backend: createLastMinuteSlot, deleteLastMinuteSlot, getActiveSlotsForTech (public, filters expired), getTechOwnSlots (protected) helpers in db.ts
+- [ ] Backend: lastMinuteSlots router — create (sends follower in-app notifications; $5 push placeholder), delete, list public, list own
+- [ ] Backend: getDiscoverFeed injects active slot cards into feed results (mixed in, not separate section)
+- [ ] Frontend: TechDashboard — "Post Last-Minute Slot" sheet: date picker (today + 7 days), start/end time dropdowns (AM/PM), optional note, "Push for $5" placeholder button (Stripe coming soon)
+- [ ] Frontend: Discover feed — LastMinuteSlotCard component (urgent styling, date, time range, tech name/avatar, Book Now CTA)
+- [ ] Frontend: TechProfile Schedule tab — active last-minute slots shown above weekly hours
+- [ ] Auto-expiry: slots filtered out of feed/profile when current time > slot end time on the slot date

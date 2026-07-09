@@ -108,6 +108,8 @@ import {
   getInteractedUsers,
   getTechSubscriptionStatus,
   initTechSubscription,
+  getTechFollowerIds,
+  getActiveSlotsForTech,
 } from "./db";
 import { storagePut } from "./storage";
 import {
@@ -720,13 +722,31 @@ const lastMinuteRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        slotDate: z.number(),
-        duration: z.number().default(60),
+        slotDate: z.string(),    // YYYY-MM-DD
+        startTime: z.string(),   // HH:MM 24h
+        endTime: z.string(),     // HH:MM 24h
         note: z.string().optional(),
+        isPushed: z.boolean().default(false),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const id = await createLastMinuteSlot(ctx.user.id, new Date(input.slotDate), input.duration, input.note);
+      const id = await createLastMinuteSlot(
+        ctx.user.id,
+        input.slotDate,
+        input.startTime,
+        input.endTime,
+        input.note,
+        input.isPushed,
+      );
+      // Notify followers
+      const followerIds = await getTechFollowerIds(ctx.user.id);
+      const techName = ctx.user.businessName ?? ctx.user.name ?? "Your nail tech";
+      const dateLabel = new Date(`${input.slotDate}T${input.startTime}:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const fmt12 = (t: string) => { const [h, m] = t.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; };
+      const timeLabel = `${fmt12(input.startTime)}–${fmt12(input.endTime)}`;
+      for (const clientId of followerIds) {
+        await createNotification({ userId: clientId, type: "last_minute_slot", title: `${techName} has a last-minute opening`, body: `${dateLabel} · ${timeLabel}`, relatedId: id });
+      }
       return { id };
     }),
 

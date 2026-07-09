@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   float,
   int,
@@ -218,10 +219,12 @@ export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
 export const lastMinuteSlots = mysqlTable("last_minute_slots", {
   id: int("id").autoincrement().primaryKey(),
   techId: int("techId").notNull(),
-  slotDate: timestamp("slotDate").notNull(),
-  duration: int("duration").default(60).notNull(), // minutes
+  slotDate: varchar("slotDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  startTime: varchar("startTime", { length: 5 }).notNull(), // HH:MM (24h)
+  endTime: varchar("endTime", { length: 5 }).notNull(),     // HH:MM (24h)
   note: text("note"),
-  isBooked: boolean("isBooked").default(false).notNull(),
+  isPushed: boolean("isPushed").default(false).notNull(),
+  expiresAt: bigint("expiresAt", { mode: "number" }).notNull(), // unix ms — end of slot window
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

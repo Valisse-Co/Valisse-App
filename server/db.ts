@@ -233,7 +233,7 @@ export async function getDiscoverFeed(
       ? await db
           .select({ techId: lastMinuteSlots.techId, slotDate: lastMinuteSlots.slotDate })
           .from(lastMinuteSlots)
-          .where(and(sql`${lastMinuteSlots.techId} IN (${sql.join(techIds.map((id) => sql`${id}`), sql`, `)})`, gt(lastMinuteSlots.slotDate, now)))
+          .where(and(sql`${lastMinuteSlots.techId} IN (${sql.join(techIds.map((id) => sql`${id}`), sql`, `)})`, gt(lastMinuteSlots.expiresAt, now.getTime())))
       : [];
     // Build a "has upcoming availability" set
     const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -678,33 +678,64 @@ export async function setTechAvailability(
 }
 
 // ─── Last-Minute Slots ────────────────────────────────────────────────────────
-export async function createLastMinuteSlot(techId: number, slotDate: Date, duration: number, note?: string) {
+export async function createLastMinuteSlot(
+  techId: number,
+  slotDate: string,   // YYYY-MM-DD
+  startTime: string,  // HH:MM 24h
+  endTime: string,    // HH:MM 24h
+  note: string | undefined,
+  isPushed: boolean,
+) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [result] = await db.insert(lastMinuteSlots).values({ techId, slotDate, duration, note: note ?? null });
+  // expiresAt = end of the slot window on the given date (unix ms)
+  const expDate = new Date(`${slotDate}T${endTime}:00`);
+  const expiresAt = expDate.getTime();
+  const [result] = await db.insert(lastMinuteSlots).values({
+    techId,
+    slotDate,
+    startTime,
+    endTime,
+    note: note ?? null,
+    isPushed,
+    expiresAt,
+  });
   return (result as any).insertId as number;
 }
 
 export async function getTechLastMinuteSlots(techId: number) {
   const db = await getDb();
   if (!db) return [];
+  const now = Date.now();
   return db
     .select()
     .from(lastMinuteSlots)
-    .where(and(eq(lastMinuteSlots.techId, techId), gt(lastMinuteSlots.slotDate, new Date())))
-    .orderBy(lastMinuteSlots.slotDate);
+    .where(and(eq(lastMinuteSlots.techId, techId), gt(lastMinuteSlots.expiresAt, now)))
+    .orderBy(lastMinuteSlots.slotDate, lastMinuteSlots.startTime);
 }
 
 export async function getOpenLastMinuteSlots() {
   const db = await getDb();
   if (!db) return [];
+  const now = Date.now();
   return db
     .select({ slot: lastMinuteSlots, tech: users })
     .from(lastMinuteSlots)
     .leftJoin(users, eq(lastMinuteSlots.techId, users.id))
-    .where(and(eq(lastMinuteSlots.isBooked, false), gt(lastMinuteSlots.slotDate, new Date())))
-    .orderBy(lastMinuteSlots.slotDate)
-    .limit(20);
+    .where(gt(lastMinuteSlots.expiresAt, now))
+    .orderBy(lastMinuteSlots.slotDate, lastMinuteSlots.startTime)
+    .limit(40);
+}
+
+export async function getActiveSlotsForTech(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const now = Date.now();
+  return db
+    .select()
+    .from(lastMinuteSlots)
+    .where(and(eq(lastMinuteSlots.techId, techId), gt(lastMinuteSlots.expiresAt, now)))
+    .orderBy(lastMinuteSlots.slotDate, lastMinuteSlots.startTime);
 }
 
 export async function deleteLastMinuteSlot(id: number, techId: number) {
