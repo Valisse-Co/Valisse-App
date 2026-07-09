@@ -120,7 +120,7 @@ export default function PostDetail({ postId }: Props) {
 
         {/* Back button */}
         <button
-          onClick={() => navigate(-1 as any)}
+          onClick={() => isPreview ? navigate("/dashboard") : navigate(-1 as any)}
           className="absolute top-12 left-4 w-10 h-10 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center"
         >
           <ArrowLeft size={20} />

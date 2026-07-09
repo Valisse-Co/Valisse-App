@@ -52,9 +52,9 @@ export const SYSTEM_DEFAULTS: SMConfig[] = [
       },
     ],
     rules: [
-      { if: ["acrylic/dip/extensions"], recommend: "Removal", outcome: "recommend" },
-      { if: ["I want extensions"], recommend: "Gel-X / Extensions", outcome: "recommend" },
-      { if: ["Detailed nail art"], recommend: "Nail Art Add-On", outcome: "recommend" },
+      { if: ["Yes, acrylic/dip/extensions"], recommend: "Removal / Soak-Off", outcome: "recommend" },
+      { if: ["Yes, I want extensions"], recommend: "Gel-X / Soft Gel Extensions", outcome: "recommend" },
+      { if: ["Detailed nail art"], recommend: "Nail Art / Add-Ons", outcome: "recommend" },
     ],
   },
   {

@@ -15,6 +15,17 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
   return `${h}:00`;
 });
 
+/** Convert a 24-hour "HH:MM" string to a 12-hour "h:MM AM/PM" label. */
+function to12Hour(time: string): string {
+  if (!time) return time;
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr ?? "00";
+  const period = h < 12 ? "AM" : "PM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${m} ${period}`;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; bg: string }> = {
   pending:   { label: "Pending",   bg: "bg-accent text-accent-foreground" },
   confirmed: { label: "Confirmed", bg: "bg-primary/10 text-primary" },
@@ -351,8 +362,8 @@ function DayRow({
 
         {day.isActive ? (
           <span className="text-sm text-muted-foreground flex-1 truncate">
-            {day.startTime} – {day.endTime}
-            {day.hasBreak && ` · Break ${day.breakStart}–${day.breakEnd}`}
+            {to12Hour(day.startTime)} – {to12Hour(day.endTime)}
+            {day.hasBreak && ` · Break ${to12Hour(day.breakStart)}–${to12Hour(day.breakEnd)}`}
           </span>
         ) : (
           <span className="text-sm text-muted-foreground flex-1">Off</span>
@@ -383,7 +394,7 @@ function DayRow({
                   onChange={e => onChange({ ...day, startTime: e.target.value })}
                   className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                 >
-                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                  {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                 </select>
                 <span className="text-xs text-muted-foreground">to</span>
                 <select
@@ -391,7 +402,7 @@ function DayRow({
                   onChange={e => onChange({ ...day, endTime: e.target.value })}
                   className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                 >
-                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                  {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                 </select>
               </div>
 
@@ -427,7 +438,7 @@ function DayRow({
                         onChange={e => onChange({ ...day, breakStart: e.target.value })}
                         className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                       >
-                        {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                        {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                       </select>
                       <span className="text-xs text-muted-foreground">to</span>
                       <select
@@ -435,7 +446,7 @@ function DayRow({
                         onChange={e => onChange({ ...day, breakEnd: e.target.value })}
                         className="flex-1 text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                       >
-                        {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                        {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                       </select>
                     </div>
                   </motion.div>
@@ -499,14 +510,14 @@ function DayRow({
                                 <label className="text-[10px] text-muted-foreground mb-0.5 block">Start</label>
                                 <select value={editStart} onChange={e => setEditStart(e.target.value)}
                                   className="w-full text-xs bg-background border border-border rounded-lg px-2 py-1.5">
-                                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                  {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                                 </select>
                               </div>
                               <div className="flex-1">
                                 <label className="text-[10px] text-muted-foreground mb-0.5 block">End</label>
                                 <select value={editEnd} onChange={e => setEditEnd(e.target.value)}
                                   className="w-full text-xs bg-background border border-border rounded-lg px-2 py-1.5">
-                                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                  {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                                 </select>
                               </div>
                             </div>
@@ -566,7 +577,7 @@ function DayRow({
                           // ── Rule display row ──
                           <div className="flex items-center gap-2">
                             <div className="flex-1 min-w-0">
-                              <span className="text-xs font-medium text-foreground">{rule.startTime}–{rule.endTime}</span>
+                              <span className="text-xs font-medium text-foreground">{to12Hour(rule.startTime)}–{to12Hour(rule.endTime)}</span>
                               <span className={cn("ml-2 text-[11px] font-medium", TIER_COLORS[rule.clientTier])}>
                                 {TIER_LABELS[rule.clientTier]}
                               </span>
@@ -652,7 +663,7 @@ function DayRow({
                             onChange={e => setRuleStart(e.target.value)}
                             className="flex-1 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground"
                           >
-                            {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                            {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                           </select>
                           <span className="text-xs text-muted-foreground">to</span>
                           <select
@@ -660,7 +671,7 @@ function DayRow({
                             onChange={e => setRuleEnd(e.target.value)}
                             className="flex-1 text-xs bg-background border border-border rounded-lg px-2 py-1.5 text-foreground"
                           >
-                            {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                            {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                           </select>
                         </div>
 
@@ -1174,7 +1185,7 @@ function ScheduleTab() {
                       onChange={e => setBlockStart(e.target.value)}
                       className="w-full text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                     >
-                      {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                      {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                     </select>
                   </div>
                   <div className="flex-1">
@@ -1184,7 +1195,7 @@ function ScheduleTab() {
                       onChange={e => setBlockEnd(e.target.value)}
                       className="w-full text-sm bg-background border border-border rounded-xl px-3 py-2 text-foreground"
                     >
-                      {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                      {HOURS.map(h => <option key={h} value={h}>{to12Hour(h)}</option>)}
                     </select>
                   </div>
                 </div>
@@ -1231,7 +1242,7 @@ function ScheduleTab() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{dateStr}</p>
                     <p className="text-xs text-muted-foreground">
-                      {block.startTime} – {block.endTime}
+                      {to12Hour(block.startTime)} – {to12Hour(block.endTime)}
                       {block.reason && ` · ${block.reason}`}
                     </p>
                   </div>

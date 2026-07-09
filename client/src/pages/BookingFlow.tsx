@@ -33,6 +33,17 @@ type BookingService = {
   icon?: string;
 };
 
+// ─── Time helpers ────────────────────────────────────────────────────────────
+function to12Hour(time: string): string {
+  if (!time) return time;
+  const [hStr, mStr] = time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = mStr ?? "00";
+  const period = h < 12 ? "AM" : "PM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${m} ${period}`;
+}
+
 // ─── Calendar helpers ─────────────────────────────────────────────────────────
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -278,7 +289,7 @@ export default function BookingFlow() {
     const dow = new Date(calMonth.year, calMonth.month, day).getDay();
     const av = availabilityByDay.get(dow);
     if (!av) return null;
-    return `${av.startTime}–${av.endTime}`;
+    return `${to12Hour(av.startTime)}\u2013${to12Hour(av.endTime)}`;
   }
 
   function handleConfirm() {
@@ -783,8 +794,8 @@ export default function BookingFlow() {
                   <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/5 border border-primary/15 text-xs text-primary">
                     <Clock className="w-3.5 h-3.5 shrink-0" />
                     <span>
-                      Open {av.startTime}–{av.endTime}
-                      {av.breakStart && av.breakEnd ? ` · Break ${av.breakStart}–${av.breakEnd}` : ""}
+                      Open {to12Hour(av.startTime)}\u2013{to12Hour(av.endTime)}
+                      {av.breakStart && av.breakEnd ? ` · Break ${to12Hour(av.breakStart)}–${to12Hour(av.breakEnd)}` : ""}
                       {av.bufferMinutes > 0 ? ` · ${av.bufferMinutes}-min buffer between appointments` : ""}
                     </span>
                   </div>
@@ -834,7 +845,7 @@ export default function BookingFlow() {
                               : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
                           `}
                         >
-                          {slot.time}
+                          {to12Hour(slot.time)}
                           {!slot.available && reasonLabel && (
                             <span className={`block text-[9px] mt-0.5 leading-none truncate ${isReturningOnly ? "text-amber-500/70 dark:text-amber-400/60" : "text-muted-foreground/40"}`}>
                               {reasonLabel}
