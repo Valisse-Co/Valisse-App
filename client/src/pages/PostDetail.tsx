@@ -194,31 +194,45 @@ export default function PostDetail({ postId }: Props) {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3 mb-6 cursor-pointer"
-            onClick={() => !isPreview && navigate(`/tech/${tech.id}`)}
+            className="flex items-center gap-3 mb-6"
           >
-            <Avatar className="w-14 h-14 border-2 border-border">
-              <AvatarImage src={tech.avatarUrl ?? undefined} />
-              <AvatarFallback className="bg-accent text-primary font-semibold">
-                {(tech.name ?? "N").charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-foreground">{techName}</p>
-              {tech.location && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <MapPin size={11} />{tech.location}
-                </p>
-              )}
-              {ratingStats && ratingStats.count > 0 && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Star size={11} className="text-yellow-500 fill-yellow-500" />
-                  <span className="text-xs font-medium">{ratingStats.average.toFixed(1)}</span>
-                  <span className="text-xs text-muted-foreground">({ratingStats.count})</span>
-                </div>
-              )}
+            {/* Avatar + name — tappable to go to profile */}
+            <div
+              className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+              onClick={() => !isPreview && navigate(`/tech/${tech.id}`)}
+            >
+              <Avatar className="w-14 h-14 border-2 border-border shrink-0">
+                <AvatarImage src={tech.avatarUrl ?? undefined} />
+                <AvatarFallback className="bg-accent text-primary font-semibold">
+                  {(tech.name ?? "N").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-foreground truncate">{techName}</p>
+                {tech.location && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <MapPin size={11} />{tech.location}
+                  </p>
+                )}
+                {ratingStats && ratingStats.count > 0 && (
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <Star size={11} className="text-yellow-500 fill-yellow-500" />
+                    <span className="text-xs font-medium">{ratingStats.average.toFixed(1)}</span>
+                    <span className="text-xs text-muted-foreground">({ratingStats.count})</span>
+                  </div>
+                )}
+              </div>
             </div>
-            {!isPreview && <ChevronRight size={18} className="text-muted-foreground" />}
+            {/* Message button — inline, right side */}
+            {!isPreview && (
+              <button
+                onClick={handleMessage}
+                disabled={getOrCreateConv.isPending}
+                className="shrink-0 btn-valisse-outline px-4 py-2 text-xs font-medium rounded-xl"
+              >
+                Message
+              </button>
+            )}
           </motion.div>
         )}
 
@@ -284,27 +298,19 @@ export default function PostDetail({ postId }: Props) {
         )}
       </div>
 
-      {/* Fixed bottom bar — Message only (Book buttons are inline) */}
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-40">
-        <div className="bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
-          {isPreview ? (
+      {/* Preview mode — fixed bottom CTA for techs previewing their own post */}
+      {isPreview && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-40">
+          <div className="bg-background/95 backdrop-blur-sm pt-3 pb-2 rounded-2xl shadow-lg border border-border px-3">
             <button
               onClick={handleBook}
               className="w-full btn-valisse py-3.5 text-sm font-semibold"
             >
               Book With {techName}
             </button>
-          ) : (
-            <button
-              onClick={handleMessage}
-              disabled={getOrCreateConv.isPending}
-              className="w-full btn-valisse-outline py-3.5 text-sm font-medium"
-            >
-              Message
-            </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Report Sheet */}
       {isAuthenticated && (
