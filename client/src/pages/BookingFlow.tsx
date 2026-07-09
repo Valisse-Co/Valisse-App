@@ -389,7 +389,16 @@ export default function BookingFlow() {
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border px-4 py-3">
         <div className="flex items-center gap-3 max-w-lg mx-auto">
           <button
-            onClick={() => step === 0 ? navigate(-1 as any) : setStep(s => s - 1)}
+            onClick={() => {
+              if (step === 0) {
+                // Navigate back to the originating post or tech profile
+                if (postId) navigate(`/post/${postId}`);
+                else if (techId) navigate(`/tech/${techId}`);
+                else navigate("/discover");
+              } else {
+                setStep(s => s - 1);
+              }
+            }}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-muted transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
