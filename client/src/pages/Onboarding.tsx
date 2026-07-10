@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { trpc } from "@/lib/trpc";
@@ -31,6 +31,8 @@ const SERVICE_OPTIONS = [
   "Custom / Not Sure",
 ];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];
+// Duration dropdown: 5-min increments from 5 to 240 min
+const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => (i + 1) * 5);
 
 type UserType = "client" | "nail_tech";
 
@@ -45,6 +47,8 @@ export default function Onboarding() {
   const [businessName, setBusinessName] = useState("");
   const [bio, setBio] = useState("");
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  // Per-service detail: price (dollars string) and duration (minutes)
+  const [serviceDetails, setServiceDetails] = useState<Record<string, { price: string; duration: number }>>({});
   const [priceRange, setPriceRange] = useState("");
   const [phone, setPhone] = useState("");
   const [geoLat, setGeoLat] = useState<number | undefined>();
@@ -117,6 +121,8 @@ export default function Onboarding() {
     updateTechAddress.mutate({ address: description });
   };
 
+  const upsertService = trpc.settings.upsertService.useMutation();
+
   const completeOnboarding = trpc.users.completeOnboarding.useMutation({
     onSuccess: () => {
       // Move to consent step instead of navigating away
@@ -129,9 +135,10 @@ export default function Onboarding() {
     setList(list.includes(item) ? list.filter(i => i !== item) : [...list, item]);
   };
 
-  const handleFinish = () => {
+  const handleFinish = useCallback(async () => {
     if (!userType) return;
-    completeOnboarding.mutate({
+    // First complete onboarding profile
+    await completeOnboarding.mutateAsync({
       userType,
       stylePreferences: selectedStyles,
       colorPreferences: selectedColors,
@@ -144,7 +151,23 @@ export default function Onboarding() {
       priceRange: priceRange || undefined,
       phone: phone || undefined,
     });
-  };
+    // Then upsert each selected service with its price/duration
+    if (userType === "nail_tech" && selectedServices.length > 0) {
+      await Promise.all(
+        selectedServices.map((svc, idx) => {
+          const detail = serviceDetails[svc];
+          const priceInCents = detail?.price ? Math.round(parseFloat(detail.price) * 100) : 0;
+          const durationMinutes = detail?.duration ?? 60;
+          return upsertService.mutateAsync({
+            category: svc,
+            priceInCents,
+            durationMinutes,
+            sortOrder: idx,
+          });
+        })
+      );
+    }
+  }, [userType, selectedStyles, selectedColors, location, geoLat, geoLng, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
 
   const handleConsentComplete = () => {
     if (userType === "nail_tech") navigate("/dashboard");
@@ -403,45 +426,76 @@ export default function Onboarding() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="flex flex-col gap-6"
+              className="flex flex-col gap-4"
             >
               <div>
                 <h2 className="text-2xl font-display font-light mb-1">Your Services</h2>
-                <p className="text-muted-foreground text-sm">Select what you offer</p>
+                <p className="text-muted-foreground text-sm">Select what you offer and set pricing</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {SERVICE_OPTIONS.map(s => (
-                  <button
-                    key={s}
-                    onClick={() => toggleItem(s, selectedServices, setSelectedServices)}
-                    className={cn(
-                      "px-4 py-2 rounded-full text-sm border transition-all duration-150",
-                      selectedServices.includes(s)
-                        ? "bg-primary text-white border-primary"
-                        : "bg-card border-border text-foreground hover:border-primary/40"
-                    )}
-                  >{s}</button>
-                ))}
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground mb-3">Price range</p>
-                <div className="flex flex-wrap gap-2">
-                  {PRICE_OPTIONS.map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setPriceRange(p)}
-                      className={cn(
-                        "px-4 py-2 rounded-full text-sm border transition-all duration-150",
-                        priceRange === p
-                          ? "bg-primary text-white border-primary"
-                          : "bg-card border-border text-foreground hover:border-primary/40"
+              <div className="flex flex-col gap-2">
+                {SERVICE_OPTIONS.map(s => {
+                  const isSelected = selectedServices.includes(s);
+                  const detail = serviceDetails[s] ?? { price: "", duration: 60 };
+                  return (
+                    <div key={s} className={cn(
+                      "rounded-2xl border transition-all duration-150 overflow-hidden",
+                      isSelected ? "border-primary bg-primary/5" : "border-border bg-card"
+                    )}>
+                      <button
+                        onClick={() => {
+                          toggleItem(s, selectedServices, setSelectedServices);
+                          if (!serviceDetails[s]) {
+                            setServiceDetails(prev => ({ ...prev, [s]: { price: "", duration: 60 } }));
+                          }
+                        }}
+                        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-left"
+                      >
+                        <span>{s}</span>
+                        <span className={cn(
+                          "w-5 h-5 rounded-full border-2 flex-shrink-0 transition-colors",
+                          isSelected ? "bg-primary border-primary" : "border-muted-foreground/40"
+                        )} />
+                      </button>
+                      {isSelected && (
+                        <div className="px-4 pb-3 flex gap-3">
+                          <div className="flex-1">
+                            <label className="text-xs text-muted-foreground mb-1 block">Price ($)</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="e.g. 65"
+                              value={detail.price}
+                              onChange={e => setServiceDetails(prev => ({ ...prev, [s]: { ...prev[s] ?? { price: "", duration: 60 }, price: e.target.value } }))}
+                              className="h-9 rounded-xl text-sm"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-xs text-muted-foreground mb-1 block">Duration</label>
+                            <select
+                              value={detail.duration}
+                              onChange={e => setServiceDetails(prev => ({ ...prev, [s]: { ...prev[s] ?? { price: "", duration: 60 }, duration: Number(e.target.value) } }))}
+                              className="w-full h-9 rounded-xl border border-input bg-background px-3 text-sm"
+                            >
+                              {DURATION_OPTIONS.map(d => (
+                                <option key={d} value={d}>
+                                  {d < 60 ? `${d} min` : d % 60 === 0 ? `${d / 60}h` : `${Math.floor(d / 60)}h ${d % 60}m`}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
                       )}
-                    >{p}</button>
-                  ))}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-              <button onClick={handleFinish} disabled={completeOnboarding.isPending} className="btn-valisse py-4 w-full mt-auto">
-                {completeOnboarding.isPending ? "Setting up..." : "Continue"}
+              <button
+                onClick={handleFinish}
+                disabled={completeOnboarding.isPending || upsertService.isPending}
+                className="btn-valisse py-4 w-full mt-2"
+              >
+                {(completeOnboarding.isPending || upsertService.isPending) ? "Setting up..." : "Continue"}
               </button>
             </motion.div>
           )}

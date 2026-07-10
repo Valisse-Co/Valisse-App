@@ -421,3 +421,9 @@
 - [x] TechDashboard: rename/merge existing Schedule tab to include Last-Minute Slots at top, weekly schedule below
 - [x] TechDashboard: final tab order — Overview · Posts · Schedule · Smart Match
 - [x] TechBookings (bottom nav): simplified to show bookings only, no Schedule tab
+
+## Onboarding Services + TechProfile Services Section
+- [x] Onboarding: inline price/duration form expands per selected service (price in dollars, duration dropdown in 5-min increments 5–240 min)
+- [x] Onboarding: on completeOnboarding, save all selected services with price + duration via upsertService
+- [x] TechProfile: Services section already exists below bio/header, shows service cards (name, price, duration, photo if available)
+- [x] TechProfile: services fetched via existing getServicesByTechId query (public, by techId)
