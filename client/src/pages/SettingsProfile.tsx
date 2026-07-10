@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -302,6 +302,40 @@ export default function SettingsProfile() {
   const [location, setLocation] = useState((user as any)?.location ?? "");
   const [businessName, setBusinessName] = useState((user as any)?.businessName ?? "");
   const [businessAddress, setBusinessAddress] = useState((user as any)?.businessAddress ?? "");
+
+  // Address autocomplete for techs
+  const [addressInput, setAddressInput] = useState((user as any)?.fullAddress ?? (user as any)?.businessAddress ?? "");
+  const [addressQuery, setAddressQuery] = useState("");
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
+  const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: addressSuggestions = [] } = trpc.users.addressSuggestions.useQuery(
+    { input: addressQuery },
+    { enabled: addressQuery.length >= 3 }
+  );
+
+  const updateTechAddress = trpc.users.updateTechAddress.useMutation({
+    onSuccess: (data) => {
+      setAddressInput(data.formattedAddress);
+      setShowAddressSuggestions(false);
+      utils.auth.me.invalidate();
+      toast.success("Studio address updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleAddressInput = (val: string) => {
+    setAddressInput(val);
+    if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current);
+    addressDebounceRef.current = setTimeout(() => setAddressQuery(val), 400);
+    setShowAddressSuggestions(true);
+  };
+
+  const handleSelectAddress = (suggestion: { placeId: string; description: string }) => {
+    setAddressInput(suggestion.description);
+    setShowAddressSuggestions(false);
+    updateTechAddress.mutate({ address: suggestion.description });
+  };
   const [licenseNumber, setLicenseNumber] = useState((user as any)?.licenseNumber ?? "");
   const [yearsExperience, setYearsExperience] = useState(String((user as any)?.yearsExperience ?? ""));
   const [instagramHandle, setInstagramHandle] = useState((user as any)?.instagramHandle ?? "");
@@ -492,9 +526,35 @@ export default function SettingsProfile() {
                   <Label className="text-xs mb-1.5 block">Business / Studio Name</Label>
                   <Input placeholder="e.g. Luxe Nails by Ashley" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
                 </div>
-                <div>
-                  <Label className="text-xs mb-1.5 block">Business Address</Label>
-                  <Input placeholder="123 Main St, Salt Lake City, UT" value={businessAddress} onChange={(e) => setBusinessAddress(e.target.value)} />
+                <div className="relative">
+                  <Label className="text-xs mb-1.5 block">Studio Address</Label>
+                  <Input
+                    placeholder="Start typing your address…"
+                    value={addressInput}
+                    onChange={(e) => handleAddressInput(e.target.value)}
+                    onFocus={() => addressInput.length >= 3 && setShowAddressSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
+                  />
+                  {updateTechAddress.isPending && (
+                    <p className="text-xs text-muted-foreground mt-1">Verifying address…</p>
+                  )}
+                  {(user as any)?.addressCity && (user as any)?.addressState && !updateTechAddress.isPending && (
+                    <p className="text-xs text-primary mt-1">Saved: {(user as any).addressCity}, {(user as any).addressState}</p>
+                  )}
+                  {showAddressSuggestions && (addressSuggestions as any[]).length > 0 && (
+                    <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
+                      {(addressSuggestions as any[]).map((s: any) => (
+                        <button
+                          key={s.placeId}
+                          type="button"
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent transition-colors border-b border-border/50 last:border-0"
+                          onMouseDown={() => handleSelectAddress(s)}
+                        >
+                          {s.description}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs mb-1.5 block">Cosmetology License #</Label>

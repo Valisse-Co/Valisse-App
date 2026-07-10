@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap, Navigation } from "lucide-react";
 import { SaveAlbumSheet } from "@/components/SaveAlbumSheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ export default function Discover() {
   const [distanceMiles, setDistanceMiles] = useState<number>(10);
   const [soonestAvailable, setSoonestAvailable] = useState(false);
   const [subscriptionsOnly, setSubscriptionsOnly] = useState(false);
+  const [nearestFirst, setNearestFirst] = useState(false);
   const [userLat, setUserLat] = useState<number | undefined>(() => {
     const stored = localStorage.getItem("valisse_userLat");
     return stored ? parseFloat(stored) : undefined;
@@ -110,7 +111,8 @@ export default function Discover() {
     userLng: userLng,
     soonestAvailable: soonestAvailable || undefined,
     subscriptionsOnly: subscriptionsOnly || undefined,
-  }), [activeStyles, activeShape, activeColors, multiColorOnly, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly]);
+    nearestFirst: nearestFirst || undefined,
+  }), [activeStyles, activeShape, activeColors, multiColorOnly, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly, nearestFirst]);
 
   const { data: rawFeed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
   const { data: openSlots = [] } = trpc.lastMinute.openSlots.useQuery();
@@ -396,6 +398,25 @@ export default function Discover() {
                 </button>
               )}
               <p className="text-[10px] text-muted-foreground mt-1">Default: 10 mi. Posts outside your range appear in Similar Matches.</p>
+              {/* Nearest First sort */}
+              <div className="mt-3">
+                <button
+                  onClick={() => {
+                    if (!userLat || !userLng) {
+                      requestLocation(() => setNearestFirst(true));
+                    } else {
+                      setNearestFirst(!nearestFirst);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border transition-all",
+                    nearestFirst ? "bg-emerald-600 text-white border-emerald-600" : "bg-background border-border text-foreground"
+                  )}
+                >
+                  <Navigation size={11} />Nearest First
+                </button>
+                <p className="text-[10px] text-muted-foreground mt-1">Sort all results by distance, closest first</p>
+              </div>
             </div>
 
             {/* Soonest Available */}

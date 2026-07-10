@@ -13,9 +13,22 @@ import { ReportSheet } from "@/components/ReportSheet";
 
 interface Props { postId: number }
 
+// Haversine straight-line distance in miles
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function PostDetail({ postId }: Props) {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
+
+  // Client location from localStorage (set on Discover)
+  const clientLat = (() => { const v = localStorage.getItem("valisse_userLat"); return v ? parseFloat(v) : undefined; })();
+  const clientLng = (() => { const v = localStorage.getItem("valisse_userLng"); return v ? parseFloat(v) : undefined; })();
   const [reportOpen, setReportOpen] = useState(false);
   const search = useSearch();
   const searchParams = new URLSearchParams(search);
@@ -209,11 +222,23 @@ export default function PostDetail({ postId }: Props) {
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-foreground truncate">{techName}</p>
-                {tech.location && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <MapPin size={11} />{tech.location}
-                  </p>
-                )}
+                {(() => {
+                  const city = (tech as any).addressCity;
+                  const state = (tech as any).addressState;
+                  const fLat = (tech as any).fuzzedLat;
+                  const fLng = (tech as any).fuzzedLng;
+                  const cityState = city && state ? `${city}, ${state}` : tech.location;
+                  const dist = (clientLat && clientLng && fLat && fLng)
+                    ? haversineMiles(clientLat, clientLng, fLat, fLng)
+                    : null;
+                  if (!cityState && !dist) return null;
+                  return (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin size={11} />
+                      {cityState}{dist !== null ? ` · ${dist.toFixed(1)} mi away` : ""}
+                    </p>
+                  );
+                })()}
                 {ratingStats && ratingStats.count > 0 && (
                   <div className="flex items-center gap-1 mt-0.5">
                     <Star size={11} className="text-yellow-500 fill-yellow-500" />

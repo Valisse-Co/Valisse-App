@@ -390,14 +390,19 @@
 - [x] Frontend: Album detail view — grid of posts in that album, with unsave/remove option
 
 ## Location / Distance Feature
-- [ ] Schema: add fullAddress (TEXT), addressLat (DOUBLE), addressLng (DOUBLE), addressCity (VARCHAR), addressState (VARCHAR), fuzzedLat (DOUBLE), fuzzedLng (DOUBLE) to users table; migration applied
-- [ ] Backend: geocodeAddress(address) helper using Google Maps Geocoding API; generateFuzzedCoords(lat, lng) helper (random offset within 0.5–1 mi radius)
-- [ ] Backend: updateTechAddress procedure (protectedProcedure) — accepts fullAddress, geocodes it, stores real + fuzzed coords, city, state
-- [ ] Backend: getDiscoverFeed returns addressCity, addressState, fuzzedLat, fuzzedLng (never real lat/lng) for each tech
-- [ ] Backend: getPostById / TechProfile returns addressCity, addressState, fuzzedLat, fuzzedLng
-- [ ] Backend: booking confirmation page — when booking status = confirmed, return fullAddress to the client who owns the booking
-- [ ] Frontend: Onboarding (tech) — Google Places address autocomplete input; on select, call updateTechAddress
-- [ ] Frontend: Discover — on first visit, prompt for browser geolocation permission; fallback to manual city/zip entry; store in localStorage
-- [ ] Frontend: Discover — show "X.X mi away · City, ST" under tech name on post cards using client coords vs tech fuzzed coords
-- [ ] Frontend: TechProfile — show "City, ST · ~X.X mi away" in header; show fuzzed map pin with circle radius overlay
-- [ ] Frontend: BookingConfirmation — show full address section when booking.status === "confirmed"
+- [x] Schema: add fullAddress (TEXT), addressLat (DOUBLE), addressLng (DOUBLE), addressCity (VARCHAR), addressState (VARCHAR), fuzzedLat (DOUBLE), fuzzedLng (DOUBLE) to users table; migration applied
+- [x] Backend: geocodeAddress(address) helper using Google Maps Geocoding API; generateFuzzedCoords(lat, lng) helper (random offset within 0.5–1 mi radius)
+- [x] Backend: updateTechAddress procedure (protectedProcedure) — accepts fullAddress, geocodes it, stores real + fuzzed coords, city, state
+- [x] Backend: getDiscoverFeed returns addressCity, addressState, fuzzedLat, fuzzedLng (never real lat/lng) for each tech
+- [x] Backend: getPostById / TechProfile returns addressCity, addressState, fuzzedLat, fuzzedLng
+- [x] Backend: booking confirmation page — when booking status = confirmed, return fullAddress to the client who owns the booking
+- [x] Frontend: Onboarding (tech) — Google Places address autocomplete input; on select, call updateTechAddress
+- [x] Frontend: Discover — on first visit, prompt for browser geolocation permission; fallback to manual city/zip entry; store in localStorage
+- [x] Frontend: Discover — show "X.X mi away · City, ST" under tech name on post cards using client coords vs tech fuzzed coords
+- [x] Frontend: TechProfile — show "City, ST · ~X.X mi away" in header; show fuzzed map pin with circle radius overlay
+- [x] Frontend: BookingConfirmation — show full address section when booking.status === "confirmed"
+
+## Location Feature Follow-ups
+- [x] SettingsProfile: add Google Places address autocomplete for existing techs (same flow as onboarding)
+- [x] Discover: add "Nearest First" sort chip that ranks feed by distance (requires client coords)
+- [x] PostDetail: add city/state + distance label to tech preview card

@@ -341,6 +341,7 @@ const postsRouter = router({
         userLng: z.number().optional(),
         soonestAvailable: z.boolean().optional(),
         subscriptionsOnly: z.boolean().optional(),
+        nearestFirst: z.boolean().optional(),
       })
     )
     .query(async ({ input, ctx }) => {
@@ -360,6 +361,7 @@ const postsRouter = router({
         userLng: input.userLng,
         soonestAvailable: input.soonestAvailable,
         subscriptionsOnly: input.subscriptionsOnly,
+        nearestFirst: input.nearestFirst,
       }, ctx.user?.id);
     }),
 

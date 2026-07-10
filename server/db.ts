@@ -145,6 +145,7 @@ export async function getDiscoverFeed(
     userLng?: number;
     soonestAvailable?: boolean;
     subscriptionsOnly?: boolean; // only show posts from techs the client follows
+    nearestFirst?: boolean; // sort all results by distance ascending
   },
   clientId?: number // used for subscription boost + filter
 ) {
@@ -345,6 +346,21 @@ export async function getDiscoverFeed(
 
     return { ...r, _score: baseScore, _matchedDimensions: matchedDimensions, _isExactMatch: isExactMatch, _isMultiColor: isMultiColor, _postColors: postColors };
   });
+
+  // nearestFirst: skip score-based bucketing, sort all by distance ascending
+  if (filters?.nearestFirst && uLat !== undefined && uLng !== undefined) {
+    const withDist = scored.map(r => ({
+      ...r,
+      _distMiles: (r.tech?.lat != null && r.tech?.lng != null)
+        ? getDistMiles(r.tech.lat, r.tech.lng, uLat!, uLng!)
+        : 9999,
+    }));
+    withDist.sort((a, b) => a._distMiles - b._distMiles);
+    return withDist.slice(offset, offset + limit).map(r => {
+      const { _score: _s, _matchedDimensions: _m, _isExactMatch: _e, _isMultiColor, _postColors, _distMiles, ...rest } = r;
+      return { ...rest, isMultiColor: _isMultiColor as boolean, postColors: _postColors as string[] };
+    });
+  }
 
   // Split into exact matches and partial matches
   const exactMatches = scored.filter(r => r._isExactMatch).sort((a, b) => b._score - a._score);
