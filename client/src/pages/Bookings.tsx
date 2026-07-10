@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight, MapPin } from "lucide-react";
+import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight, MapPin, RotateCcw } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -160,7 +160,7 @@ export default function Bookings() {
   }) ?? [];
   const past = bookingsData?.filter(b => {
     const d = new Date((b.booking.scheduledAt as any));
-    return d < now || b.booking.status === "cancelled" || b.booking.status === "completed";
+    return d < now || b.booking.status === "cancelled" || b.booking.status === "completed" || b.booking.status === "declined";
   }) ?? [];
 
   const displayed = tab === "upcoming" ? upcoming : past;
@@ -298,6 +298,24 @@ export default function Bookings() {
                       className="w-full text-xs btn-valisse py-2"
                     >
                       Leave a Review
+                    </button>
+                  </div>
+                )}
+
+                {/* Declined — offer reschedule + message */}
+                {booking.status === "declined" && (
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+                    <button
+                      onClick={() => navigate(`/book/${tech?.id}`)}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs btn-valisse py-2"
+                    >
+                      <RotateCcw size={12} /> Reschedule
+                    </button>
+                    <button
+                      onClick={() => navigate(`/chat/${tech?.id}`)}
+                      className="flex-1 text-xs btn-valisse-outline py-2"
+                    >
+                      Message
                     </button>
                   </div>
                 )}
