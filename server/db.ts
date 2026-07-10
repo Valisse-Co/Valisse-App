@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
@@ -2232,6 +2232,7 @@ export async function getPrivacySettings(userId: number): Promise<PrivacySetting
     hideFromNearMe: false,
     discoverVisible: true,
     hideExactAddress: false,
+    hideApproxLocation: false,
     messagePermission: "anyone",
     updatedAt: new Date(),
   };
@@ -2558,4 +2559,62 @@ export async function permanentDeleteAccount(userId: number) {
   await db.delete(users).where(eq(users.id, userId));
 
   return { cancelledCount };
+}
+
+// ─── Near Me Map: public tech pins ───────────────────────────────────────────
+
+export async function getTechsNearMe(userLat: number, userLng: number, radiusMiles = 25) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const toRad2 = (d: number) => d * Math.PI / 180;
+  const distMilesFn = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+    const R = 3958.8;
+    const dLat = toRad2(lat2 - lat1);
+    const dLng = toRad2(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad2(lat1)) * Math.cos(toRad2(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  // Fetch all techs with fuzzed coords set, joined with their privacy settings
+  const rows = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      businessName: users.businessName,
+      avatarUrl: users.avatarUrl,
+      fuzzedLat: users.fuzzedLat,
+      fuzzedLng: users.fuzzedLng,
+      addressCity: users.addressCity,
+      addressState: users.addressState,
+      hideApproxLocation: privacySettings.hideApproxLocation,
+    })
+    .from(users)
+    .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
+    .where(
+      and(
+        sql`${users.role} = 'tech'`,
+        isNotNull(users.fuzzedLat),
+        isNotNull(users.fuzzedLng),
+      )
+    );
+
+  // Filter by radius and hideApproxLocation in JS (avoid complex SQL)
+  return rows
+    .filter(r => {
+      if (r.hideApproxLocation) return false;
+      if (r.fuzzedLat == null || r.fuzzedLng == null) return false;
+      return distMilesFn(r.fuzzedLat, r.fuzzedLng, userLat, userLng) <= radiusMiles;
+    })
+    .map(r => ({
+      id: r.id,
+      name: r.name,
+      businessName: r.businessName,
+      avatarUrl: r.avatarUrl,
+      fuzzedLat: r.fuzzedLat!,
+      fuzzedLng: r.fuzzedLng!,
+      addressCity: r.addressCity,
+      addressState: r.addressState,
+      distMiles: parseFloat(distMilesFn(r.fuzzedLat!, r.fuzzedLng!, userLat, userLng).toFixed(1)),
+    }));
 }

@@ -474,6 +474,7 @@ export const privacySettings = mysqlTable("privacy_settings", {
   // Tech controls
   discoverVisible: boolean("discoverVisible").default(true).notNull(),
   hideExactAddress: boolean("hideExactAddress").default(false).notNull(),
+  hideApproxLocation: boolean("hideApproxLocation").default(false).notNull(),
   messagePermission: mysqlEnum("messagePermission", ["anyone", "booked_only"]).default("anyone").notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

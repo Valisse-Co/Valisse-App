@@ -117,6 +117,7 @@ import {
   initTechSubscription,
   getTechFollowerIds,
   getActiveSlotsForTech,
+  getTechsNearMe,
 } from "./db";
 import { storagePut } from "./storage";
 import {
@@ -363,6 +364,16 @@ const postsRouter = router({
         subscriptionsOnly: input.subscriptionsOnly,
         nearestFirst: input.nearestFirst,
       }, ctx.user?.id);
+    }),
+
+  techsNearMe: publicProcedure
+    .input(z.object({
+      userLat: z.number(),
+      userLng: z.number(),
+      radiusMiles: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      return getTechsNearMe(input.userLat, input.userLng, input.radiusMiles ?? 25);
     }),
 
   getById: publicProcedure
@@ -1393,6 +1404,7 @@ const settingsRouter = router({
       hideFromNearMe: z.boolean().optional(),
       discoverVisible: z.boolean().optional(),
       hideExactAddress: z.boolean().optional(),
+      hideApproxLocation: z.boolean().optional(),
       messagePermission: z.enum(["anyone", "booked_only"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {

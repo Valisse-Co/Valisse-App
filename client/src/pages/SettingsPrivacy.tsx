@@ -33,6 +33,7 @@ type PrivacySettings = {
   hideFromNearMe: boolean;
   discoverVisible: boolean;
   hideExactAddress: boolean;
+  hideApproxLocation: boolean;
   messagePermission: "anyone" | "booked_only";
 };
 
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: PrivacySettings = {
   hideFromNearMe: false,
   discoverVisible: true,
   hideExactAddress: false,
+  hideApproxLocation: false,
   messagePermission: "anyone",
 };
 
@@ -67,6 +69,7 @@ export default function SettingsPrivacy() {
         hideFromNearMe: (savedSettings as any).hideFromNearMe ?? false,
         discoverVisible: (savedSettings as any).discoverVisible ?? true,
         hideExactAddress: (savedSettings as any).hideExactAddress ?? false,
+        hideApproxLocation: (savedSettings as any).hideApproxLocation ?? false,
         messagePermission: (savedSettings as any).messagePermission ?? "anyone",
       });
     }
@@ -202,6 +205,19 @@ export default function SettingsPrivacy() {
                 <p className="text-xs text-muted-foreground">Show city only, not full address</p>
               </div>
               <Switch checked={settings.hideExactAddress} onCheckedChange={(v) => set("hideExactAddress", v)} />
+            </div>
+
+            <Separator className="ml-[68px]" />
+
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                <MapPin size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">Hide Approximate Location</p>
+                <p className="text-xs text-muted-foreground">Remove the map pin from your profile and the Near Me map</p>
+              </div>
+              <Switch checked={settings.hideApproxLocation} onCheckedChange={(v) => set("hideApproxLocation", v)} />
             </div>
 
             <Separator className="ml-[68px]" />

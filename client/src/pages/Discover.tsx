@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap, Navigation } from "lucide-react";
+import { Bookmark, SlidersHorizontal, X, Search, MapPin, Clock, LocateFixed, Bell, Flag, Layers, Zap, Navigation, Map as MapIcon, LayoutGrid } from "lucide-react";
+import { MapView } from "@/components/Map";
 import { SaveAlbumSheet } from "@/components/SaveAlbumSheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ export default function Discover() {
   const [soonestAvailable, setSoonestAvailable] = useState(false);
   const [subscriptionsOnly, setSubscriptionsOnly] = useState(false);
   const [nearestFirst, setNearestFirst] = useState(false);
+  const [viewMode, setViewMode] = useState<"feed" | "map">("feed");
   const [userLat, setUserLat] = useState<number | undefined>(() => {
     const stored = localStorage.getItem("valisse_userLat");
     return stored ? parseFloat(stored) : undefined;
@@ -116,6 +118,10 @@ export default function Discover() {
 
   const { data: rawFeed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
   const { data: openSlots = [] } = trpc.lastMinute.openSlots.useQuery();
+  const { data: nearMeTechs = [], isLoading: nearMeLoading } = trpc.posts.techsNearMe.useQuery(
+    { userLat: userLat!, userLng: userLng!, radiusMiles: distanceMiles >= 9999 ? 100 : distanceMiles },
+    { enabled: viewMode === "map" && !!userLat && !!userLng }
+  );
 
   // Separate exact matches from partial matches using the _divider marker
   const { exactFeed, partialFeed } = useMemo(() => {
@@ -195,8 +201,31 @@ export default function Discover() {
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border px-4 pt-12 pb-3">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-2xl font-display font-light tracking-wide">Discover</h1>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
+          <div className="flex items-center gap-2">
+            {/* Feed / Map tab switcher */}
+            <div className="flex items-center bg-muted rounded-full p-0.5 text-xs">
+              <button
+                onClick={() => setViewMode("feed")}
+                className={cn("flex items-center gap-1 px-2.5 py-1 rounded-full transition-all",
+                  viewMode === "feed" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                )}
+              >
+                <LayoutGrid size={12} />Feed
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode("map");
+                  if (!userLat || !userLng) requestLocation();
+                }}
+                className={cn("flex items-center gap-1 px-2.5 py-1 rounded-full transition-all",
+                  viewMode === "map" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                )}
+              >
+                <MapIcon size={12} />Near Me
+              </button>
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
               showFilters || hasActiveFilters
@@ -208,6 +237,7 @@ export default function Discover() {
             Filters
             {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-white ml-0.5" />}
           </button>
+          </div>
         </div>
 
         {/* Quick style chips — horizontal scroll */}
@@ -523,8 +553,20 @@ export default function Discover() {
         )}
       </AnimatePresence>
 
+      {/* Near Me Map View */}
+      {viewMode === "map" && (
+        <NearMeMapView
+          techs={nearMeTechs as any[]}
+          loading={nearMeLoading}
+          userLat={userLat}
+          userLng={userLng}
+          onRequestLocation={requestLocation}
+          onTechClick={(techId) => navigate(`/tech/${techId}`)}
+        />
+      )}
+
       {/* Feed Grid */}
-      <div className="px-3 pt-3 pb-24">
+      {viewMode === "feed" && <div className="px-3 pt-3 pb-24">
         {isLoading ? (
           <div className="flex gap-3">
             <div className="flex-1 flex flex-col gap-3">
@@ -608,7 +650,7 @@ export default function Discover() {
             )}
           </>
         )}
-      </div>
+      </div>}
 
       {/* Album picker sheet */}
       {albumSheetPostId !== null && (
@@ -809,5 +851,147 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick, clientLat, cl
 
       <ReportSheet postId={post.id} open={reportOpen} onOpenChange={setReportOpen} />
     </motion.div>
+  );
+}
+
+// ─── Near Me Map View ─────────────────────────────────────────────────────────
+
+interface NearMeMapViewProps {
+  techs: Array<{
+    id: number;
+    name: string | null;
+    businessName: string | null;
+    avatarUrl: string | null;
+    fuzzedLat: number;
+    fuzzedLng: number;
+    addressCity: string | null;
+    addressState: string | null;
+    distMiles: number;
+  }>;
+  loading: boolean;
+  userLat?: number;
+  userLng?: number;
+  onRequestLocation: () => void;
+  onTechClick: (techId: number) => void;
+}
+
+function NearMeMapView({ techs, loading, userLat, userLng, onRequestLocation, onTechClick }: NearMeMapViewProps) {
+  const [selectedTech, setSelectedTech] = useState<NearMeMapViewProps["techs"][0] | null>(null);
+
+  const handleMapReady = (map: google.maps.Map) => {
+    if (!userLat || !userLng) return;
+
+    // Center on user
+    map.setCenter({ lat: userLat, lng: userLng });
+    map.setZoom(12);
+
+    // Blue dot for user location
+    new window.google.maps.Circle({
+      map,
+      center: { lat: userLat, lng: userLng },
+      radius: 300,
+      fillColor: "#4285F4",
+      fillOpacity: 0.9,
+      strokeColor: "#ffffff",
+      strokeWeight: 2,
+    });
+
+    // Tech pins
+    techs.forEach(tech => {
+      const marker = new window.google.maps.Marker({
+        map,
+        position: { lat: tech.fuzzedLat, lng: tech.fuzzedLng },
+        title: tech.businessName ?? tech.name ?? "Nail Tech",
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: "#e879a0",
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+        },
+      });
+      marker.addListener("click", () => {
+        setSelectedTech(tech);
+        map.panTo({ lat: tech.fuzzedLat, lng: tech.fuzzedLng });
+      });
+    });
+  };
+
+  if (!userLat || !userLng) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 px-6">
+        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+          <MapPin size={28} className="text-primary" />
+        </div>
+        <p className="text-center text-sm text-muted-foreground">
+          Enable location to see nail techs near you on the map.
+        </p>
+        <button
+          onClick={onRequestLocation}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-white text-sm font-semibold"
+        >
+          <LocateFixed size={14} />
+          Enable Location
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative pb-24">
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      <MapView
+        className="w-full h-[calc(100dvh-160px)]"
+        initialCenter={{ lat: userLat, lng: userLng }}
+        initialZoom={12}
+        onMapReady={handleMapReady}
+      />
+      {/* Tech count badge */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur-sm border border-border rounded-full px-3 py-1 text-xs font-medium shadow-sm">
+        {techs.length} nail tech{techs.length !== 1 ? "s" : ""} nearby
+      </div>
+      {/* Selected tech popup */}
+      {selectedTech && (
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          className="absolute bottom-28 left-4 right-4 bg-card border border-border rounded-2xl p-4 shadow-xl"
+        >
+          <button
+            onClick={() => setSelectedTech(null)}
+            className="absolute top-3 right-3 text-muted-foreground"
+          >
+            <X size={16} />
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-semibold text-primary flex-shrink-0">
+              {(selectedTech.businessName ?? selectedTech.name ?? "T").charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm truncate">{selectedTech.businessName ?? selectedTech.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {selectedTech.addressCity && selectedTech.addressState
+                  ? `${selectedTech.addressCity}, ${selectedTech.addressState}`
+                  : ""}
+                {" · "}
+                <span className="text-primary font-medium">{selectedTech.distMiles} mi away</span>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onTechClick(selectedTech.id)}
+            className="mt-3 w-full py-2 rounded-xl bg-primary text-white text-sm font-semibold"
+          >
+            View Profile
+          </button>
+        </motion.div>
+      )}
+    </div>
   );
 }

@@ -406,3 +406,12 @@
 - [x] SettingsProfile: add Google Places address autocomplete for existing techs (same flow as onboarding)
 - [x] Discover: add "Nearest First" sort chip that ranks feed by distance (requires client coords)
 - [x] PostDetail: add city/state + distance label to tech preview card
+
+## Near Me Map + Address Privacy
+- [x] Discover: add Feed/Map tab switcher; Map tab shows Google Map with tech pins at fuzzed coords; tap pin shows mini card (avatar, name, city, distance, View Profile CTA)
+- [x] Discover: map auto-centers on client location; falls back to city center if no coords; only shows techs with fuzzedLat/fuzzedLng set and hideApproxLocation=false
+- [x] Backend: getTechsNearMe procedure returns techs with fuzzed coords (filtered by hideApproxLocation)
+- [x] Schema: add hideApproxLocation (bool, default false) to privacy_settings table; migration + apply
+- [x] Backend: settings.updatePrivacySettings — added hideApproxLocation to the update procedure input
+- [x] Frontend: SettingsPrivacy — added "Hide Approximate Location" toggle for nail techs
+- [x] Backend: getTechsNearMe filters out techs with hideApproxLocation=true
