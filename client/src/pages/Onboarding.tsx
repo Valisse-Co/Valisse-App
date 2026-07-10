@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { trpc } from "@/lib/trpc";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Sparkles, Scissors, LocateFixed } from "lucide-react";
+import { ChevronRight, Sparkles, Scissors, LocateFixed, MapPin, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConsentStep from "./ConsentStep";
 
@@ -50,6 +50,14 @@ export default function Onboarding() {
   const [geoLat, setGeoLat] = useState<number | undefined>();
   const [geoLng, setGeoLng] = useState<number | undefined>();
   const [locating, setLocating] = useState(false);
+  // Tech address autocomplete state
+  const [addressInput, setAddressInput] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<{ placeId: string; description: string }[]>([]);
+  const [addressConfirmed, setAddressConfirmed] = useState(""); // formatted address after geocode
+  const [addressCity, setAddressCity] = useState("");
+  const [addressState, setAddressState] = useState("");
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   // After profile is saved, show the consent step
   const [profileSaved, setProfileSaved] = useState(false);
 
@@ -66,6 +74,47 @@ export default function Onboarding() {
       () => { setLocating(false); toast.error("Could not detect location."); },
       { timeout: 8000 }
     );
+  };
+
+  // Address autocomplete — debounced query
+  const [debouncedAddress, setDebouncedAddress] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedAddress(addressInput), 350);
+    return () => clearTimeout(t);
+  }, [addressInput]);
+
+  const { data: suggestions } = trpc.users.addressSuggestions.useQuery(
+    { input: debouncedAddress },
+    { enabled: debouncedAddress.length >= 3 && !addressConfirmed }
+  );
+
+  useEffect(() => {
+    if (suggestions) {
+      setAddressSuggestions(suggestions);
+      setShowSuggestions(suggestions.length > 0);
+    }
+  }, [suggestions]);
+
+  const updateTechAddress = trpc.users.updateTechAddress.useMutation({
+    onSuccess: (data) => {
+      setAddressConfirmed(data.formattedAddress);
+      setAddressCity(data.city);
+      setAddressState(data.state);
+      setLocation(`${data.city}, ${data.state}`);
+      setAddressLoading(false);
+      setShowSuggestions(false);
+    },
+    onError: () => {
+      setAddressLoading(false);
+      toast.error("Address could not be verified. Please try a different address.");
+    },
+  });
+
+  const handleSelectSuggestion = (description: string) => {
+    setAddressInput(description);
+    setShowSuggestions(false);
+    setAddressLoading(true);
+    updateTechAddress.mutate({ address: description });
   };
 
   const completeOnboarding = trpc.users.completeOnboarding.useMutation({
@@ -291,7 +340,47 @@ export default function Onboarding() {
               </div>
               <div className="flex flex-col gap-3">
                 <Input placeholder="Business / Studio name" value={businessName} onChange={e => setBusinessName(e.target.value)} className="rounded-xl h-12" />
-                <Input placeholder="Location (City, State)" value={location} onChange={e => setLocation(e.target.value)} className="rounded-xl h-12" />
+
+                {/* Address autocomplete */}
+                <div className="relative">
+                  <div className="relative">
+                    <MapPin size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Your studio address (e.g. 123 Main St, Miami, FL)"
+                      value={addressInput}
+                      onChange={e => { setAddressInput(e.target.value); setAddressConfirmed(""); }}
+                      className="rounded-xl h-12 pl-9"
+                    />
+                    {addressLoading && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    )}
+                    {addressConfirmed && !addressLoading && (
+                      <CheckCircle2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500" />
+                    )}
+                  </div>
+                  {showSuggestions && addressSuggestions.length > 0 && (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+                      {addressSuggestions.map(s => (
+                        <button
+                          key={s.placeId}
+                          type="button"
+                          onClick={() => handleSelectSuggestion(s.description)}
+                          className="w-full text-left px-4 py-3 text-sm hover:bg-accent transition-colors border-b border-border last:border-0"
+                        >
+                          <MapPin size={12} className="inline mr-2 text-muted-foreground" />
+                          {s.description}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {addressConfirmed && (
+                    <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                      <CheckCircle2 size={11} /> Address verified: {addressCity}, {addressState}
+                      <span className="text-muted-foreground ml-1">(exact address hidden from clients until booking confirmed)</span>
+                    </p>
+                  )}
+                </div>
+
                 <Input placeholder="Phone number (for bookings)" value={phone} onChange={e => setPhone(e.target.value)} className="rounded-xl h-12" />
                 <Textarea
                   placeholder="Tell clients about your style and experience..."

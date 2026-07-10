@@ -212,6 +212,44 @@ const usersRouter = router({
       return { success: true };
     }),
 
+  /** Geocode and store a tech's full address; returns city+state for confirmation */
+  updateTechAddress: protectedProcedure
+    .input(z.object({ address: z.string().min(5) }))
+    .mutation(async ({ ctx, input }) => {
+      const { geocodeAddress, generateFuzzedCoords } = await import("./geocoding");
+      const geo = await geocodeAddress(input.address);
+      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "Address could not be verified. Please enter a valid US address." });
+      const { fuzzedLat, fuzzedLng } = generateFuzzedCoords(geo.lat, geo.lng);
+      await updateUserProfile(ctx.user.id, {
+        fullAddress: geo.fullAddress,
+        lat: geo.lat,
+        lng: geo.lng,
+        addressCity: geo.city,
+        addressState: geo.state,
+        fuzzedLat,
+        fuzzedLng,
+        location: `${geo.city}, ${geo.state}`,
+      } as any);
+      return { city: geo.city, state: geo.state, formattedAddress: geo.fullAddress };
+    }),
+
+  /** Autocomplete address suggestions using Google Places */
+  addressSuggestions: protectedProcedure
+    .input(z.object({ input: z.string().min(3) }))
+    .query(async ({ input }) => {
+      const { makeRequest } = await import("./_core/map");
+      const data = await makeRequest("/maps/api/place/autocomplete/json", {
+        input: input.input,
+        types: "address",
+        components: "country:us",
+      }) as any;
+      if (!data || data.status !== "OK") return [];
+      return (data.predictions ?? []).map((p: any) => ({
+        placeId: p.place_id,
+        description: p.description,
+      }));
+    }),
+
   // Returns whether the user needs to accept (or re-accept) legal consents
   getConsentStatus: protectedProcedure.query(async ({ ctx }) => {
     const user = ctx.user as any;

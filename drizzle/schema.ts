@@ -62,6 +62,13 @@ export const users = mysqlTable("users", {
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),
+  // Full validated address (tech only, never exposed to clients)
+  fullAddress: text("fullAddress"),
+  addressCity: varchar("addressCity", { length: 128 }),
+  addressState: varchar("addressState", { length: 64 }),
+  // Fuzzed coords for public display (offset 0.5–1 mi from real)
+  fuzzedLat: float("fuzzedLat"),
+  fuzzedLng: float("fuzzedLng"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

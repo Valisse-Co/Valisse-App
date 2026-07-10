@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -38,9 +38,28 @@ export default function Discover() {
   const [distanceMiles, setDistanceMiles] = useState<number>(10);
   const [soonestAvailable, setSoonestAvailable] = useState(false);
   const [subscriptionsOnly, setSubscriptionsOnly] = useState(false);
-  const [userLat, setUserLat] = useState<number | undefined>();
-  const [userLng, setUserLng] = useState<number | undefined>();
+  const [userLat, setUserLat] = useState<number | undefined>(() => {
+    const stored = localStorage.getItem("valisse_userLat");
+    return stored ? parseFloat(stored) : undefined;
+  });
+  const [userLng, setUserLng] = useState<number | undefined>(() => {
+    const stored = localStorage.getItem("valisse_userLng");
+    return stored ? parseFloat(stored) : undefined;
+  });
   const [locating, setLocating] = useState(false);
+  // First-visit location prompt
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+  const [manualZip, setManualZip] = useState("");
+  const [showManualEntry, setShowManualEntry] = useState(false);
+
+  // On first Discover visit, prompt for location if not already set
+  useEffect(() => {
+    const seen = localStorage.getItem("valisse_locationPromptSeen");
+    if (!seen && !userLat) {
+      setShowLocationPrompt(true);
+      localStorage.setItem("valisse_locationPromptSeen", "1");
+    }
+  }, []);
 
   const toggleStyleTag = (tag: string) => {
     if (tag === "All") { setActiveStyles([]); return; }
@@ -55,15 +74,21 @@ export default function Discover() {
     );
   };
 
-  const requestLocation = () => {
+  const requestLocation = (onSuccess?: () => void) => {
     if (!navigator.geolocation) { toast.error("Geolocation not supported."); return; }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setUserLat(pos.coords.latitude);
-        setUserLng(pos.coords.longitude);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setUserLat(lat);
+        setUserLng(lng);
+        localStorage.setItem("valisse_userLat", String(lat));
+        localStorage.setItem("valisse_userLng", String(lng));
         setLocating(false);
-        toast.success("Location detected!");
+        setShowLocationPrompt(false);
+        toast.success("Location detected! Showing techs near you.");
+        onSuccess?.();
       },
       () => { setLocating(false); toast.error("Could not detect location. Please allow access."); },
       { timeout: 8000 }
@@ -366,7 +391,7 @@ export default function Discover() {
                 ))}
               </div>
               {!userLat && !locating && (
-                <button onClick={requestLocation} className="mt-2 text-xs text-primary flex items-center gap-1">
+                <button onClick={() => requestLocation()} className="mt-2 text-xs text-primary flex items-center gap-1">
                   <LocateFixed size={11} /> Allow location to refine distance results
                 </button>
               )}
@@ -410,6 +435,73 @@ export default function Discover() {
         )}
       </AnimatePresence>
 
+      {/* First-visit location permission prompt */}
+      <AnimatePresence>
+        {showLocationPrompt && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mx-3 mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <MapPin size={16} className="text-primary" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground mb-0.5">See nail techs near you</p>
+                <p className="text-xs text-muted-foreground mb-3">Allow location access to see distance and find techs in your area.</p>
+                {!showManualEntry ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => requestLocation()}
+                      disabled={locating}
+                      className="flex-1 py-2 rounded-xl bg-primary text-white text-xs font-semibold"
+                    >
+                      {locating ? "Detecting…" : "Allow Location"}
+                    </button>
+                    <button
+                      onClick={() => setShowManualEntry(true)}
+                      className="flex-1 py-2 rounded-xl border border-border text-xs font-medium text-foreground"
+                    >
+                      Enter City / Zip
+                    </button>
+                    <button
+                      onClick={() => setShowLocationPrompt(false)}
+                      className="py-2 px-3 rounded-xl border border-border text-xs text-muted-foreground"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="City, State or ZIP (e.g. Miami, FL)"
+                      value={manualZip}
+                      onChange={e => setManualZip(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl border border-border bg-background text-xs"
+                    />
+                    <button
+                      onClick={() => {
+                        if (manualZip.trim()) {
+                          localStorage.setItem("valisse_manualLocation", manualZip.trim());
+                          setShowLocationPrompt(false);
+                          toast.success(`Location set to ${manualZip.trim()}`);
+                        }
+                      }}
+                      className="py-2 px-3 rounded-xl bg-primary text-white text-xs font-semibold"
+                    >
+                      Set
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Feed Grid */}
       <div className="px-3 pt-3 pb-24">
         {isLoading ? (
@@ -444,6 +536,7 @@ export default function Discover() {
                       ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
                           saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
+                          clientLat={userLat} clientLng={userLng}
                           onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
                   )}
                 </div>
@@ -453,6 +546,7 @@ export default function Discover() {
                       ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
                           saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
+                          clientLat={userLat} clientLng={userLng}
                           onClick={() => navigate(`/post/${item.post.id}?from=/discover`)} />
                   )}
                 </div>
@@ -477,6 +571,7 @@ export default function Discover() {
                   {partialCols.left.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={localSavedOverrides.has(post.id) ? localSavedOverrides.get(post.id)! : savedSet.has(post.id)} onSave={handleSave}
+                      clientLat={userLat} clientLng={userLng}
                       onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
@@ -484,6 +579,7 @@ export default function Discover() {
                   {partialCols.right.map(({ post, tech, analytics }: any) => (
                     <PostCard key={post.id} post={post} tech={tech} analytics={analytics}
                       saved={localSavedOverrides.has(post.id) ? localSavedOverrides.get(post.id)! : savedSet.has(post.id)} onSave={handleSave}
+                      clientLat={userLat} clientLng={userLng}
                       onClick={() => navigate(`/post/${post.id}?from=/discover`)} />
                   ))}
                 </div>
@@ -556,7 +652,16 @@ function LastMinuteSlotCard({ slot, onBook }: { slot: any; onBook: (techId: numb
   );
 }
 
-function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
+// Straight-line distance in miles between two lat/lng points (Haversine)
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function PostCard({ post, tech, analytics, saved, onSave, onClick, clientLat, clientLng }: any) {
   const urls: string[] = post.imageUrls ?? [];
   const [reportOpen, setReportOpen] = useState(false);
 
@@ -610,7 +715,22 @@ function PostCard({ post, tech, analytics, saved, onSave, onClick }: any) {
         onClick={onClick}
       >
         <p className="text-white text-xs font-medium truncate">{tech?.businessName || tech?.name || "Nail Tech"}</p>
-        {post.location && <p className="text-white/70 text-[10px] truncate">{post.location}</p>}
+        {/* City/state + distance label */}
+        {(tech?.addressCity || tech?.location) && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <MapPin size={9} className="text-white/60 flex-shrink-0" />
+            <span className="text-white/70 text-[10px] truncate">
+              {tech?.addressCity && tech?.addressState
+                ? `${tech.addressCity}, ${tech.addressState}`
+                : tech?.location}
+              {clientLat && clientLng && tech?.fuzzedLat && tech?.fuzzedLng && (
+                <span className="ml-1 text-white/50">
+                  · {haversineMiles(clientLat, clientLng, tech.fuzzedLat, tech.fuzzedLng).toFixed(1)} mi
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         {analytics?.saves > 0 && (
           <div className="flex items-center gap-1 mt-0.5">
             <Bookmark size={10} className="text-white/70 fill-white/70" />

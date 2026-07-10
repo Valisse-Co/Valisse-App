@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight } from "lucide-react";
+import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight, MapPin } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -246,6 +246,19 @@ export default function Bookings() {
                     </div>
                   </div>
                 </div>
+
+                {/* Address reveal — only for confirmed bookings */}
+                {booking.status === "confirmed" && (tech as any)?.fullAddress && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                      <MapPin size={13} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-700 mb-0.5">Studio Address</p>
+                        <p className="text-xs text-emerald-800">{(tech as any).fullAddress}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Pending fee notice */}
                 {isPendingFee && (

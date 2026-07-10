@@ -183,6 +183,11 @@ export async function getDiscoverFeed(
         location: users.location,
         lat: users.lat,
         lng: users.lng,
+        // Public-safe location fields (fuzzed coords, never real address)
+        fuzzedLat: users.fuzzedLat,
+        fuzzedLng: users.fuzzedLng,
+        addressCity: users.addressCity,
+        addressState: users.addressState,
       },
       analytics: postAnalytics,
     })

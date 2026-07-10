@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Bell, BellOff } from "lucide-react";
 
 interface Props { techId: number }
@@ -41,6 +41,27 @@ export default function TechProfile({ techId }: Props) {
 
   const isFollowing = followData?.following ?? false;
   const subscriberCount = followerCountData?.count ?? 0;
+
+  // Client's stored location for distance calculation
+  const clientLat = useMemo(() => {
+    const v = localStorage.getItem("valisse_userLat");
+    return v ? parseFloat(v) : undefined;
+  }, []);
+  const clientLng = useMemo(() => {
+    const v = localStorage.getItem("valisse_userLng");
+    return v ? parseFloat(v) : undefined;
+  }, []);
+
+  const distanceMiles = useMemo(() => {
+    if (!clientLat || !clientLng) return undefined;
+    const tech = (profileData as any)?.user;
+    if (!tech?.fuzzedLat || !tech?.fuzzedLng) return undefined;
+    const R = 3958.8;
+    const dLat = ((tech.fuzzedLat - clientLat) * Math.PI) / 180;
+    const dLng = ((tech.fuzzedLng - clientLng) * Math.PI) / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos((clientLat * Math.PI) / 180) * Math.cos((tech.fuzzedLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }, [clientLat, clientLng, profileData]);
 
   const handleToggleFollow = () => {
     if (!isAuthenticated) { toast.error("Sign in to subscribe"); return; }
@@ -126,9 +147,15 @@ export default function TechProfile({ techId }: Props) {
 
         {/* Location & Rating */}
         <div className="flex items-center gap-4 mt-2 flex-wrap">
-          {tech.location && (
+          {((tech as any).addressCity || tech.location) && (
             <span className="flex items-center gap-1 text-sm text-muted-foreground">
-              <MapPin size={13} />{tech.location}
+              <MapPin size={13} />
+              {(tech as any).addressCity && (tech as any).addressState
+                ? `${(tech as any).addressCity}, ${(tech as any).addressState}`
+                : tech.location}
+              {distanceMiles !== undefined && (
+                <span className="ml-1 text-xs text-primary font-medium">· {distanceMiles.toFixed(1)} mi away</span>
+              )}
             </span>
           )}
           {ratingStats && ratingStats.count > 0 && (
@@ -315,6 +342,44 @@ export default function TechProfile({ techId }: Props) {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Approximate area map */}
+          {(tech as any).fuzzedLat && (tech as any).fuzzedLng && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Approximate Area</p>
+              <div className="rounded-2xl overflow-hidden border border-border shadow-sm">
+                <div className="relative">
+                  <iframe
+                    title="Approximate location"
+                    width="100%"
+                    height="180"
+                    style={{ border: 0, display: "block" }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://www.google.com/maps?q=${(tech as any).fuzzedLat},${(tech as any).fuzzedLng}&z=13&output=embed`}
+                  />
+                  <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(circle at 50% 50%, transparent 30%, rgba(255,255,255,0.15) 70%)" }} />
+                </div>
+                <div className="px-4 py-2.5 bg-muted/40 flex items-center gap-2">
+                  <MapPin size={13} className="text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">
+                    Approximate area
+                    {(tech as any).addressCity && (tech as any).addressState
+                      ? ` in ${(tech as any).addressCity}, ${(tech as any).addressState}`
+                      : tech.location ? ` in ${tech.location}` : ""}
+                    {distanceMiles !== undefined && (
+                      <span className="ml-1 text-primary font-medium">· {distanceMiles.toFixed(1)} mi from you</span>
+                    )}
+                  </p>
+                </div>
+                <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
+                  <p className="text-[10px] text-amber-700">
+                    Exact address is shared only after your appointment is confirmed.
+                  </p>
+                </div>
               </div>
             </div>
           )}

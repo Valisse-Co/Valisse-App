@@ -388,3 +388,16 @@
 - [x] Frontend: PostDetail — bookmark icon opens SaveAlbumSheet; green when isSaved
 - [x] Frontend: Saved page — grid tiles: "All Saved" first, then custom album tiles; tap tile navigates to album detail view
 - [x] Frontend: Album detail view — grid of posts in that album, with unsave/remove option
+
+## Location / Distance Feature
+- [ ] Schema: add fullAddress (TEXT), addressLat (DOUBLE), addressLng (DOUBLE), addressCity (VARCHAR), addressState (VARCHAR), fuzzedLat (DOUBLE), fuzzedLng (DOUBLE) to users table; migration applied
+- [ ] Backend: geocodeAddress(address) helper using Google Maps Geocoding API; generateFuzzedCoords(lat, lng) helper (random offset within 0.5–1 mi radius)
+- [ ] Backend: updateTechAddress procedure (protectedProcedure) — accepts fullAddress, geocodes it, stores real + fuzzed coords, city, state
+- [ ] Backend: getDiscoverFeed returns addressCity, addressState, fuzzedLat, fuzzedLng (never real lat/lng) for each tech
+- [ ] Backend: getPostById / TechProfile returns addressCity, addressState, fuzzedLat, fuzzedLng
+- [ ] Backend: booking confirmation page — when booking status = confirmed, return fullAddress to the client who owns the booking
+- [ ] Frontend: Onboarding (tech) — Google Places address autocomplete input; on select, call updateTechAddress
+- [ ] Frontend: Discover — on first visit, prompt for browser geolocation permission; fallback to manual city/zip entry; store in localStorage
+- [ ] Frontend: Discover — show "X.X mi away · City, ST" under tech name on post cards using client coords vs tech fuzzed coords
+- [ ] Frontend: TechProfile — show "City, ST · ~X.X mi away" in header; show fuzzed map pin with circle radius overlay
+- [ ] Frontend: BookingConfirmation — show full address section when booking.status === "confirmed"
