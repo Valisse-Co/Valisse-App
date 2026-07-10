@@ -415,3 +415,9 @@
 - [x] Backend: settings.updatePrivacySettings — added hideApproxLocation to the update procedure input
 - [x] Frontend: SettingsPrivacy — added "Hide Approximate Location" toggle for nail techs
 - [x] Backend: getTechsNearMe filters out techs with hideApproxLocation=true
+
+## Dashboard Tab Restructure
+- [x] TechDashboard: remove Bookings tab entirely
+- [x] TechDashboard: rename/merge existing Schedule tab to include Last-Minute Slots at top, weekly schedule below
+- [x] TechDashboard: final tab order — Overview · Posts · Schedule · Smart Match
+- [x] TechBookings (bottom nav): simplified to show bookings only, no Schedule tab

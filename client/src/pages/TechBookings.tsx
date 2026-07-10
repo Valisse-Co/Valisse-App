@@ -906,7 +906,7 @@ const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
   clientTier: "open" as ClientTier,
 }));
 
-function ScheduleTab() {
+export function ScheduleTab() {
   const { isAuthenticated } = useAuth();
   const { data: savedSchedule, isLoading: schedLoading } = trpc.availability.weeklySchedule.useQuery(
     undefined, { enabled: isAuthenticated }
@@ -1289,58 +1289,25 @@ function ScheduleTab() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function TechBookings() {
   const { isAuthenticated } = useAuth();
-  const [tab, setTab] = useState<"today" | "schedule">("today");
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-8">
         <Calendar size={40} className="text-muted-foreground" />
         <h2 className="text-xl font-display font-light">Your Bookings</h2>
-        <p className="text-muted-foreground text-sm text-center">Sign in to manage your appointments and schedule.</p>
+        <p className="text-muted-foreground text-sm text-center">Sign in to manage your appointments.</p>
       </div>
     );
   }
 
   return (
     <div className="page-enter min-h-screen bg-background">
-      {/* Sticky header with tabs */}
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
-        <div className="px-4 pt-12 pb-0">
-          <h1 className="text-2xl font-display font-light mb-3">Bookings</h1>
-          <div className="flex gap-1 bg-muted/50 rounded-2xl p-1">
-            <button
-              onClick={() => setTab("today")}
-              className={cn(
-                "flex-1 py-2.5 text-sm font-medium rounded-xl transition-all",
-                tab === "today" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
-              )}
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setTab("schedule")}
-              className={cn(
-                "flex-1 py-2.5 text-sm font-medium rounded-xl transition-all",
-                tab === "schedule" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"
-              )}
-            >
-              Schedule
-            </button>
-          </div>
+        <div className="px-4 pt-12 pb-3">
+          <h1 className="text-2xl font-display font-light">Bookings</h1>
         </div>
       </div>
-
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={tab}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.18 }}
-        >
-          {tab === "today" ? <TodayTab /> : <ScheduleTab />}
-        </motion.div>
-      </AnimatePresence>
+      <TodayTab />
     </div>
   );
 }
