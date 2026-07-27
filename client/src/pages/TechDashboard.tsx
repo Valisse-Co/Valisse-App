@@ -349,19 +349,6 @@ export default function TechDashboard() {
               />
             </div>
 
-            {/* Quick stats */}
-            <div className="bg-card rounded-2xl border border-border p-4">
-              <h3 className="text-sm font-semibold mb-3">Portfolio Summary</h3>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Published posts</span>
-                <span className="font-medium">{publishedCount}</span>
-              </div>
-              <div className="flex justify-between text-sm mt-2">
-                <span className="text-muted-foreground">Open slots</span>
-                <span className="font-medium">{slots?.length ?? 0}</span>
-              </div>
-            </div>
-
             {/* Services Offered */}
             <div className="bg-card rounded-2xl border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">
