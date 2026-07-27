@@ -568,11 +568,11 @@ export async function getCollectionsWithMeta(userId: number) {
   if (!db) return [];
   const cols = await db.select().from(collections).where(eq(collections.userId, userId)).orderBy(desc(collections.createdAt));
   const allSavedCount = await db
-    .select({ count: sql<number>`COUNT(*)` })
+    .select({ count: sql<number>`COUNT(DISTINCT ${savedPosts.postId})` })
     .from(savedPosts)
     .where(eq(savedPosts.userId, userId));
   const membershipCounts = await db
-    .select({ collectionId: postAlbumMemberships.collectionId, count: sql<number>`COUNT(*)` })
+    .select({ collectionId: postAlbumMemberships.collectionId, count: sql<number>`COUNT(DISTINCT ${postAlbumMemberships.postId})` })
     .from(postAlbumMemberships)
     .where(eq(postAlbumMemberships.userId, userId))
     .groupBy(postAlbumMemberships.collectionId);
