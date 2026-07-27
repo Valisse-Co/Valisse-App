@@ -2169,6 +2169,7 @@ export async function upsertTechService(data: {
       priceInCents: data.priceInCents,
       durationMinutes: data.durationMinutes,
       sortOrder: data.sortOrder ?? 0,
+      isActive: true, // explicitly set so onboarding-created services are visible
     });
     return (result as any)[0]?.insertId ?? 0;
   }

@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield } from "lucide-react";
+import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield, Zap } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1546,6 +1548,29 @@ export function ScheduleTab() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function TechBookings() {
   const { isAuthenticated } = useAuth();
+  const [mainTab, setMainTab] = useState<"upcoming" | "past">("upcoming");
+  const [showSlotDialog, setShowSlotDialog] = useState(false);
+  const [slotDate, setSlotDate] = useState("");
+  const [slotStartTime, setSlotStartTime] = useState("09:00");
+  const [slotEndTime, setSlotEndTime] = useState("10:00");
+  const [slotNote, setSlotNote] = useState("");
+  const utils = trpc.useUtils();
+
+  const createSlot = trpc.lastMinute.create.useMutation({
+    onSuccess: () => {
+      setShowSlotDialog(false);
+      setSlotDate(""); setSlotStartTime("09:00"); setSlotEndTime("10:00"); setSlotNote("");
+      utils.lastMinute.mySlots.invalidate();
+      toast.success("Last-minute slot published!");
+    },
+    onError: () => toast.error("Failed to publish slot."),
+  });
+
+  const handleCreateSlot = () => {
+    if (!slotDate || !slotStartTime || !slotEndTime) { toast.error("Please select date and time range"); return; }
+    if (slotStartTime >= slotEndTime) { toast.error("End time must be after start time"); return; }
+    createSlot.mutate({ slotDate, startTime: slotStartTime, endTime: slotEndTime, note: slotNote || undefined, isPushed: false });
+  };
 
   if (!isAuthenticated) {
     return (
@@ -1557,14 +1582,21 @@ export default function TechBookings() {
     );
   }
 
-  const [mainTab, setMainTab] = useState<"upcoming" | "past">("upcoming");
-
   return (
     <div className="page-enter min-h-screen bg-background">
       {/* Header + tab switcher */}
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
         <div className="px-4 pt-12 pb-0">
-          <h1 className="text-2xl font-display font-light mb-3">Bookings</h1>
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-2xl font-display font-light">Bookings</h1>
+            {/* Last-minute slot shortcut */}
+            <button
+              onClick={() => setShowSlotDialog(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-white text-xs font-medium shadow-sm hover:bg-primary/90 transition-colors"
+            >
+              <Zap size={13} /> Last-Minute Slot
+            </button>
+          </div>
           <div className="flex gap-1">
             {(["upcoming", "past"] as const).map(tab => (
               <button
@@ -1585,6 +1617,61 @@ export default function TechBookings() {
       </div>
 
       {mainTab === "upcoming" ? <BookingsTimelineTab /> : <PastBookingsTab />}
+
+      {/* ── Last-Minute Slot Dialog ── */}
+      <Dialog open={showSlotDialog} onOpenChange={setShowSlotDialog}>
+        <DialogContent className="rounded-2xl mx-4">
+          <DialogHeader>
+            <DialogTitle className="font-display font-light text-xl">Add Last-Minute Slot</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 pt-2">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Date</label>
+              <Input
+                type="date"
+                value={slotDate}
+                min={new Date().toISOString().split("T")[0]}
+                max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                onChange={e => setSlotDate(e.target.value)}
+                className="rounded-xl h-11"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Start Time</label>
+                <Input type="time" value={slotStartTime} onChange={e => setSlotStartTime(e.target.value)} className="rounded-xl h-11" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">End Time</label>
+                <Input type="time" value={slotEndTime} onChange={e => setSlotEndTime(e.target.value)} className="rounded-xl h-11" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Note (optional)</label>
+              <Input placeholder="e.g. Gel manicure available" value={slotNote} onChange={e => setSlotNote(e.target.value)} className="rounded-xl h-11" />
+            </div>
+            {/* Push option — Stripe coming soon */}
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Zap size={14} className="text-primary" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">Push to All Nearby Clients</p>
+                    <span className="text-[9px] font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full uppercase tracking-wider">Coming Soon</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Reach all Valisse clients within 25 mi · <span className="font-medium text-foreground">$5.00</span></p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Stripe payments launching soon. Your free slot still notifies your followers.</p>
+                </div>
+              </div>
+            </div>
+            <button onClick={handleCreateSlot} disabled={createSlot.isPending} className="btn-valisse py-3 mt-1">
+              {createSlot.isPending ? "Publishing..." : "Publish Slot (Free)"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

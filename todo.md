@@ -440,3 +440,9 @@
 - [x] Frontend: Keep Confirm/Decline action buttons on pending cards
 - [x] Frontend: Keep Cancel button on confirmed future cards
 - [x] Frontend: Keep Mark as Completed on confirmed cards for today/past
+
+## Onboarding Service Fix + Last-Minute Slot Shortcut
+- [x] Fix upsertTechService insert to explicitly set isActive: true so onboarding services appear on dashboard/profile
+- [x] Also fix existing inactive services: run SQL UPDATE to set isActive=1 for all rows where isActive=0 that were inserted (not soft-deleted) — distinguish by checking if they have valid priceInCents/durationMinutes
+- [x] Add last-minute slot shortcut FAB on TechBookings page (opens same AddLastMinuteSlot dialog as TechDashboard Schedule tab)
+- [x] Extract AddLastMinuteSlotDialog into a shared component usable from both TechDashboard and TechBookings
