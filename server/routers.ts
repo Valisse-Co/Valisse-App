@@ -49,6 +49,8 @@ import {
   sendMessage,
   setTechAvailability,
   getTodayBookings,
+  getTechBookingsTimeline,
+  getTechPastBookings,
   getWeeklySchedule,
   setWeeklySchedule,
   getScheduleBlocks,
@@ -648,6 +650,8 @@ const bookingsRouter = router({
   clientBookings: protectedProcedure.query(async ({ ctx }) => getClientBookings(ctx.user.id)),
   techBookings: protectedProcedure.query(async ({ ctx }) => getTechBookings(ctx.user.id)),
   todayBookings: protectedProcedure.query(async ({ ctx }) => getTodayBookings(ctx.user.id)),
+  timeline: protectedProcedure.query(async ({ ctx }) => getTechBookingsTimeline(ctx.user.id)),
+  pastBookings: protectedProcedure.query(async ({ ctx }) => getTechPastBookings(ctx.user.id)),
 
   updateStatus: protectedProcedure
     .input(

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield } from "lucide-react";
@@ -34,41 +34,207 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string }> = {
   cancelled: { label: "Cancelled", bg: "bg-muted text-muted-foreground" },
 };
 
-// ─── Today Tab ────────────────────────────────────────────────────────────────
-function TodayTab() {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function toDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatDayHeader(dateKey: string, todayKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  const diff = Math.round((new Date(dateKey + "T12:00:00").getTime() - new Date(todayKey + "T12:00:00").getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatDateFull(dateKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+}
+
+// ─── Booking Card ─────────────────────────────────────────────────────────────
+type BookingCardProps = {
+  booking: {
+    id: number;
+    status: string;
+    scheduledAt: Date | string;
+    duration: number;
+    serviceType?: string | null;
+    notes?: string | null;
+  };
+  client: { name?: string | null; avatarUrl?: string | null } | null;
+  onConfirm: (id: number) => void;
+  onDecline: (id: number) => void;
+  onCancel: (id: number) => void;
+  onMarkComplete: (id: number) => void;
+  isUpdating: boolean;
+};
+
+function BookingCard({ booking, client, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating }: BookingCardProps) {
+  const time = new Date(booking.scheduledAt as any);
+  const now = new Date();
+  const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  const endTime = new Date(time.getTime() + booking.duration * 60_000);
+  const endStr = endTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  const isPast = endTime < now;
+  const isToday = toDateKey(time) === toDateKey(now);
+  const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
+
+  return (
+    <div className={cn(
+      "rounded-2xl border bg-card p-4 shadow-sm transition-all",
+      booking.status === "pending"
+        ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10"
+        : "border-border",
+      isPast && booking.status !== "completed" && "opacity-60"
+    )}>
+      {/* Top row: time + status */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">{timeStr} – {endStr}</p>
+          <p className="text-xs text-muted-foreground">{booking.duration} min</p>
+        </div>
+        <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", cfg.bg)}>
+          {cfg.label}
+        </span>
+      </div>
+
+      {/* Client row */}
+      <div className="flex items-center gap-2.5 mb-2">
+        <Avatar className="w-8 h-8">
+          <AvatarImage src={client?.avatarUrl ?? undefined} />
+          <AvatarFallback className="bg-accent text-accent-foreground text-xs font-semibold">
+            {(client?.name ?? "C").charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div>
+          <p className="text-sm font-medium text-foreground">{client?.name ?? "Client"}</p>
+          {booking.serviceType && (
+            <p className="text-xs text-muted-foreground">{booking.serviceType}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Notes */}
+      {booking.notes && (
+        <p className="text-xs text-muted-foreground italic mb-3 pl-1 border-l-2 border-border">
+          "{booking.notes}"
+        </p>
+      )}
+
+      {/* Actions */}
+      {booking.status === "pending" && (
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => onConfirm(booking.id)}
+            disabled={isUpdating}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-primary text-white text-xs font-medium"
+          >
+            <Check size={13} /> Confirm
+          </button>
+          <button
+            onClick={() => onDecline(booking.id)}
+            disabled={isUpdating}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-muted text-muted-foreground text-xs font-medium"
+          >
+            <X size={13} /> Decline
+          </button>
+        </div>
+      )}
+      {booking.status === "confirmed" && (isToday || !isPast) && (
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => onMarkComplete(booking.id)}
+            disabled={isUpdating}
+            className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+          >
+            Mark as Completed
+          </button>
+          <button
+            onClick={() => onCancel(booking.id)}
+            className="px-3 py-2 rounded-xl border border-destructive/30 text-destructive text-xs font-medium hover:bg-destructive/5 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Bookings Timeline Tab ────────────────────────────────────────────────────
+type UpcomingFilter = "all" | "confirmed" | "pending";
+
+function BookingsTimelineTab() {
   const { isAuthenticated } = useAuth();
-  const { data: todayData, isLoading } = trpc.bookings.todayBookings.useQuery(
+  const { data: timelineData, isLoading } = trpc.bookings.timeline.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: 30_000 }
   );
   const utils = trpc.useUtils();
-
+  const todayRef = useRef<HTMLDivElement>(null);
+  const [filter, setFilter] = useState<UpcomingFilter>("all");
   const [cancellingId, setCancellingId] = useState<number | null>(null);
 
   const updateStatus = trpc.bookings.updateStatus.useMutation({
     onSuccess: () => {
-      utils.bookings.todayBookings.invalidate();
+      utils.bookings.timeline.invalidate();
       toast.success("Booking updated");
     },
   });
 
   const cancelBookingMutation = trpc.cancellation.cancel.useMutation({
     onSuccess: () => {
-      utils.bookings.todayBookings.invalidate();
+      utils.bookings.timeline.invalidate();
       setCancellingId(null);
       toast.success("Booking cancelled. Client has been notified.");
     },
     onError: () => toast.error("Failed to cancel booking."),
   });
 
-  const today = new Date();
-  const dateLabel = today.toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric",
-  });
+  const todayKey = toDateKey(new Date());
 
-  const appointments = todayData ?? [];
-  const confirmed = appointments.filter(a => a.booking.status === "confirmed" || a.booking.status === "completed");
-  const pending = appointments.filter(a => a.booking.status === "pending");
+  // Group bookings by date, apply filter
+  const grouped = useMemo(() => {
+    const all = timelineData ?? [];
+    const filtered = filter === "all" ? all
+      : all.filter(({ booking }) => booking.status === filter);
+
+    const map = new Map<string, typeof filtered>();
+    for (const row of filtered) {
+      const key = toDateKey(new Date(row.booking.scheduledAt as any));
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(row);
+    }
+
+    // Sort each day: pending first (by time), then confirmed (by time)
+    Array.from(map.values()).forEach(rows => {
+      rows.sort((a: typeof filtered[0], b: typeof filtered[0]) => {
+        const aTime = new Date(a.booking.scheduledAt as any).getTime();
+        const bTime = new Date(b.booking.scheduledAt as any).getTime();
+        if (a.booking.status === "pending" && b.booking.status !== "pending") return -1;
+        if (a.booking.status !== "pending" && b.booking.status === "pending") return 1;
+        return aTime - bTime;
+      });
+    });
+
+    // Sort date keys ascending
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [timelineData, filter]);
+
+  // Scroll to today on mount
+  useEffect(() => {
+    if (!isLoading && todayRef.current) {
+      setTimeout(() => {
+        todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
+    }
+  }, [isLoading]);
+
+  // Count totals for summary
+  const totalPending = (timelineData ?? []).filter(r => r.booking.status === "pending").length;
+  const totalConfirmed = (timelineData ?? []).filter(r => r.booking.status === "confirmed").length;
 
   if (isLoading) {
     return (
@@ -81,147 +247,105 @@ function TodayTab() {
   }
 
   return (
-    <div className="px-4 pt-4 pb-28">
-      {/* Date header */}
-      <div className="mb-5">
-        <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Today</p>
-        <h2 className="text-xl font-display font-light text-foreground">{dateLabel}</h2>
-        <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-          <span><span className="font-semibold text-foreground">{confirmed.length}</span> confirmed</span>
-          <span><span className="font-semibold text-foreground">{pending.length}</span> pending</span>
+    <div className="pb-28">
+      {/* Summary + filter chips */}
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border px-4 pt-3 pb-3">
+        <div className="flex items-center gap-3 mb-2.5">
+          <span className="text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{totalPending}</span> pending
+            {" · "}
+            <span className="font-semibold text-foreground">{totalConfirmed}</span> confirmed
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {(["all", "confirmed", "pending"] as UpcomingFilter[]).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all capitalize",
+                filter === f
+                  ? f === "pending"
+                    ? "bg-amber-500 text-white border-amber-500"
+                    : "bg-primary text-white border-primary"
+                  : "bg-background border-border text-muted-foreground hover:border-primary hover:text-primary"
+              )}
+            >
+              {f === "all" ? "All" : f === "confirmed" ? "Confirmed" : "Pending"}
+            </button>
+          ))}
         </div>
       </div>
 
-      {appointments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
+      {grouped.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 px-4">
           <div className="w-16 h-16 rounded-full bg-accent flex items-center justify-center">
             <Calendar size={24} className="text-primary" />
           </div>
-          <p className="text-base font-medium text-foreground">No appointments today</p>
+          <p className="text-base font-medium text-foreground">
+            {filter === "all" ? "No upcoming bookings" : `No ${filter} bookings`}
+          </p>
           <p className="text-sm text-muted-foreground text-center max-w-xs">
-            Your schedule is clear. Enjoy the day or check your upcoming bookings.
+            {filter === "all"
+              ? "New booking requests will appear here."
+              : `Switch to "All" to see all bookings.`}
           </p>
         </div>
       ) : (
-        <div className="relative">
-          {/* Timeline line */}
-          <div className="absolute left-[22px] top-0 bottom-0 w-px bg-border" />
+        <div className="px-4 pt-4 space-y-6">
+          {grouped.map(([dateKey, rows]) => {
+            const isToday = dateKey === todayKey;
+            const isPastDay = dateKey < todayKey;
+            const label = formatDayHeader(dateKey, todayKey);
+            const fullDate = formatDateFull(dateKey);
 
-          <div className="space-y-4">
-            {appointments.map(({ booking, client }, idx) => {
-              const time = new Date(booking.scheduledAt as any);
-              const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-              const endTime = new Date(time.getTime() + booking.duration * 60_000);
-              const endStr = endTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-              const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
-              const isPast = endTime < new Date();
-
-              return (
-                <motion.div
-                  key={booking.id}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="flex gap-4"
-                >
-                  {/* Timeline dot */}
-                  <div className="flex-shrink-0 flex flex-col items-center">
-                    <div className={cn(
-                      "w-11 h-11 rounded-full flex items-center justify-center z-10 border-2 border-background shadow-sm",
-                      booking.status === "confirmed" ? "bg-primary" :
-                      booking.status === "completed" ? "bg-foreground" :
-                      "bg-muted"
-                    )}>
-                      {booking.status === "completed" ? (
-                        <Check size={16} className="text-background" />
-                      ) : booking.status === "confirmed" ? (
-                        <Clock size={16} className="text-white" />
-                      ) : (
-                        <Clock size={16} className="text-muted-foreground" />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Appointment card */}
+            return (
+              <div
+                key={dateKey}
+                ref={isToday ? todayRef : undefined}
+              >
+                {/* Date header */}
+                <div className={cn(
+                  "flex items-center gap-3 mb-3",
+                  isPastDay && "opacity-60"
+                )}>
                   <div className={cn(
-                    "flex-1 rounded-2xl border border-border bg-card p-4 shadow-sm",
-                    isPast && booking.status !== "completed" && "opacity-60"
-                  )}>
-                    {/* Top row: time + status */}
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{timeStr}</p>
-                        <p className="text-xs text-muted-foreground">{endStr} · {booking.duration} min</p>
-                      </div>
-                      <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", cfg.bg)}>
-                        {cfg.label}
-                      </span>
-                    </div>
-
-                    {/* Client row */}
-                    <div className="flex items-center gap-2.5 mb-2">
-                      <Avatar className="w-8 h-8">
-                        <AvatarImage src={client?.avatarUrl ?? undefined} />
-                        <AvatarFallback className="bg-accent text-accent-foreground text-xs font-semibold">
-                          {(client?.name ?? "C").charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{client?.name ?? "Client"}</p>
-                        {booking.serviceType && (
-                          <p className="text-xs text-muted-foreground">{booking.serviceType}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Notes */}
-                    {booking.notes && (
-                      <p className="text-xs text-muted-foreground italic mb-3 pl-1 border-l-2 border-border">
-                        "{booking.notes}"
-                      </p>
+                    "flex-shrink-0 w-2 h-2 rounded-full",
+                    isToday ? "bg-primary" : isPastDay ? "bg-muted-foreground" : "bg-border"
+                  )} />
+                  <div className="flex-1">
+                    <span className={cn(
+                      "text-sm font-semibold",
+                      isToday ? "text-primary" : "text-foreground"
+                    )}>
+                      {label}
+                    </span>
+                    {isToday && (
+                      <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Today</span>
                     )}
-
-                    {/* Actions */}
-                    {booking.status === "pending" && (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => updateStatus.mutate({ bookingId: booking.id, status: "confirmed" })}
-                          disabled={updateStatus.isPending}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-primary text-white text-xs font-medium"
-                        >
-                          <Check size={13} /> Confirm
-                        </button>
-                        <button
-                          onClick={() => updateStatus.mutate({ bookingId: booking.id, status: "declined" })}
-                          disabled={updateStatus.isPending}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-muted text-muted-foreground text-xs font-medium"
-                        >
-                          <X size={13} /> Decline
-                        </button>
-                      </div>
-                    )}
-                    {booking.status === "confirmed" && !isPast && (
-                      <div className="flex gap-2 mt-3">
-                        <button
-                          onClick={() => updateStatus.mutate({ bookingId: booking.id, status: "completed" })}
-                          disabled={updateStatus.isPending}
-                          className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
-                        >
-                          Mark as Completed
-                        </button>
-                        <button
-                          onClick={() => setCancellingId(booking.id)}
-                          className="px-3 py-2 rounded-xl border border-destructive/30 text-destructive text-xs font-medium hover:bg-destructive/5 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+                    <p className="text-xs text-muted-foreground">{fullDate}</p>
                   </div>
-                </motion.div>
-              );
-            })}
-          </div>
+                  <span className="text-xs text-muted-foreground">{rows.length} appt{rows.length !== 1 ? "s" : ""}</span>
+                </div>
+
+                {/* Booking cards for this day */}
+                <div className="space-y-3 pl-5">
+                  {rows.map(({ booking, client }) => (
+                    <BookingCard
+                      key={booking.id}
+                      booking={booking}
+                      client={client}
+                      onConfirm={id => updateStatus.mutate({ bookingId: id, status: "confirmed" })}
+                      onDecline={id => updateStatus.mutate({ bookingId: id, status: "declined" })}
+                      onCancel={id => setCancellingId(id)}
+                      onMarkComplete={id => updateStatus.mutate({ bookingId: id, status: "completed" })}
+                      isUpdating={updateStatus.isPending}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -267,6 +391,139 @@ function TodayTab() {
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Past Bookings Tab ────────────────────────────────────────────────────────
+type PastFilter = "all" | "completed" | "declined";
+
+function PastBookingsTab() {
+  const { isAuthenticated } = useAuth();
+  const { data: pastData, isLoading } = trpc.bookings.pastBookings.useQuery(
+    undefined,
+    { enabled: isAuthenticated }
+  );
+  const [filter, setFilter] = useState<PastFilter>("all");
+
+  const filtered = useMemo(() => {
+    const all = pastData ?? [];
+    if (filter === "all") return all;
+    if (filter === "declined") return all.filter(r => r.booking.status === "declined" || r.booking.status === "cancelled");
+    return all.filter(r => r.booking.status === filter);
+  }, [pastData, filter]);
+
+  // Group by date descending
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof filtered>();
+    for (const row of filtered) {
+      const key = toDateKey(new Date(row.booking.scheduledAt as any));
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(row);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a));
+  }, [filtered]);
+
+  const todayKey = toDateKey(new Date());
+
+  if (isLoading) {
+    return (
+      <div className="px-4 pt-6 space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-20 rounded-2xl bg-muted animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pb-28">
+      {/* Filter chips */}
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b border-border px-4 pt-3 pb-3">
+        <div className="flex gap-2">
+          {(["all", "completed", "declined"] as PastFilter[]).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all capitalize",
+                filter === f
+                  ? "bg-primary text-white border-primary"
+                  : "bg-background border-border text-muted-foreground hover:border-primary hover:text-primary"
+              )}
+            >
+              {f === "all" ? "All" : f === "completed" ? "Completed" : "Declined / Cancelled"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {grouped.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 px-4">
+          <div className="w-16 h-16 rounded-full bg-accent flex items-center justify-center">
+            <Calendar size={24} className="text-primary" />
+          </div>
+          <p className="text-base font-medium text-foreground">No past bookings</p>
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            Completed and declined appointments will appear here.
+          </p>
+        </div>
+      ) : (
+        <div className="px-4 pt-4 space-y-6">
+          {grouped.map(([dateKey, rows]) => {
+            const label = formatDayHeader(dateKey, todayKey);
+            const fullDate = formatDateFull(dateKey);
+            return (
+              <div key={dateKey}>
+                <div className="flex items-center gap-3 mb-3 opacity-70">
+                  <div className="flex-shrink-0 w-2 h-2 rounded-full bg-muted-foreground" />
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-foreground">{label}</span>
+                    <p className="text-xs text-muted-foreground">{fullDate}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{rows.length} appt{rows.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="space-y-3 pl-5">
+                  {rows.map(({ booking, client }) => {
+                    const time = new Date(booking.scheduledAt as any);
+                    const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+                    const endTime = new Date(time.getTime() + booking.duration * 60_000);
+                    const endStr = endTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+                    const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.completed;
+                    return (
+                      <div key={booking.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm opacity-80">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{timeStr} – {endStr}</p>
+                            <p className="text-xs text-muted-foreground">{booking.duration} min</p>
+                          </div>
+                          <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium", cfg.bg)}>
+                            {cfg.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="w-8 h-8">
+                            <AvatarImage src={client?.avatarUrl ?? undefined} />
+                            <AvatarFallback className="bg-accent text-accent-foreground text-xs font-semibold">
+                              {(client?.name ?? "C").charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{client?.name ?? "Client"}</p>
+                            {booking.serviceType && (
+                              <p className="text-xs text-muted-foreground">{booking.serviceType}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1300,14 +1557,34 @@ export default function TechBookings() {
     );
   }
 
+  const [mainTab, setMainTab] = useState<"upcoming" | "past">("upcoming");
+
   return (
     <div className="page-enter min-h-screen bg-background">
+      {/* Header + tab switcher */}
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
-        <div className="px-4 pt-12 pb-3">
-          <h1 className="text-2xl font-display font-light">Bookings</h1>
+        <div className="px-4 pt-12 pb-0">
+          <h1 className="text-2xl font-display font-light mb-3">Bookings</h1>
+          <div className="flex gap-1">
+            {(["upcoming", "past"] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setMainTab(tab)}
+                className={cn(
+                  "px-4 py-2 text-sm font-medium rounded-t-lg transition-all capitalize",
+                  mainTab === tab
+                    ? "text-primary border-b-2 border-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tab === "upcoming" ? "Upcoming" : "Past"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-      <TodayTab />
+
+      {mainTab === "upcoming" ? <BookingsTimelineTab /> : <PastBookingsTab />}
     </div>
   );
 }

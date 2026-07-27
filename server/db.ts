@@ -716,6 +716,50 @@ export async function getTodayBookings(techId: number) {
     .orderBy(bookings.scheduledAt);
 }
 
+/**
+ * Returns all upcoming + today bookings (pending + confirmed) for the timeline view.
+ * Also includes the past 30 days so the tech can scroll back.
+ * Ordered by scheduledAt ASC so today is in the middle of the scroll.
+ */
+export async function getTechBookingsTimeline(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  return db
+    .select({ booking: bookings, client: users })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.clientId, users.id))
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        gt(bookings.scheduledAt, thirtyDaysAgo),
+        inArray(bookings.status, ["pending", "confirmed"])
+      )
+    )
+    .orderBy(bookings.scheduledAt);
+}
+
+/**
+ * Returns completed + declined bookings for the Past tab.
+ * Ordered most-recent first.
+ */
+export async function getTechPastBookings(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ booking: bookings, client: users })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.clientId, users.id))
+    .where(
+      and(
+        eq(bookings.techId, techId),
+        inArray(bookings.status, ["completed", "declined", "cancelled"])
+      )
+    )
+    .orderBy(desc(bookings.scheduledAt));
+}
+
 export async function getWeeklySchedule(techId: number) {
   const db = await getDb();
   if (!db) return [];

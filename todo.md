@@ -427,3 +427,16 @@
 - [x] Onboarding: on completeOnboarding, save all selected services with price + duration via upsertService
 - [x] TechProfile: Services section already exists below bio/header, shows service cards (name, price, duration, photo if available)
 - [x] TechProfile: services fetched via existing getServicesByTechId query (public, by techId)
+
+## TechBookings Page Rebuild — Continuous Timeline
+- [x] Backend: getTechBookingsTimeline — returns all non-past bookings (pending + confirmed) ordered by scheduledAt ASC, plus past 30 days for scroll-back
+- [x] Backend: getTechPastBookings — returns completed + declined bookings ordered by scheduledAt DESC
+- [x] Backend: add new tRPC procedures bookings.timeline and bookings.pastBookings
+- [x] Frontend: Replace TodayTab with full timeline view — date-grouped headers (Today, Tomorrow, weekday+date for future; weekday+date for past days above Today)
+- [x] Frontend: Within each day group — Pending first (sorted by time, amber pill), then Confirmed (sorted by time, green pill)
+- [x] Frontend: Filter chips at top of Upcoming view: All · Confirmed · Pending
+- [x] Frontend: Auto-scroll to Today's date group on mount
+- [x] Frontend: Past tab — shows Completed + Declined bookings, filter chips: All · Completed · Declined
+- [x] Frontend: Keep Confirm/Decline action buttons on pending cards
+- [x] Frontend: Keep Cancel button on confirmed future cards
+- [x] Frontend: Keep Mark as Completed on confirmed cards for today/past
