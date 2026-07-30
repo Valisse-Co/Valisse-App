@@ -28,13 +28,34 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
+      // ── Duplicate-email guard ──────────────────────────────────────────────
+      // If this email is already registered with an email+password account
+      // (different openId), block the Google sign-in and redirect to login.
+      if (userInfo.email) {
+        const existingByEmail = await db.getUserByEmail(userInfo.email.toLowerCase());
+        if (
+          existingByEmail &&
+          existingByEmail.openId !== userInfo.openId &&
+          existingByEmail.loginMethod === "email"
+        ) {
+          res.redirect(
+            302,
+            `/login?error=email_exists&email=${encodeURIComponent(userInfo.email)}`
+          );
+          return;
+        }
+      }
+
       await db.upsertUser({
         openId: userInfo.openId,
         name: userInfo.name || null,
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        email: userInfo.email ? userInfo.email.toLowerCase() : null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? "google",
         lastSignedIn: new Date(),
       });
+
+      // Fetch the user row to determine post-login routing
+      const user = await db.getUserByOpenId(userInfo.openId);
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
         name: userInfo.name || "",
@@ -44,7 +65,18 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      res.redirect(302, "/");
+      // Route returning (already-onboarded) users directly to their home screen.
+      // New users go to onboarding to choose their role and complete their profile.
+      if (user && user.onboardingCompleted) {
+        const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
+        if (effectiveMode === "nail_tech") {
+          res.redirect(302, "/dashboard");
+        } else {
+          res.redirect(302, "/discover");
+        }
+      } else {
+        res.redirect(302, "/onboarding");
+      }
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
       res.status(500).json({ error: "OAuth callback failed" });

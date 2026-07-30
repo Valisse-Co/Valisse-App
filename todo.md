@@ -446,3 +446,16 @@
 - [x] Also fix existing inactive services: run SQL UPDATE to set isActive=1 for all rows where isActive=0 that were inserted (not soft-deleted) — distinguish by checking if they have valid priceInCents/durationMinutes
 - [x] Add last-minute slot shortcut FAB on TechBookings page (opens same AddLastMinuteSlot dialog as TechDashboard Schedule tab)
 - [x] Extract AddLastMinuteSlotDialog into a shared component usable from both TechDashboard and TechBookings
+
+## Auth Overhaul — Email+Password + Google OAuth + Routing Fix
+- [x] Audit: read OAuth callback, users schema, and App.tsx routing logic
+- [x] Schema: add passwordHash column to users table, migrate
+- [x] Backend: email+password register procedure (hash with bcrypt, check duplicate email)
+- [x] Backend: email+password login procedure (verify hash, issue session cookie)
+- [x] Backend: Google OAuth duplicate-email guard — if email already exists with different provider, block and return error
+- [x] Backend: fix OAuth callback post-login routing — returning users (onboardingCompleted=true) go to /dashboard or /discover, never /onboarding
+- [x] Frontend: build AuthLanding page (first screen when not logged in) with Log In / Sign Up CTAs
+- [x] Frontend: build Login page — email+password form + "Continue with Google" button
+- [x] Frontend: build SignUp page — email+password form + "Continue with Google" button + role selection (Client / Nail Tech)
+- [x] Frontend: wire routing — unauthenticated → AuthLanding, post-login → /dashboard (nail_tech) or /discover (client)
+- [x] Frontend: show "Account with this email already exists" error on Google sign-up collision

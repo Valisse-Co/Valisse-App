@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
 import { motion } from "framer-motion";
 
 export default function Splash() {
@@ -14,14 +13,12 @@ export default function Splash() {
       if (!user.onboardingCompleted) {
         navigate("/onboarding");
       } else {
-        // For dual-role users, respect their activeMode; otherwise use userType
         const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
-        if (effectiveMode === "nail_tech") {
-          navigate("/dashboard");
-        } else {
-          navigate("/discover");
-        }
+        navigate(effectiveMode === "nail_tech" ? "/dashboard" : "/discover");
       }
+    } else if (!loading && !isAuthenticated) {
+      // Unauthenticated users go to login
+      navigate("/login");
     }
   }, [user, loading, isAuthenticated]);
 
@@ -85,18 +82,18 @@ export default function Splash() {
         transition={{ duration: 0.6, delay: 0.8 }}
         className="w-full flex flex-col gap-3"
       >
-        <a
-          href={getLoginUrl()}
+        <button
+          onClick={() => navigate("/signup")}
           className="w-full btn-valisse text-center py-4 text-base tracking-wide"
         >
           Get Started
-        </a>
-        <a
-          href={getLoginUrl()}
+        </button>
+        <button
+          onClick={() => navigate("/login")}
           className="w-full btn-valisse-outline text-center py-4 text-base tracking-wide"
         >
           Sign In
-        </a>
+        </button>
         <p className="text-center text-xs text-muted-foreground mt-2">
           By continuing, you agree to our Terms of Service
         </p>

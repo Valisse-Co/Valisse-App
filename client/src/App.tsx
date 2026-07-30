@@ -21,6 +21,7 @@ import TechBookings from "./pages/TechBookings";
 import Subscription from "./pages/Subscription";
 import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
+import SignUp from "./pages/SignUp";
 import Settings from "./pages/Settings";
 import SettingsProfile from "./pages/SettingsProfile";
 import SettingsNotifications from "./pages/SettingsNotifications";
@@ -39,7 +40,7 @@ import ConsentStep from "./pages/ConsentStep";
 import { trpc } from "./lib/trpc";
 
 // Routes that are always accessible — even during re-consent flow
-const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/", "/onboarding", "/404"];
+const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/onboarding", "/404"];
 
 // ── Reactivation Gate ────────────────────────────────────────────────────────
 // If a signed-in user's account is deactivated, show a full-screen reactivation
@@ -223,6 +224,7 @@ function Router() {
           <AppLayout><AdminReports /></AppLayout>
         </Route>
         <Route path="/login" component={Login} />
+        <Route path="/signup" component={SignUp} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

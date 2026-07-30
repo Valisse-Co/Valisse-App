@@ -17,7 +17,7 @@ export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
+  email: varchar("email", { length: 320 }).unique(),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   // Valisse-specific
@@ -44,6 +44,7 @@ export const users = mysqlTable("users", {
   darkMode: boolean("darkMode").default(false).notNull(),
   deactivatedAt: timestamp("deactivatedAt"),
   connectedProvider: varchar("connectedProvider", { length: 64 }),
+  passwordHash: varchar("passwordHash", { length: 255 }), // bcrypt hash for email+password accounts
   // Subscription (tech only)
   subscriptionStatus: mysqlEnum("subscriptionStatus", ["trial", "active", "expired", "cancelled"]).default("trial"),
   subscriptionStartedAt: timestamp("subscriptionStartedAt"),

@@ -1,7 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { COOKIE_NAME, CURRENT_TOS_VERSION } from "@shared/const";
+import bcrypt from "bcryptjs";
+import { COOKIE_NAME, CURRENT_TOS_VERSION, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
@@ -120,6 +122,8 @@ import {
   getTechFollowerIds,
   getActiveSlotsForTech,
   getTechsNearMe,
+  getUserByEmail,
+  createEmailUser,
 } from "./db";
 import { storagePut } from "./storage";
 import {
@@ -150,6 +154,75 @@ const authRouter = router({
     ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
     return { success: true } as const;
   }),
+
+  // ── Email + Password Registration ──────────────────────────────────────────
+  register: publicProcedure
+    .input(z.object({
+      name: z.string().min(1).max(100),
+      email: z.string().email(),
+      password: z.string().min(8).max(128),
+      userType: z.enum(["client", "nail_tech"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const existing = await getUserByEmail(input.email.toLowerCase());
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with this email already exists. Please sign in.",
+        });
+      }
+      const hash = await bcrypt.hash(input.password, 12);
+      // Generate a deterministic openId for email accounts
+      const openId = `email_${Buffer.from(input.email.toLowerCase()).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 40)}`;
+      const user = await createEmailUser({
+        openId,
+        name: input.name,
+        email: input.email.toLowerCase(),
+        passwordHash: hash,
+        userType: input.userType,
+      });
+      if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create account" });
+      // Issue session cookie
+      const sessionToken = await sdk.createSessionToken(openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      return { success: true, userType: input.userType };
+    }),
+
+  // ── Email + Password Login ──────────────────────────────────────────────────
+  emailLogin: publicProcedure
+    .input(z.object({
+      email: z.string().email(),
+      password: z.string().min(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const user = await getUserByEmail(input.email.toLowerCase());
+      if (!user || !user.passwordHash) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid email or password.",
+        });
+      }
+      const valid = await bcrypt.compare(input.password, user.passwordHash);
+      if (!valid) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid email or password.",
+        });
+      }
+      // Update last signed in
+      await updateUserProfile(user.id, { lastSignedIn: new Date() });
+      const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name ?? "", expiresInMs: ONE_YEAR_MS });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      return {
+        success: true,
+        onboardingCompleted: user.onboardingCompleted,
+        userType: user.userType,
+        activeMode: user.activeMode,
+        hasDualRole: user.hasDualRole,
+      };
+    }),
 });
 
 // ─── Users / Profile ──────────────────────────────────────────────────────────
