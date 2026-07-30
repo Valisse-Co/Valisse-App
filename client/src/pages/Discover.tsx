@@ -184,7 +184,10 @@ export default function Discover() {
     exactFeed.forEach((item: any, i: number) => {
       result.push(item);
       if ((i + 1) % 4 === 0 && slotIdx < (openSlots as any[]).length) {
-        result.push({ _slotCard: true, slot: (openSlots as any[])[slotIdx] });
+        // openSlots returns { slot: row, tech: user } — flatten so LastMinuteSlotCard gets flat fields
+        const raw = (openSlots as any[])[slotIdx];
+        const flatSlot = raw?.slot ? { ...raw.slot, tech: raw.tech } : raw;
+        result.push({ _slotCard: true, slot: flatSlot });
         slotIdx++;
       }
     });
