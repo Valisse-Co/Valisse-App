@@ -20,6 +20,7 @@ const SERVICE_OPTIONS = [
   "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
+  "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
   "Manicure",

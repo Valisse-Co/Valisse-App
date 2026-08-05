@@ -459,3 +459,28 @@
 - [x] Frontend: build SignUp page — email+password form + "Continue with Google" button + role selection (Client / Nail Tech)
 - [x] Frontend: wire routing — unauthenticated → AuthLanding, post-login → /dashboard (nail_tech) or /discover (client)
 - [x] Frontend: show "Account with this email already exists" error on Google sign-up collision
+
+## Smart Service Match — Full Rebuild
+- [ ] Audit: read existing smartMatch.ts, schema smart_match_configs/responses, BookingFlow smart match step, TechDashboard Smart Match tab
+- [ ] Write SMART_MATCH_DEFAULTS: complete questionnaire + rules JSON for all 13 services (Gel Manicure, Structured Gel, Acrylic Full Set, Acrylic Fill, Gel-X, Dip Powder, Manicure, Pedicure, Nail Art/Add-Ons, Removal/Soak-Off, Repair, Press-On, Custom/Not Sure)
+- [ ] Add "Extended Fill" to SERVICE_CATEGORIES constant (shared/const.ts) so it appears in all service lists
+- [ ] Schema: add addonServiceId (FK → tech_services, nullable) to bookings table for add-on second service line
+- [ ] Schema: add inspirationPhotoUrls (JSON) to smart_match_responses table (already exists, verify)
+- [ ] Backend: update evaluateSmartMatchRules to support outcome types: recommend, addon, review, bundle
+- [ ] Backend: update submitSmartMatchResponse to handle addon (add second service line to booking) and bundle outcomes
+- [ ] Backend: if recommended service is not offered by tech, auto-escalate to review outcome
+- [ ] Backend: seed/replace system default smart_match_configs with new questionnaire data for all 13 services
+- [ ] BookingFlow: rebuild Smart Match step UI — progress bar, large touch-target answer buttons, back navigation
+- [ ] BookingFlow: Recommend outcome screen — "We think [X] is a better fit" with Switch / Continue with original
+- [ ] BookingFlow: Add-On outcome screen — "Would you like to add [X] to your booking?" Yes/No
+- [ ] BookingFlow: Tech Review outcome screen — "Your tech will review your answers before confirming" with Continue
+- [ ] BookingFlow: photo upload step for Nail Art/Add-Ons and Custom/Not Sure (optional, S3 upload, preview)
+- [ ] TechBookings: Needs Review badge on flagged booking cards (amber, pulsing)
+- [ ] TechBookings: expandable review panel on flagged cards — client answers, recommended service, inspiration photos
+- [ ] TechBookings: confirm/decline flow for flagged bookings (same as regular pending bookings)
+- [ ] Settings → Services: add "Smart Match" section below service list
+- [ ] Settings Smart Match: per-service toggle (enable/disable Smart Match for that service)
+- [ ] Settings Smart Match: per-service question editor (add/edit/delete questions and answer options)
+- [ ] Settings Smart Match: per-service rule editor (add/edit/delete rules: if [answers] → outcome + target)
+- [ ] Settings Smart Match: global Smart Match on/off toggle at top of section
+- [ ] Remove Smart Match tab from TechDashboard entirely

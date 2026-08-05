@@ -64,6 +64,10 @@ type BookingCardProps = {
     duration: number;
     serviceType?: string | null;
     notes?: string | null;
+    needsReview?: boolean;
+    reviewAnswers?: Record<string, string> | null;
+    reviewRecommendedService?: string | null;
+    reviewPhotoUrls?: string[] | null;
   };
   client: { name?: string | null; avatarUrl?: string | null } | null;
   onConfirm: (id: number) => void;
@@ -82,15 +86,61 @@ function BookingCard({ booking, client, onConfirm, onDecline, onCancel, onMarkCo
   const isPast = endTime < now;
   const isToday = toDateKey(time) === toDateKey(now);
   const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
+  const [reviewExpanded, setReviewExpanded] = useState(false);
 
   return (
     <div className={cn(
       "rounded-2xl border bg-card p-4 shadow-sm transition-all",
-      booking.status === "pending"
-        ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10"
-        : "border-border",
+      booking.needsReview
+        ? "border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-900/20"
+        : booking.status === "pending"
+          ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10"
+          : "border-border",
       isPast && booking.status !== "completed" && "opacity-60"
     )}>
+      {/* Needs Review banner */}
+      {booking.needsReview && (
+        <button
+          onClick={() => setReviewExpanded(v => !v)}
+          className="w-full flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Needs Review</span>
+            {booking.reviewRecommendedService && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">· {booking.reviewRecommendedService}</span>
+            )}
+          </div>
+          <ChevronDown size={14} className={cn("text-amber-600 transition-transform", reviewExpanded && "rotate-180")} />
+        </button>
+      )}
+
+      {/* Expandable review panel */}
+      {booking.needsReview && reviewExpanded && (
+        <div className="mb-3 rounded-xl bg-card border border-amber-200 dark:border-amber-800 p-3 space-y-2">
+          {booking.reviewAnswers && Object.keys(booking.reviewAnswers).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Client's answers</p>
+              {Object.entries(booking.reviewAnswers).map(([k, v]) => (
+                <p key={k} className="text-xs text-foreground"><span className="text-muted-foreground">Q{k.replace('q','')}: </span>{v}</p>
+              ))}
+            </div>
+          )}
+          {booking.reviewPhotoUrls && booking.reviewPhotoUrls.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Inspiration photos</p>
+              <div className="flex flex-wrap gap-2">
+                {booking.reviewPhotoUrls.map((url, i) => (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                    <img src={url} alt="" className="w-16 h-16 rounded-lg object-cover border border-border" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top row: time + status */}
       <div className="flex items-start justify-between mb-3">
         <div>

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   ChevronLeft,
+  ChevronDown,
   Camera,
   Plus,
   Trash2,
@@ -46,6 +47,7 @@ const SERVICE_CATEGORIES = [
   "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
+  "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
   "Manicure",
@@ -342,7 +344,7 @@ export default function SettingsProfile() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>((user as any)?.avatarUrl ?? null);
   const avatarRef = useRef<HTMLInputElement>(null);
 
-  // Smart Match global toggle
+  // Smart Match global toggle + configs
   const { data: smGlobalEnabled, refetch: refetchSmGlobal } = trpc.smartMatch.getGlobalEnabled.useQuery(undefined, {
     enabled: user?.userType === "nail_tech",
   });
@@ -350,6 +352,14 @@ export default function SettingsProfile() {
     onSuccess: () => { refetchSmGlobal(); toast.success("Smart Match setting saved"); },
     onError: (e) => toast.error(e.message),
   });
+  const { data: smConfigs, refetch: refetchSmConfigs } = trpc.smartMatch.getAllConfigs.useQuery(undefined, {
+    enabled: user?.userType === "nail_tech" && (smGlobalEnabled ?? true),
+  });
+  const upsertSmConfig = trpc.smartMatch.upsertConfig.useMutation({
+    onSuccess: () => { refetchSmConfigs(); toast.success("Smart Match config saved"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const [expandedSmService, setExpandedSmService] = useState<string | null>(null);
 
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
@@ -574,14 +584,15 @@ export default function SettingsProfile() {
               </div>
             </div>
 
-            {/* Smart Match global toggle */}
+            {/* Smart Match settings */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
-              <div className="px-4 py-3 flex items-center justify-between">
+              {/* Global toggle header */}
+              <div className="px-4 py-3 flex items-center justify-between border-b border-border">
                 <div className="flex items-center gap-2">
                   <Sparkles size={15} className="text-primary" />
                   <div>
                     <p className="text-sm font-medium text-foreground">Smart Service Match</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Ask clients a few questions before booking to ensure the right service</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Ask clients questions before booking to ensure the right service</p>
                   </div>
                 </div>
                 <button
@@ -598,6 +609,106 @@ export default function SettingsProfile() {
                   )} />
                 </button>
               </div>
+
+              {/* Per-service config list */}
+              {(smGlobalEnabled ?? true) && (
+                <div className="divide-y divide-border">
+                  {((smConfigs as any[]) ?? []).length === 0 && (
+                    <div className="px-4 py-6 text-center">
+                      <p className="text-xs text-muted-foreground">Loading service configurations…</p>
+                    </div>
+                  )}
+                  {((smConfigs as any[]) ?? []).map((cfg: any) => {
+                    const isExpanded = expandedSmService === cfg.serviceCategory;
+                    const isEnabled = cfg.effective?.isEnabled !== false;
+                    const questions = cfg.effective?.questions ?? [];
+                    const rules = cfg.effective?.rules ?? [];
+                    return (
+                      <div key={cfg.serviceCategory}>
+                        {/* Service row */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <button
+                            onClick={() => setExpandedSmService(isExpanded ? null : cfg.serviceCategory)}
+                            className="flex-1 flex items-center gap-2 text-left"
+                          >
+                            <ChevronDown size={14} className={cn("text-muted-foreground transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
+                            <p className="text-sm font-medium text-foreground">{cfg.serviceCategory}</p>
+                          </button>
+                          <button
+                            onClick={() => upsertSmConfig.mutate({ serviceCategory: cfg.serviceCategory, isEnabled: !isEnabled })}
+                            className={cn(
+                              "relative w-9 h-5 rounded-full transition-colors flex-shrink-0",
+                              isEnabled ? "bg-primary" : "bg-muted"
+                            )}
+                          >
+                            <span className={cn(
+                              "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
+                              isEnabled ? "translate-x-4" : "translate-x-0.5"
+                            )} />
+                          </button>
+                        </div>
+
+                        {/* Expanded questions + rules */}
+                        {isExpanded && isEnabled && (
+                          <div className="px-4 pb-4 space-y-3 bg-muted/20">
+                            {/* Questions */}
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Questions</p>
+                              <div className="space-y-2">
+                                {questions.map((q: any, i: number) => (
+                                  <div key={q.id} className="rounded-xl bg-background border border-border p-3">
+                                    <p className="text-xs font-medium text-foreground mb-1">{i + 1}. {q.text}</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {q.options.map((opt: string) => (
+                                        <span key={opt} className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{opt}</span>
+                                      ))}
+                                    </div>
+                                    {q.allowsPhoto && (
+                                      <p className="text-[10px] text-primary mt-1">📷 Photo upload enabled</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Rules */}
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Recommendation Rules</p>
+                              <div className="space-y-1.5">
+                                {rules.map((rule: any, i: number) => (
+                                  <div key={i} className="rounded-xl bg-background border border-border p-3 text-xs">
+                                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                      <span className="text-muted-foreground">If client answers:</span>
+                                      {rule.if.map((cond: string) => (
+                                        <span key={cond} className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-medium">{cond}</span>
+                                      ))}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded-md font-semibold uppercase text-[10px]",
+                                        rule.outcome === "recommend" ? "bg-amber-100 text-amber-700" :
+                                        rule.outcome === "addon" ? "bg-primary/10 text-primary" :
+                                        rule.outcome === "bundle" ? "bg-blue-100 text-blue-700" :
+                                        "bg-muted text-muted-foreground"
+                                      )}>{rule.outcome}</span>
+                                      <span className="text-foreground font-medium">{rule.recommend}</span>
+                                    </div>
+                                    {rule.message && (
+                                      <p className="text-muted-foreground mt-1 italic">"{rule.message}"</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <p className="text-[10px] text-muted-foreground">Custom question editing coming soon. Contact support to request changes to questions or rules for this service.</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Services */}

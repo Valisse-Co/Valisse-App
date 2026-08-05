@@ -131,7 +131,7 @@ import {
   getAllSmartMatchConfigsForTech,
   upsertSmartMatchConfig,
   saveSmartMatchResponse,
-  evaluateSmartMatch,
+  evaluateSmartMatchRules,
   isSmartMatchEnabled,
   applyTechReviewAction,
   SYSTEM_DEFAULTS,
@@ -1563,7 +1563,7 @@ const smartMatchRouter = router({
     .mutation(async ({ input }) => {
       const cfg = await getSmartMatchConfig(input.techId, input.serviceCategory);
       if (!cfg) return { outcome: "match" as const, recommendedService: null };
-      return evaluateSmartMatch(input.answers, cfg.rules as { if: string[]; recommend: string; outcome: "match" | "recommend" | "review" }[]);
+      return evaluateSmartMatchRules(input.answers, cfg.rules as { if: string[]; recommend: string; outcome: "match" | "recommend" | "addon" | "review" | "bundle"; message?: string }[]);
     }),
 
   // Save response + flag booking if needed

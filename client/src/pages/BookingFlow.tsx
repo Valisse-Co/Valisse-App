@@ -67,7 +67,7 @@ const STEPS = ["Service", "Smart Match", "Date", "Time", "Confirm"];
 
 // ─── Smart Match types ────────────────────────────────────────────────────────
 type SMQuestion = { id: string; text: string; options: string[] };
-type SMOutcome = "match" | "recommend" | "review";
+type SMOutcome = "match" | "recommend" | "addon" | "review" | "bundle";
 
 export default function BookingFlow() {
   const [, params] = useRoute("/book/:techId");
@@ -89,6 +89,8 @@ export default function BookingFlow() {
   const [smPhotoFiles, setSmPhotoFiles]     = useState<File[]>([]);
   const [smPhotoPreviews, setSmPhotoPreviews] = useState<string[]>([]);
   const [smSkipped, setSmSkipped]           = useState(false);
+  const [smMessage, setSmMessage]           = useState<string | null>(null);
+  const [smAddonAccepted, setSmAddonAccepted] = useState<boolean | null>(null);
   const [calMonth, setCalMonth]           = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -180,6 +182,7 @@ export default function BookingFlow() {
       { id: "structured_gel_fill",  label: "Structured Gel / Builder Gel Fill", duration: 60, price: null, photoUrl: null },
       { id: "acrylic_full",        label: "Acrylic Full Set",              duration: 90,  price: null, photoUrl: null },
       { id: "acrylic_fill",        label: "Acrylic Fill",                  duration: 60,  price: null, photoUrl: null },
+      { id: "extended_fill",       label: "Extended Fill",                 duration: 90,  price: null, photoUrl: null },
       { id: "gel_x",               label: "Gel-X / Soft Gel Extensions",   duration: 75,  price: null, photoUrl: null },
       { id: "dip_powder",          label: "Dip Powder",                    duration: 60,  price: null, photoUrl: null },
       { id: "manicure",            label: "Manicure",                      duration: 45,  price: null, photoUrl: null },
@@ -330,9 +333,9 @@ export default function BookingFlow() {
         });
         setSmOutcome(result.outcome as SMOutcome);
         setSmRecommended(result.recommendedService);
-        // If outcome is "review" or "recommend", stay on step 1 to show outcome screen
+        setSmMessage((result as any).message ?? null);
+        // If outcome is not "match", stay on step 1 to show outcome screen
         if (result.outcome !== "match") {
-          setSmOutcome(result.outcome as SMOutcome);
           return; // show outcome screen
         }
       }
@@ -498,7 +501,7 @@ export default function BookingFlow() {
               return null;
             }
 
-            // Outcome screen — recommend
+            // Outcome screen — recommend (suggest switching service)
             if (smOutcome === "recommend" && smRecommended) {
               return (
                 <div className="space-y-5">
@@ -507,15 +510,73 @@ export default function BookingFlow() {
                       <Sparkles className="w-7 h-7 text-amber-500" />
                     </div>
                     <h1 className="text-xl font-serif font-semibold text-foreground">We have a suggestion</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Based on your answers, this service may be a better fit:</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {smMessage ?? `Based on your answers, ${smRecommended} might be a better fit.`}
+                    </p>
                   </div>
-                  <Card className="p-4 rounded-2xl border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
-                    <p className="font-semibold text-foreground">{smRecommended}</p>
+                  <Card className="p-5 rounded-2xl border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
                     <p className="text-xs text-muted-foreground mt-1">Your nail tech will confirm the details after reviewing your booking.</p>
                   </Card>
                   <div className="flex flex-col gap-2">
-                    <Button className="w-full" onClick={() => setStep(2)}>Book with Recommendation</Button>
-                    <Button variant="ghost" className="w-full" onClick={() => { setSmOutcome(null); setStep(2); }}>Continue with Original Service</Button>
+                    <Button className="w-full" onClick={() => {
+                      // Switch to recommended service if available
+                      const recSvc = techServices.find((s: BookingService) => s.label === smRecommended);
+                      if (recSvc) setSelectedService(recSvc);
+                      setSmOutcome(null);
+                      setStep(2);
+                    }}>Switch to {smRecommended}</Button>
+                    <Button variant="ghost" className="w-full" onClick={() => { setSmOutcome(null); setStep(2); }}>Continue with {selectedService?.label}</Button>
+                  </div>
+                </div>
+              );
+            }
+
+            // Outcome screen — addon (suggest adding a service)
+            if (smOutcome === "addon" && smRecommended) {
+              return (
+                <div className="space-y-5">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <Sparkles className="w-7 h-7 text-primary" />
+                    </div>
+                    <h1 className="text-xl font-serif font-semibold text-foreground">Add-on suggested</h1>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {smMessage ?? `Would you like to add ${smRecommended} to your booking?`}
+                    </p>
+                  </div>
+                  <Card className="p-5 rounded-2xl border-primary/20 bg-primary/5">
+                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
+                    <p className="text-xs text-muted-foreground mt-1">This will be noted on your booking for your tech to confirm pricing and timing.</p>
+                  </Card>
+                  <div className="flex flex-col gap-2">
+                    <Button className="w-full" onClick={() => { setSmAddonAccepted(true); setSmOutcome(null); setStep(2); }}>Yes, add {smRecommended}</Button>
+                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>No thanks, continue without it</Button>
+                  </div>
+                </div>
+              );
+            }
+
+            // Outcome screen — bundle (suggest bundling services)
+            if (smOutcome === "bundle" && smRecommended) {
+              return (
+                <div className="space-y-5">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <Sparkles className="w-7 h-7 text-primary" />
+                    </div>
+                    <h1 className="text-xl font-serif font-semibold text-foreground">Bundle & save time</h1>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {smMessage ?? "We can bundle your services together for a smoother appointment."}
+                    </p>
+                  </div>
+                  <Card className="p-5 rounded-2xl border-primary/20 bg-primary/5">
+                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Your tech will confirm the combined pricing and timing when they review your booking.</p>
+                  </Card>
+                  <div className="flex flex-col gap-2">
+                    <Button className="w-full" onClick={() => { setSmAddonAccepted(true); setSmOutcome(null); setStep(2); }}>Yes, bundle my services</Button>
+                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>Continue with removal only</Button>
                   </div>
                 </div>
               );
@@ -527,12 +588,15 @@ export default function BookingFlow() {
                 <div className="space-y-5">
                   <div className="text-center">
                     <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Sparkles className="w-7 h-7 text-primary" />
+                      <Shield className="w-7 h-7 text-primary" />
                     </div>
-                    <h1 className="text-xl font-serif font-semibold text-foreground">Sending to your nail tech</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Your answers suggest a custom consultation. Your nail tech will review and confirm the best service for you.</p>
+                    <h1 className="text-xl font-serif font-semibold text-foreground">Your tech will review this</h1>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {smMessage ?? "Your answers suggest a custom consultation. Your nail tech will review and confirm the best service for you before confirming."}
+                    </p>
                   </div>
                   <Card className="p-4 rounded-2xl border-border space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Your answers</p>
                     {Object.entries(smAnswers).map(([qId, ans]) => {
                       const q = questions.find((q: SMQuestion) => q.id === qId);
                       return q ? (

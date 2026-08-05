@@ -35,6 +35,7 @@ const SERVICE_CATEGORIES = [
   "Structured Gel / Builder Gel Fill",
   "Acrylic Full Set",
   "Acrylic Fill",
+  "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
   "Manicure",
@@ -180,7 +181,7 @@ export default function TechDashboard() {
   const [slotStartTime, setSlotStartTime] = useState("09:00");
   const [slotEndTime, setSlotEndTime] = useState("10:00");
   const [slotNote, setSlotNote] = useState("");
-  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots" | "smartmatch">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots">("overview");
 
   const { data: analytics } = trpc.analytics.techAnalytics.useQuery(undefined, { enabled: isAuthenticated });
   const { data: postsData, refetch: refetchPosts } = trpc.posts.myPosts.useQuery(undefined, { enabled: isAuthenticated });
@@ -317,7 +318,7 @@ export default function TechDashboard() {
 
       {/* Tabs */}
       <div className="flex border-b border-border px-4 overflow-x-auto">
-        {(["overview", "posts", "slots", "smartmatch"] as const).map(tab => (
+        {(["overview", "posts", "slots"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -327,7 +328,6 @@ export default function TechDashboard() {
             )}
           >{
             tab === "slots" ? "Schedule" :
-            tab === "smartmatch" ? "Smart Match" :
             tab
           }</button>
         ))}
@@ -559,57 +559,7 @@ export default function TechDashboard() {
           </div>
         )}
 
-        {/* Smart Match tab */}
-        {activeTab === "smartmatch" && (() => {
-          const configs = (smConfigs as any[]) ?? [];
-          return (
-            <div className="space-y-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Sparkles size={16} className="text-primary" />
-                  <h2 className="font-semibold text-foreground">Smart Service Match</h2>
-                </div>
-                <p className="text-sm text-muted-foreground">Customize the questionnaire clients see when booking each service category. Toggle categories on or off to control when Smart Match activates.</p>
-              </div>
-              {configs.map((cfg: any) => (
-                <div key={cfg.serviceCategory} className="rounded-2xl border border-border bg-card overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <p className="text-sm font-medium text-foreground">{cfg.serviceCategory}</p>
-                    <button
-                      onClick={() => upsertSmConfig.mutate({ serviceCategory: cfg.serviceCategory, isEnabled: !cfg.effective?.isEnabled })}
-                      className={cn(
-                        "relative w-10 h-5 rounded-full transition-colors",
-                        cfg.effective?.isEnabled !== false ? "bg-primary" : "bg-muted"
-                      )}
-                    >
-                      <span className={cn(
-                        "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-                        cfg.effective?.isEnabled !== false ? "translate-x-5" : "translate-x-0.5"
-                      )} />
-                    </button>
-                  </div>
-                  {cfg.effective?.isEnabled !== false && (
-                    <div className="border-t border-border px-4 py-3 space-y-2">
-                      {(cfg.effective?.questions ?? []).map((q: any, i: number) => (
-                        <div key={q.id} className="text-xs">
-                          <span className="font-medium text-foreground">{i + 1}. {q.text}</span>
-                          <span className="text-muted-foreground ml-1">({q.options.join(", ")})</span>
-                        </div>
-                      ))}
-                      <p className="text-[10px] text-muted-foreground mt-1">Full question editor coming soon — contact support to customize questions.</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {configs.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Sparkles size={28} className="text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Loading Smart Match configurations…</p>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+
       </div>
 
       {/* Add Slot Dialog */}
