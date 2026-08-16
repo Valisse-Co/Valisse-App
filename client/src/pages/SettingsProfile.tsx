@@ -360,6 +360,39 @@ export default function SettingsProfile() {
     onError: (e) => toast.error(e.message),
   });
   const [expandedSmService, setExpandedSmService] = useState<string | null>(null);
+  const [editingSmService, setEditingSmService] = useState<string | null>(null);
+  const [smDraft, setSmDraft] = useState<{ questions: any[]; rules: any[] } | null>(null);
+
+  const beginSmartMatchEdit = (serviceCategory: string, questions: any[], rules: any[]) => {
+    setEditingSmService(serviceCategory);
+    setSmDraft({
+      questions: questions.map((question: any) => ({ ...question, options: [...(question.options ?? [])] })),
+      rules: rules.map((rule: any) => ({ ...rule, if: [...(rule.if ?? [])] })),
+    });
+  };
+
+  const saveSmartMatchDraft = () => {
+    if (!editingSmService || !smDraft) return;
+    const questions = smDraft.questions
+      .map((question, index) => ({
+        id: question.id || `q${index + 1}`,
+        text: String(question.text ?? "").trim(),
+        options: (question.options ?? []).map((option: string) => option.trim()).filter(Boolean),
+        allowsPhoto: Boolean(question.allowsPhoto),
+      }))
+      .filter(question => question.text && question.options.length > 0);
+    const rules = smDraft.rules
+      .map(rule => ({
+        if: (rule.if ?? []).map((condition: string) => condition.trim()).filter(Boolean),
+        recommend: String(rule.recommend ?? "").trim(),
+        outcome: rule.outcome ?? "review",
+        message: String(rule.message ?? "").trim() || undefined,
+      }))
+      .filter(rule => rule.if.length > 0 && rule.recommend);
+    upsertSmConfig.mutate({ serviceCategory: editingSmService, questions, rules });
+    setEditingSmService(null);
+    setSmDraft(null);
+  };
 
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
@@ -701,7 +734,60 @@ export default function SettingsProfile() {
                               </div>
                             </div>
 
-                            <p className="text-[10px] text-muted-foreground">Custom question editing coming soon. Contact support to request changes to questions or rules for this service.</p>
+                            {editingSmService !== cfg.serviceCategory ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full text-xs"
+                                onClick={() => beginSmartMatchEdit(cfg.serviceCategory, questions, rules)}
+                              >
+                                <Pencil size={13} className="mr-1.5" /> Edit questions & rules
+                              </Button>
+                            ) : smDraft ? (
+                              <div className="rounded-xl border border-primary/30 bg-background p-3 space-y-4">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-foreground">Edit Smart Match</p>
+                                    <p className="text-[11px] text-muted-foreground">Changes apply only to your services.</p>
+                                  </div>
+                                  <button type="button" onClick={() => { setEditingSmService(null); setSmDraft(null); }} className="text-xs text-muted-foreground underline">Cancel</button>
+                                </div>
+
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-semibold text-foreground">Questions</p>
+                                    <button type="button" className="text-xs text-primary font-medium" onClick={() => setSmDraft(draft => draft ? ({ ...draft, questions: [...draft.questions, { id: `q${Date.now()}`, text: "", options: [""], allowsPhoto: false }] }) : draft)}><Plus size={12} className="inline mr-1" />Add question</button>
+                                  </div>
+                                  {smDraft.questions.map((question, questionIndex) => (
+                                    <div key={question.id || questionIndex} className="rounded-lg border border-border p-2.5 space-y-2">
+                                      <div className="flex gap-2">
+                                        <Input value={question.text ?? ""} placeholder="Question" onChange={event => setSmDraft(draft => draft ? ({ ...draft, questions: draft.questions.map((item, index) => index === questionIndex ? { ...item, text: event.target.value } : item) }) : draft)} className="h-8 text-xs" />
+                                        <button type="button" aria-label="Delete question" className="text-muted-foreground hover:text-destructive" onClick={() => setSmDraft(draft => draft ? ({ ...draft, questions: draft.questions.filter((_, index) => index !== questionIndex) }) : draft)}><Trash2 size={14} /></button>
+                                      </div>
+                                      <Input value={(question.options ?? []).join(", ")} placeholder="Answer options, separated by commas" onChange={event => setSmDraft(draft => draft ? ({ ...draft, questions: draft.questions.map((item, index) => index === questionIndex ? { ...item, options: event.target.value.split(",") } : item) }) : draft)} className="h-8 text-xs" />
+                                      <label className="flex items-center gap-2 text-[11px] text-muted-foreground"><input type="checkbox" checked={Boolean(question.allowsPhoto)} onChange={event => setSmDraft(draft => draft ? ({ ...draft, questions: draft.questions.map((item, index) => index === questionIndex ? { ...item, allowsPhoto: event.target.checked } : item) }) : draft)} /> Allow optional inspiration photo</label>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-semibold text-foreground">Recommendation rules</p>
+                                    <button type="button" className="text-xs text-primary font-medium" onClick={() => setSmDraft(draft => draft ? ({ ...draft, rules: [...draft.rules, { if: [""], recommend: "", outcome: "review", message: "" }] }) : draft)}><Plus size={12} className="inline mr-1" />Add rule</button>
+                                  </div>
+                                  {smDraft.rules.map((rule, ruleIndex) => (
+                                    <div key={ruleIndex} className="rounded-lg border border-border p-2.5 space-y-2">
+                                      <div className="flex gap-2"><Input value={(rule.if ?? []).join(", ")} placeholder="Trigger answers, separated by commas" onChange={event => setSmDraft(draft => draft ? ({ ...draft, rules: draft.rules.map((item, index) => index === ruleIndex ? { ...item, if: event.target.value.split(",") } : item) }) : draft)} className="h-8 text-xs" /><button type="button" aria-label="Delete rule" className="text-muted-foreground hover:text-destructive" onClick={() => setSmDraft(draft => draft ? ({ ...draft, rules: draft.rules.filter((_, index) => index !== ruleIndex) }) : draft)}><Trash2 size={14} /></button></div>
+                                      <div className="grid grid-cols-2 gap-2"><Input value={rule.recommend ?? ""} placeholder="Recommended service" onChange={event => setSmDraft(draft => draft ? ({ ...draft, rules: draft.rules.map((item, index) => index === ruleIndex ? { ...item, recommend: event.target.value } : item) }) : draft)} className="h-8 text-xs" /><select value={rule.outcome ?? "review"} onChange={event => setSmDraft(draft => draft ? ({ ...draft, rules: draft.rules.map((item, index) => index === ruleIndex ? { ...item, outcome: event.target.value } : item) }) : draft)} className="h-8 rounded-md border border-input bg-background px-2 text-xs"><option value="recommend">Recommend</option><option value="addon">Add-on</option><option value="review">Tech review</option><option value="bundle">Bundle</option><option value="match">Match</option></select></div>
+                                      <Input value={rule.message ?? ""} placeholder="Optional client-facing message" onChange={event => setSmDraft(draft => draft ? ({ ...draft, rules: draft.rules.map((item, index) => index === ruleIndex ? { ...item, message: event.target.value } : item) }) : draft)} className="h-8 text-xs" />
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <Button type="button" size="sm" className="w-full" disabled={upsertSmConfig.isPending} onClick={saveSmartMatchDraft}>{upsertSmConfig.isPending ? "Saving…" : "Save Smart Match rules"}</Button>
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>

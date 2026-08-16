@@ -42,7 +42,9 @@ export default function SignUp() {
   useEffect(() => {
     if (loading || !isAuthenticated || !user) return;
     if (!user.onboardingCompleted) {
-      navigate("/onboarding");
+      if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
+        navigate("/onboarding");
+      }
       return;
     }
     const mode = user.hasDualRole ? user.activeMode : user.userType;
@@ -51,6 +53,7 @@ export default function SignUp() {
 
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: async () => {
+      sessionStorage.setItem("valisse_onboarding_intent", "new_account");
       await utils.auth.me.invalidate();
       navigate("/onboarding");
     },

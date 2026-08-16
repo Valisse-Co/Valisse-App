@@ -718,9 +718,10 @@ export async function getTechBookings(techId: number) {
   const db = await getDb();
   if (!db) return [];
   return db
-    .select({ booking: bookings, client: users })
+    .select({ booking: bookings, client: users, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
+    .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
     .where(eq(bookings.techId, techId))
     .orderBy(desc(bookings.scheduledAt));
 }
@@ -756,9 +757,10 @@ export async function getTechBookingsTimeline(techId: number) {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   return db
-    .select({ booking: bookings, client: users })
+    .select({ booking: bookings, client: users, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
+    .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
     .where(
       and(
         eq(bookings.techId, techId),
@@ -777,9 +779,10 @@ export async function getTechPastBookings(techId: number) {
   const db = await getDb();
   if (!db) return [];
   return db
-    .select({ booking: bookings, client: users })
+    .select({ booking: bookings, client: users, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
+    .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
     .where(
       and(
         eq(bookings.techId, techId),

@@ -691,21 +691,50 @@ const bookingsRouter = router({
         techId: z.number(),
         postId: z.number().optional(),
         serviceType: z.string().optional(),
+        addonServiceId: z.number().optional(),
         scheduledAt: z.number(), // timestamp ms
         duration: z.number().default(60),
         notes: z.string().optional(),
+        smartMatch: z.object({
+          serviceCategory: z.string(),
+          answers: z.record(z.string(), z.string()),
+          outcome: z.enum(["match", "recommend", "addon", "review", "bundle"]),
+          recommendedService: z.string().nullable(),
+          photoUrls: z.array(z.string()).max(5).default([]),
+        }).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      let addonServiceId: number | null = null;
+      if (input.addonServiceId) {
+        const offeredServices = await getTechServices(input.techId);
+        const addon = offeredServices.find(service => service.id === input.addonServiceId);
+        if (!addon) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That add-on is no longer offered by this nail tech." });
+        }
+        addonServiceId = addon.id;
+      }
       const bookingId = await createBookingWithConflictCheck({
         clientId: ctx.user.id,
         techId: input.techId,
         postId: input.postId ?? null,
         serviceType: input.serviceType ?? null,
+        addonServiceId,
         scheduledAt: new Date(input.scheduledAt),
         duration: input.duration,
         notes: input.notes ?? null,
       } as any);
+      if (input.smartMatch) {
+        await saveSmartMatchResponse({
+          bookingId,
+          techId: input.techId,
+          serviceCategory: input.smartMatch.serviceCategory,
+          answers: input.smartMatch.answers,
+          outcome: input.smartMatch.outcome,
+          recommendedService: input.smartMatch.recommendedService,
+          photoUrls: input.smartMatch.photoUrls,
+        });
+      }
       await createNotification({
         userId: input.techId,
         type: "new_booking",
@@ -1563,8 +1592,20 @@ const smartMatchRouter = router({
     }))
     .mutation(async ({ input }) => {
       const cfg = await getSmartMatchConfig(input.techId, input.serviceCategory);
-      if (!cfg) return { outcome: "match" as const, recommendedService: null };
-      return evaluateSmartMatchRules(input.answers, cfg.rules as { if: string[]; recommend: string; outcome: "match" | "recommend" | "addon" | "review" | "bundle"; message?: string }[]);
+      if (!cfg) return { outcome: "match" as const, recommendedService: null, message: null };
+      const result = evaluateSmartMatchRules(input.answers, cfg.rules as { if: string[]; recommend: string; outcome: "match" | "recommend" | "addon" | "review" | "bundle"; message?: string }[]);
+      if ((result.outcome === "recommend" || result.outcome === "addon") && result.recommendedService) {
+        const offeredServices = await getTechServices(input.techId);
+        const isOffered = offeredServices.some(service => service.category === result.recommendedService || service.customName === result.recommendedService);
+        if (!isOffered) {
+          return {
+            outcome: "review" as const,
+            recommendedService: result.recommendedService,
+            message: `${result.recommendedService} may be a better fit, but this nail tech does not currently list it. Your tech will review your answers before confirming.`,
+          };
+        }
+      }
+      return result;
     }),
 
   // Save response + flag booking if needed
@@ -1574,7 +1615,7 @@ const smartMatchRouter = router({
       techId: z.number(),
       serviceCategory: z.string(),
       answers: z.record(z.string(), z.string()),
-      outcome: z.enum(["match", "recommend", "review"]),
+      outcome: z.enum(["match", "recommend", "addon", "review", "bundle"]),
       recommendedService: z.string().nullable(),
       photoUrls: z.array(z.string()).default([]),
     }))
@@ -1591,6 +1632,21 @@ const smartMatchRouter = router({
       return { success: true };
     }),
 
+  uploadPhoto: protectedProcedure
+    .input(z.object({
+      base64: z.string().min(1).max(7_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Inspiration photos must be 5 MB or smaller." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const { url } = await storagePut(`smart-match/${ctx.user.id}/${Date.now()}.${extension}`, buffer, input.mimeType);
+      return { url };
+    }),
+
   // Tech: upsert a config override
   upsertConfig: protectedProcedure
     .input(z.object({
@@ -1599,11 +1655,13 @@ const smartMatchRouter = router({
         id: z.string(),
         text: z.string(),
         options: z.array(z.string()),
+        allowsPhoto: z.boolean().optional(),
       })).optional(),
       rules: z.array(z.object({
         if: z.array(z.string()),
         recommend: z.string(),
-        outcome: z.enum(["match", "recommend", "review"]),
+        outcome: z.enum(["match", "recommend", "addon", "review", "bundle"]),
+        message: z.string().optional(),
       })).optional(),
       isEnabled: z.boolean().optional(),
     }))

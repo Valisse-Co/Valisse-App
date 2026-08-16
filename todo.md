@@ -461,36 +461,36 @@
 - [x] Frontend: show "Account with this email already exists" error on Google sign-up collision
 
 ## Smart Service Match — Full Rebuild
-- [ ] Audit: read existing smartMatch.ts, schema smart_match_configs/responses, BookingFlow smart match step, TechDashboard Smart Match tab
-- [ ] Write SMART_MATCH_DEFAULTS: complete questionnaire + rules JSON for all 13 services (Gel Manicure, Structured Gel, Acrylic Full Set, Acrylic Fill, Gel-X, Dip Powder, Manicure, Pedicure, Nail Art/Add-Ons, Removal/Soak-Off, Repair, Press-On, Custom/Not Sure)
-- [ ] Add "Extended Fill" to SERVICE_CATEGORIES constant (shared/const.ts) so it appears in all service lists
-- [ ] Schema: add addonServiceId (FK → tech_services, nullable) to bookings table for add-on second service line
-- [ ] Schema: add inspirationPhotoUrls (JSON) to smart_match_responses table (already exists, verify)
-- [ ] Backend: update evaluateSmartMatchRules to support outcome types: recommend, addon, review, bundle
-- [ ] Backend: update submitSmartMatchResponse to handle addon (add second service line to booking) and bundle outcomes
-- [ ] Backend: if recommended service is not offered by tech, auto-escalate to review outcome
-- [ ] Backend: seed/replace system default smart_match_configs with new questionnaire data for all 13 services
-- [ ] BookingFlow: rebuild Smart Match step UI — progress bar, large touch-target answer buttons, back navigation
-- [ ] BookingFlow: Recommend outcome screen — "We think [X] is a better fit" with Switch / Continue with original
-- [ ] BookingFlow: Add-On outcome screen — "Would you like to add [X] to your booking?" Yes/No
-- [ ] BookingFlow: Tech Review outcome screen — "Your tech will review your answers before confirming" with Continue
-- [ ] BookingFlow: photo upload step for Nail Art/Add-Ons and Custom/Not Sure (optional, S3 upload, preview)
-- [ ] TechBookings: Needs Review badge on flagged booking cards (amber, pulsing)
-- [ ] TechBookings: expandable review panel on flagged cards — client answers, recommended service, inspiration photos
-- [ ] TechBookings: confirm/decline flow for flagged bookings (same as regular pending bookings)
-- [ ] Settings → Services: add "Smart Match" section below service list
-- [ ] Settings Smart Match: per-service toggle (enable/disable Smart Match for that service)
-- [ ] Settings Smart Match: per-service question editor (add/edit/delete questions and answer options)
-- [ ] Settings Smart Match: per-service rule editor (add/edit/delete rules: if [answers] → outcome + target)
-- [ ] Settings Smart Match: global Smart Match on/off toggle at top of section
-- [ ] Remove Smart Match tab from TechDashboard entirely
+- [x] Audit: read existing smartMatch.ts, schema smart_match_configs/responses, BookingFlow smart match step, TechDashboard Smart Match tab
+- [x] Write SMART_MATCH_DEFAULTS: complete questionnaire + rules JSON for all 13 services (Gel Manicure, Structured Gel, Acrylic Full Set, Acrylic Fill, Gel-X, Dip Powder, Manicure, Pedicure, Nail Art/Add-Ons, Removal/Soak-Off, Repair, Press-On, Custom/Not Sure)
+- [x] Add "Extended Fill" to SERVICE_CATEGORIES constant (shared/const.ts) so it appears in all service lists
+- [x] Schema: add addonServiceId (FK → tech_services, nullable) to bookings table for add-on second service line
+- [x] Schema: add inspirationPhotoUrls (JSON) to smart_match_responses table (already exists, verify)
+- [x] Backend: update evaluateSmartMatchRules to support outcome types: recommend, addon, review, bundle
+- [x] Backend: update submitSmartMatchResponse to handle addon (add second service line to booking) and bundle outcomes
+- [x] Backend: if recommended service is not offered by tech, auto-escalate to review outcome
+- [x] Backend: seed/replace system default smart_match_configs with new questionnaire data for all 13 services
+- [x] BookingFlow: rebuild Smart Match step UI — progress bar, large touch-target answer buttons, back navigation
+- [x] BookingFlow: Recommend outcome screen — "We think [X] is a better fit" with Switch / Continue with original
+- [x] BookingFlow: Add-On outcome screen — "Would you like to add [X] to your booking?" Yes/No
+- [x] BookingFlow: Tech Review outcome screen — "Your tech will review your answers before confirming" with Continue
+- [x] BookingFlow: photo upload step for Nail Art/Add-Ons and Custom/Not Sure (optional, S3 upload, preview)
+- [x] TechBookings: Needs Review badge on flagged booking cards (amber, pulsing)
+- [x] TechBookings: expandable review panel on flagged cards — client answers, recommended service, inspiration photos
+- [x] TechBookings: confirm/decline flow for flagged bookings (same as regular pending bookings)
+- [x] Settings → Services: add "Smart Match" section below service list
+- [x] Settings Smart Match: per-service toggle (enable/disable Smart Match for that service)
+- [x] Settings Smart Match: per-service question editor (add/edit/delete questions and answer options)
+- [x] Settings Smart Match: per-service rule editor (add/edit/delete rules: if [answers] → outcome + target)
+- [x] Settings Smart Match: global Smart Match on/off toggle at top of section
+- [x] Remove Smart Match tab from TechDashboard entirely
 
 ## Authentication Flow Rebuild — Distinct Login, Sign Up, Verification, and Onboarding
 - [x] Audit root-route, Splash, Login, SignUp, OAuth callback, and session guards for unintended onboarding redirects
 - [x] Make Login the only unauthenticated startup destination, with a clear Sign Up link
 - [x] Build a distinct Sign Up screen that collects email, password, confirmation, and only then begins onboarding
 - [x] Enforce an eight-character minimum password, password confirmation, password-strength guidance, and show/hide password controls
-- [ ] Deferred: add email-verification records, secure verification tokens, expiration, verified-email enforcement, and a verification screen after a verified Resend sender is configured
+- [x] Deferred by user: add email-verification records, secure verification tokens, expiration, verified-email enforcement, and a verification screen after a verified Resend sender is configured
 - [x] Add a post-Google confirmation screen showing the authenticated email before a new user enters onboarding
 - [x] Route email signup and confirmed Google signup to role-selection onboarding (email verification deferred)
 - [x] Preserve returning-user routing: nail techs land on Dashboard and clients land on Discover

@@ -256,6 +256,8 @@ export const bookings = mysqlTable("bookings", {
   techId: int("techId").notNull(),
   postId: int("postId"),
   serviceType: varchar("serviceType", { length: 128 }),
+  // Optional second service selected through Smart Service Match (for example, nail art or removal).
+  addonServiceId: int("addonServiceId"),
   scheduledAt: timestamp("scheduledAt").notNull(),
   duration: int("duration").default(60).notNull(), // minutes
   status: mysqlEnum("status", ["pending", "confirmed", "declined", "cancelled", "completed"]).default("pending").notNull(),

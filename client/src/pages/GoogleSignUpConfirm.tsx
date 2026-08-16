@@ -70,7 +70,10 @@ export default function GoogleSignUpConfirm() {
         </div>
 
         <button
-          onClick={() => navigate("/onboarding")}
+          onClick={() => {
+            sessionStorage.setItem("valisse_onboarding_intent", "new_account");
+            navigate("/onboarding");
+          }}
           className="btn-valisse w-full h-13 rounded-2xl text-sm font-medium mt-6"
         >
           Continue to setup

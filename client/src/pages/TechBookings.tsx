@@ -68,8 +68,10 @@ type BookingCardProps = {
     reviewAnswers?: Record<string, string> | null;
     reviewRecommendedService?: string | null;
     reviewPhotoUrls?: string[] | null;
+    addonServiceId?: number | null;
   };
   client: { name?: string | null; avatarUrl?: string | null } | null;
+  addonService?: { category?: string | null; customName?: string | null; durationMinutes?: number | null } | null;
   onConfirm: (id: number) => void;
   onDecline: (id: number) => void;
   onCancel: (id: number) => void;
@@ -77,7 +79,7 @@ type BookingCardProps = {
   isUpdating: boolean;
 };
 
-function BookingCard({ booking, client, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating }: BookingCardProps) {
+function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating }: BookingCardProps) {
   const time = new Date(booking.scheduledAt as any);
   const now = new Date();
   const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -164,6 +166,9 @@ function BookingCard({ booking, client, onConfirm, onDecline, onCancel, onMarkCo
           <p className="text-sm font-medium text-foreground">{client?.name ?? "Client"}</p>
           {booking.serviceType && (
             <p className="text-xs text-muted-foreground">{booking.serviceType}</p>
+          )}
+          {addonService && (
+            <p className="text-xs text-primary mt-0.5">+ {addonService.customName || addonService.category}{addonService.durationMinutes ? ` · ${addonService.durationMinutes} min` : ""}</p>
           )}
         </div>
       </div>
@@ -382,11 +387,12 @@ function BookingsTimelineTab() {
 
                 {/* Booking cards for this day */}
                 <div className="space-y-3 pl-5">
-                  {rows.map(({ booking, client }) => (
+                  {rows.map(({ booking, client, addonService }) => (
                     <BookingCard
                       key={booking.id}
                       booking={booking}
                       client={client}
+                      addonService={addonService}
                       onConfirm={id => updateStatus.mutate({ bookingId: id, status: "confirmed" })}
                       onDecline={id => updateStatus.mutate({ bookingId: id, status: "declined" })}
                       onCancel={id => setCancellingId(id)}

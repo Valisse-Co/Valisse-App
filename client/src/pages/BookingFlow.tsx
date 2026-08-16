@@ -69,6 +69,15 @@ const STEPS = ["Service", "Smart Match", "Date", "Time", "Confirm"];
 type SMQuestion = { id: string; text: string; options: string[] };
 type SMOutcome = "match" | "recommend" | "addon" | "review" | "bundle";
 
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read inspiration photo."));
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function BookingFlow() {
   const [, params] = useRoute("/book/:techId");
   const techId = params?.techId ? Number(params.techId) : 0;
@@ -91,6 +100,9 @@ export default function BookingFlow() {
   const [smSkipped, setSmSkipped]           = useState(false);
   const [smMessage, setSmMessage]           = useState<string | null>(null);
   const [smAddonAccepted, setSmAddonAccepted] = useState<boolean | null>(null);
+  const [smAddonService, setSmAddonService] = useState<BookingService | null>(null);
+  const [smResolvedOutcome, setSmResolvedOutcome] = useState<SMOutcome | null>(null);
+  const bookingDuration = (selectedService?.duration ?? 60) + (smAddonAccepted && smAddonService ? smAddonService.duration : 0);
   const [calMonth, setCalMonth]           = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -110,6 +122,7 @@ export default function BookingFlow() {
     { enabled: techId > 0 && !!selectedService }
   );
   const smEvaluate = trpc.smartMatch.evaluate.useMutation();
+  const smUploadPhoto = trpc.smartMatch.uploadPhoto.useMutation();
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const techQuery = trpc.users.getProfile.useQuery(
@@ -141,7 +154,7 @@ export default function BookingFlow() {
     {
       techId,
       date: selectedDate ?? "",
-      duration: selectedService?.duration ?? 60,
+      duration: bookingDuration,
     },
     { enabled: !!selectedDate && !!selectedService && techId > 0, staleTime: 0 }
   );
@@ -152,8 +165,8 @@ export default function BookingFlow() {
     {
       techId,
       year: calMonth.year,
-      month: calMonth.month + 1, // convert 0-indexed to 1-indexed
-      duration: selectedService?.duration ?? 60,
+      month: calMonth.month + 1, // convert 0-indexed
+      duration: bookingDuration,
     },
     { enabled: techId > 0 && !!selectedService, staleTime: 60_000 }
   );
@@ -296,19 +309,42 @@ export default function BookingFlow() {
     return `${to12Hour(av.startTime)}\u2013${to12Hour(av.endTime)}`;
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     if (!isAuthenticated) { toast.error("Please sign in to book."); return; }
     if (!selectedDate || !selectedTime || !selectedService) return;
     const [y, mo, d] = selectedDate.split("-").map(Number);
     const [h, min]   = selectedTime.split(":").map(Number);
-    createBooking.mutate({
-      techId,
-      postId: postId ? Number(postId) : undefined,
-      serviceType: selectedService.label,
-      scheduledAt: new Date(y, mo - 1, d, h, min).getTime(),
-      duration: selectedService.duration,
-      notes: notes || undefined,
-    });
+    try {
+      const photoUrls = smSkipped || smPhotoFiles.length === 0
+        ? []
+        : await Promise.all(smPhotoFiles.map(async (file) => {
+            if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+              throw new Error("Please use JPG, PNG, or WebP inspiration photos.");
+            }
+            const base64 = await readFileAsBase64(file);
+            const uploaded = await smUploadPhoto.mutateAsync({ base64, mimeType: file.type as "image/jpeg" | "image/png" | "image/webp" });
+            return uploaded.url;
+          }));
+      const hasSmartMatch = !smSkipped && Object.keys(smAnswers).length > 0;
+      await createBooking.mutateAsync({
+        techId,
+        postId: postId ? Number(postId) : undefined,
+        serviceType: selectedService.label,
+        addonServiceId: smAddonAccepted && smAddonService && !Number.isNaN(Number(smAddonService.id)) ? Number(smAddonService.id) : undefined,
+        scheduledAt: new Date(y, mo - 1, d, h, min).getTime(),
+        duration: bookingDuration,
+        notes: notes || undefined,
+        smartMatch: hasSmartMatch ? {
+          serviceCategory: selectedService.label,
+          answers: smAnswers,
+          outcome: smResolvedOutcome ?? "match",
+          recommendedService: smResolvedOutcome === "match" ? null : smRecommended,
+          photoUrls,
+        } : undefined,
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create booking. Please try again.");
+    }
   }
 
   function canAdvance() {
@@ -332,6 +368,7 @@ export default function BookingFlow() {
           answers: smAnswers,
         });
         setSmOutcome(result.outcome as SMOutcome);
+        setSmResolvedOutcome(result.outcome as SMOutcome);
         setSmRecommended(result.recommendedService);
         setSmMessage((result as any).message ?? null);
         // If outcome is not "match", stay on step 1 to show outcome screen
@@ -494,6 +531,7 @@ export default function BookingFlow() {
             const smEnabled = smEnabledQuery.data;
             const cfg = smConfigQuery.data as any;
             const questions: SMQuestion[] = cfg?.questions ?? [];
+            const allowsPhotoUpload = Boolean(cfg?.supportsPhotoUpload) || questions.some((question: any) => question.allowsPhoto);
 
             // If Smart Match is disabled for this service, auto-skip to date step
             if (smEnabledQuery.isFetched && smEnabled === false) {
@@ -522,7 +560,11 @@ export default function BookingFlow() {
                     <Button className="w-full" onClick={() => {
                       // Switch to recommended service if available
                       const recSvc = techServices.find((s: BookingService) => s.label === smRecommended);
-                      if (recSvc) setSelectedService(recSvc);
+                      if (recSvc) {
+                        setSelectedService(recSvc);
+                        setSmSkipped(true);
+                        setSmResolvedOutcome(null);
+                      }
                       setSmOutcome(null);
                       setStep(2);
                     }}>Switch to {smRecommended}</Button>
@@ -550,8 +592,20 @@ export default function BookingFlow() {
                     <p className="text-xs text-muted-foreground mt-1">This will be noted on your booking for your tech to confirm pricing and timing.</p>
                   </Card>
                   <div className="flex flex-col gap-2">
-                    <Button className="w-full" onClick={() => { setSmAddonAccepted(true); setSmOutcome(null); setStep(2); }}>Yes, add {smRecommended}</Button>
-                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>No thanks, continue without it</Button>
+                    <Button className="w-full" onClick={() => {
+                      const addon = techServices.find((service: BookingService) => service.label === smRecommended);
+                      if (!addon) {
+                        setSmOutcome("review");
+                        setSmResolvedOutcome("review");
+                        setSmMessage(`${smRecommended} is not currently listed by this nail tech. Your tech will review your request before confirming.`);
+                        return;
+                      }
+                      setSmAddonService(addon);
+                      setSmAddonAccepted(true);
+                      setSmOutcome(null);
+                      setStep(2);
+                    }}>Yes, add {smRecommended}</Button>
+                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonService(null); setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>No thanks, continue without it</Button>
                   </div>
                 </div>
               );
@@ -636,17 +690,23 @@ export default function BookingFlow() {
                     <h1 className="text-xl font-serif font-semibold text-foreground">Smart Service Match</h1>
                   </div>
                   <p className="text-sm text-muted-foreground">Answer a few quick questions so we can make sure you're booked for the right service.</p>
+                  <div className="mt-4 flex items-center gap-3">
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${questions.length ? (Object.keys(smAnswers).length / questions.length) * 100 : 0}%` }} />
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{Object.keys(smAnswers).length} of {questions.length}</span>
+                  </div>
                 </div>
 
                 {questions.map((q: SMQuestion) => (
                   <div key={q.id} className="space-y-2">
                     <p className="text-sm font-medium text-foreground">{q.text}</p>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid gap-2">
                       {q.options.map((opt: string) => (
                         <button
                           key={opt}
                           onClick={() => setSmAnswers(prev => ({ ...prev, [q.id]: opt }))}
-                          className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
+                          className={`min-h-11 px-4 py-2.5 rounded-xl text-sm border text-left transition-all ${
                             smAnswers[q.id] === opt
                               ? "border-primary bg-primary/10 text-primary font-medium"
                               : "border-border text-muted-foreground hover:border-primary/40"
@@ -658,7 +718,7 @@ export default function BookingFlow() {
                 ))}
 
                 {/* Photo upload */}
-                <div className="space-y-2">
+                {allowsPhotoUpload && <div className="space-y-2">
                   <p className="text-sm font-medium text-foreground">Inspiration photos <span className="text-muted-foreground font-normal">(optional)</span></p>
                   <div className="flex flex-wrap gap-2">
                     {smPhotoPreviews.map((src, i) => (
@@ -697,7 +757,15 @@ export default function BookingFlow() {
                       </label>
                     )}
                   </div>
-                </div>
+                </div>}
+
+                <button
+                  type="button"
+                  onClick={() => { setSmOutcome(null); setSmAnswers({}); setStep(0); }}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+                >
+                  ← Choose a different service
+                </button>
 
                 <button
                   onClick={() => { setSmSkipped(true); setStep(2); }}
@@ -1011,6 +1079,18 @@ export default function BookingFlow() {
                   </div>
                   <Badge variant="secondary" className="ml-auto text-xs">{selectedService?.duration} min</Badge>
                 </div>
+                {smAddonAccepted && smAddonService && (
+                  <div className="flex items-center gap-3 pl-5">
+                    <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="text-primary text-sm leading-none">+</span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Smart Match add-on</p>
+                      <p className="text-sm font-medium text-foreground">{smAddonService.label}</p>
+                    </div>
+                    <Badge variant="secondary" className="ml-auto text-xs">{smAddonService.duration} min</Badge>
+                  </div>
+                )}
                 <div className="h-px bg-border" />
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">

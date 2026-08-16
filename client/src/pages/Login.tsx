@@ -38,7 +38,9 @@ export default function Login() {
   useEffect(() => {
     if (!loading && isAuthenticated && user) {
       if (!user.onboardingCompleted) {
-        navigate("/onboarding");
+        if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
+          navigate("/onboarding");
+        }
       } else {
         const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
         navigate(effectiveMode === "nail_tech" ? "/dashboard" : "/discover");
@@ -50,7 +52,11 @@ export default function Login() {
     onSuccess: async (data) => {
       await utils.auth.me.invalidate();
       if (!data.onboardingCompleted) {
-        navigate("/onboarding");
+        if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
+          navigate("/onboarding");
+        } else {
+          setFormError("This account setup was not completed. Please start from Sign Up to continue securely.");
+        }
       } else {
         const effectiveMode = data.hasDualRole ? data.activeMode : data.userType;
         navigate(effectiveMode === "nail_tech" ? "/dashboard" : "/discover");

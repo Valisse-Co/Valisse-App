@@ -40,6 +40,7 @@ type UserType = "client" | "nail_tech";
 export default function Onboarding() {
   const { user, loading, isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
+  const hasOnboardingIntent = sessionStorage.getItem("valisse_onboarding_intent") === "new_account";
   const [step, setStep] = useState(0);
   const [userType, setUserType] = useState<UserType | null>(null);
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
@@ -72,13 +73,17 @@ export default function Onboarding() {
       navigate("/login");
       return;
     }
+    if (!user.onboardingCompleted && !hasOnboardingIntent) {
+      navigate("/login");
+      return;
+    }
     if (user.onboardingCompleted) {
       const mode = user.hasDualRole ? user.activeMode : user.userType;
       navigate(mode === "nail_tech" ? "/dashboard" : "/discover");
     }
-  }, [isAuthenticated, loading, navigate, user]);
+  }, [hasOnboardingIntent, isAuthenticated, loading, navigate, user]);
 
-  if (loading || !isAuthenticated || !user || user.onboardingCompleted) {
+  if (loading || !isAuthenticated || !user || user.onboardingCompleted || !hasOnboardingIntent) {
     return (
       <div className="min-h-screen bg-[#F7F4EE] flex items-center justify-center">
         <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -191,6 +196,7 @@ export default function Onboarding() {
   }, [userType, selectedStyles, selectedColors, location, geoLat, geoLng, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
 
   const handleConsentComplete = () => {
+    sessionStorage.removeItem("valisse_onboarding_intent");
     if (userType === "nail_tech") navigate("/dashboard");
     else navigate("/discover");
   };
