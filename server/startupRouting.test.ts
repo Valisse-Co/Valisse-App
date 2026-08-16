@@ -10,6 +10,11 @@ describe("startup and onboarding routing contracts", () => {
     expect(appSource).toContain('<Route path="/" component={Login} />');
   });
 
+  it("does not render the retired floating demo switcher", () => {
+    const appSource = readFileSync(resolve(projectRoot, "client/src/App.tsx"), "utf8");
+    expect(appSource).not.toContain("DemoBar");
+  });
+
   it("requires an explicit new-account intent before an incomplete account can enter onboarding", () => {
     const loginSource = readFileSync(resolve(projectRoot, "client/src/pages/Login.tsx"), "utf8");
     const onboardingSource = readFileSync(resolve(projectRoot, "client/src/pages/Onboarding.tsx"), "utf8");

@@ -31,7 +31,6 @@ import SettingsSubscription from "./pages/SettingsSubscription";
 import SettingsAppearance from "./pages/SettingsAppearance";
 import SettingsSupport from "./pages/SettingsSupport";
 import { useAuth } from "./_core/hooks/useAuth";
-import { DemoBar } from "./components/DemoBar";
 import Notifications from "./pages/Notifications";
 import AdminReports from "./pages/AdminReports";
 import TermsOfService from "./pages/TermsOfService";
@@ -242,7 +241,6 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <Router />
-            <DemoBar />
           </TooltipProvider>
         </ThemeProvider>
       </NextThemesProvider>

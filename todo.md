@@ -497,3 +497,9 @@
 - [x] Detect duplicate accounts by email and route them to Login with the email prefilled
 - [x] Add disabled Continue with Apple button marked Coming soon to Login and Sign Up
 - [x] Add and run focused tests for signup password policy and startup routing; verification tests are deferred with email delivery
+
+## Remove Demo Switcher UI
+- [x] Audit all DemoBar imports, renders, and demo-only client UI references
+- [x] Remove the floating Client/Nail Tech DemoBar from the application shell
+- [x] Remove unused DemoBar client component and confirm no visible demo-switcher controls remain
+- [x] Add regression coverage and validate the normal application startup experience
