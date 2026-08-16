@@ -161,7 +161,8 @@ const authRouter = router({
       name: z.string().min(1).max(100),
       email: z.string().email(),
       password: z.string().min(8).max(128),
-      userType: z.enum(["client", "nail_tech"]),
+      // Role is intentionally selected in onboarding after account creation.
+      userType: z.enum(["client", "nail_tech"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const existing = await getUserByEmail(input.email.toLowerCase());
@@ -179,14 +180,14 @@ const authRouter = router({
         name: input.name,
         email: input.email.toLowerCase(),
         passwordHash: hash,
-        userType: input.userType,
+        userType: input.userType ?? "client",
       });
       if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create account" });
       // Issue session cookie
       const sessionToken = await sdk.createSessionToken(openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return { success: true, userType: input.userType };
+      return { success: true };
     }),
 
   // ── Email + Password Login ──────────────────────────────────────────────────

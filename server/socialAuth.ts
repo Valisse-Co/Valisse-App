@@ -32,16 +32,25 @@ function appleEnabled(): boolean {
   );
 }
 
-/** Issue a Valisse session cookie and redirect to the app. */
+/** Issue a Valisse session cookie and redirect through the appropriate app flow. */
 async function issueSession(
   req: Request,
   res: Response,
   opts: { openId: string; name: string | null; email: string | null; provider: string }
 ) {
+  const existingByOpenId = await db.getUserByOpenId(opts.openId);
+  if (opts.email) {
+    const existingByEmail = await db.getUserByEmail(opts.email.toLowerCase());
+    if (existingByEmail && existingByEmail.openId !== opts.openId) {
+      res.redirect(302, `/login?error=email_exists&email=${encodeURIComponent(opts.email)}`);
+      return;
+    }
+  }
+
   await db.upsertUser({
     openId: opts.openId,
     name: opts.name ?? null,
-    email: opts.email ?? null,
+    email: opts.email?.toLowerCase() ?? null,
     loginMethod: opts.provider,
     lastSignedIn: new Date(),
   });
@@ -53,7 +62,14 @@ async function issueSession(
 
   const cookieOptions = getSessionCookieOptions(req);
   res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-  res.redirect(302, "/");
+  const user = await db.getUserByOpenId(opts.openId);
+  if (user?.onboardingCompleted) {
+    const mode = user.hasDualRole ? user.activeMode : user.userType;
+    res.redirect(302, mode === "nail_tech" ? "/dashboard" : "/discover");
+    return;
+  }
+  const source = existingByOpenId ? "signup" : "login";
+  res.redirect(302, `/signup/google-confirm?email=${encodeURIComponent(opts.email ?? "")}&source=${source}`);
 }
 
 // ─── Google ──────────────────────────────────────────────────────────────────

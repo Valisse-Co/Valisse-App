@@ -38,7 +38,7 @@ const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => (i + 1) * 5);
 type UserType = "client" | "nail_tech";
 
 export default function Onboarding() {
-  const { user } = useAuth();
+  const { user, loading, isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [step, setStep] = useState(0);
   const [userType, setUserType] = useState<UserType | null>(null);
@@ -65,6 +65,26 @@ export default function Onboarding() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   // After profile is saved, show the consent step
   const [profileSaved, setProfileSaved] = useState(false);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthenticated || !user) {
+      navigate("/login");
+      return;
+    }
+    if (user.onboardingCompleted) {
+      const mode = user.hasDualRole ? user.activeMode : user.userType;
+      navigate(mode === "nail_tech" ? "/dashboard" : "/discover");
+    }
+  }, [isAuthenticated, loading, navigate, user]);
+
+  if (loading || !isAuthenticated || !user || user.onboardingCompleted) {
+    return (
+      <div className="min-h-screen bg-[#F7F4EE] flex items-center justify-center">
+        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   const detectLocation = () => {
     if (!navigator.geolocation) return;

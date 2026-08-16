@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
@@ -112,6 +113,25 @@ describe("auth.logout", () => {
     const user = await caller.auth.me();
     expect(user).toBeDefined();
     expect(user?.name).toBe("Jane Client");
+  });
+});
+
+describe("authentication entry flow", () => {
+  it("rejects registration passwords shorter than eight characters before account creation", async () => {
+    const { ctx } = createClientContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(caller.auth.register({
+      name: "New User",
+      email: "new.user@example.com",
+      password: "short",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("uses Login as the root route and keeps onboarding out of public paths", () => {
+    const appSource = readFileSync(`${process.cwd()}/client/src/App.tsx`, "utf8");
+    expect(appSource).toContain('<Route path="/" component={Login} />');
+    expect(appSource).not.toContain('"/onboarding", "/404"');
   });
 });
 

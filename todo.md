@@ -484,3 +484,16 @@
 - [ ] Settings Smart Match: per-service rule editor (add/edit/delete rules: if [answers] → outcome + target)
 - [ ] Settings Smart Match: global Smart Match on/off toggle at top of section
 - [ ] Remove Smart Match tab from TechDashboard entirely
+
+## Authentication Flow Rebuild — Distinct Login, Sign Up, Verification, and Onboarding
+- [x] Audit root-route, Splash, Login, SignUp, OAuth callback, and session guards for unintended onboarding redirects
+- [x] Make Login the only unauthenticated startup destination, with a clear Sign Up link
+- [x] Build a distinct Sign Up screen that collects email, password, confirmation, and only then begins onboarding
+- [x] Enforce an eight-character minimum password, password confirmation, password-strength guidance, and show/hide password controls
+- [ ] Deferred: add email-verification records, secure verification tokens, expiration, verified-email enforcement, and a verification screen after a verified Resend sender is configured
+- [x] Add a post-Google confirmation screen showing the authenticated email before a new user enters onboarding
+- [x] Route email signup and confirmed Google signup to role-selection onboarding (email verification deferred)
+- [x] Preserve returning-user routing: nail techs land on Dashboard and clients land on Discover
+- [x] Detect duplicate accounts by email and route them to Login with the email prefilled
+- [x] Add disabled Continue with Apple button marked Coming soon to Login and Sign Up
+- [x] Add and run focused tests for signup password policy and startup routing; verification tests are deferred with email delivery

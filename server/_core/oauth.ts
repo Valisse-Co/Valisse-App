@@ -9,6 +9,15 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function getCookie(req: Request, key: string): string | undefined {
+  const raw = req.headers.cookie ?? "";
+  return raw
+    .split(";")
+    .map(part => part.trim())
+    .find(part => part.startsWith(`${key}=`))
+    ?.slice(key.length + 1);
+}
+
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
@@ -28,15 +37,17 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
+      const oauthIntent = getCookie(req, "valisse_oauth_intent") === "signup" ? "signup" : "login";
+      const existingByOpenId = await db.getUserByOpenId(userInfo.openId);
+
       // ── Duplicate-email guard ──────────────────────────────────────────────
-      // If this email is already registered with an email+password account
-      // (different openId), block the Google sign-in and redirect to login.
+      // A Valisse email belongs to exactly one identity. Never let a different
+      // external identity overwrite or duplicate an existing account.
       if (userInfo.email) {
         const existingByEmail = await db.getUserByEmail(userInfo.email.toLowerCase());
         if (
           existingByEmail &&
-          existingByEmail.openId !== userInfo.openId &&
-          existingByEmail.loginMethod === "email"
+          existingByEmail.openId !== userInfo.openId
         ) {
           res.redirect(
             302,
@@ -64,9 +75,9 @@ export function registerOAuthRoutes(app: Express) {
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.clearCookie("valisse_oauth_intent", { ...cookieOptions, maxAge: -1 });
 
       // Route returning (already-onboarded) users directly to their home screen.
-      // New users go to onboarding to choose their role and complete their profile.
       if (user && user.onboardingCompleted) {
         const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
         if (effectiveMode === "nail_tech") {
@@ -75,7 +86,11 @@ export function registerOAuthRoutes(app: Express) {
           res.redirect(302, "/discover");
         }
       } else {
-        res.redirect(302, "/onboarding");
+        // New and incomplete social accounts explicitly confirm the selected
+        // Google identity before role-selection onboarding begins.
+        const email = user?.email ?? userInfo.email ?? "";
+        const source = existingByOpenId || oauthIntent === "signup" ? "signup" : "login";
+        res.redirect(302, `/signup/google-confirm?email=${encodeURIComponent(email)}&source=${source}`);
       }
     } catch (error) {
       console.error("[OAuth] Callback failed", error);

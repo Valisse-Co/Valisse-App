@@ -5,7 +5,6 @@ import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
-import Splash from "./pages/Splash";
 import Onboarding from "./pages/Onboarding";
 import Discover from "./pages/Discover";
 import PostDetail from "./pages/PostDetail";
@@ -22,6 +21,7 @@ import Subscription from "./pages/Subscription";
 import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
+import GoogleSignUpConfirm from "./pages/GoogleSignUpConfirm";
 import Settings from "./pages/Settings";
 import SettingsProfile from "./pages/SettingsProfile";
 import SettingsNotifications from "./pages/SettingsNotifications";
@@ -40,7 +40,7 @@ import ConsentStep from "./pages/ConsentStep";
 import { trpc } from "./lib/trpc";
 
 // Routes that are always accessible — even during re-consent flow
-const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/onboarding", "/404"];
+const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/404"];
 
 // ── Reactivation Gate ────────────────────────────────────────────────────────
 // If a signed-in user's account is deactivated, show a full-screen reactivation
@@ -146,8 +146,9 @@ function Router() {
     <ReactivationGate>
     <ConsentGate>
       <Switch>
-        <Route path="/" component={Splash} />
+        <Route path="/" component={Login} />
         <Route path="/onboarding" component={Onboarding} />
+        <Route path="/signup/google-confirm" component={GoogleSignUpConfirm} />
         {/* Legal pages — always public, no auth or consent required */}
         <Route path="/terms" component={TermsOfService} />
         <Route path="/privacy" component={PrivacyPolicy} />

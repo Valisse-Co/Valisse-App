@@ -4,7 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Loader2, Mail, Lock } from "lucide-react";
+import { Apple, Eye, EyeOff, Loader2, Mail, Lock } from "lucide-react";
 
 function GoogleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -115,14 +115,24 @@ export default function Login() {
         )}
 
         <button
-          onClick={() => { window.location.href = getLoginUrl(); }}
+          onClick={() => { window.location.href = getLoginUrl("login"); }}
           className="w-full flex items-center justify-center gap-3 h-13 rounded-2xl border border-border bg-white text-foreground text-sm font-medium shadow-sm hover:bg-gray-50 transition-colors mb-4"
         >
           <GoogleIcon size={18} />
           Continue with Google
         </button>
 
-        <div className="flex items-center gap-3 mb-4">
+        <button
+          disabled
+          aria-disabled="true"
+          className="w-full flex items-center justify-center gap-3 h-13 rounded-2xl border border-border bg-muted/40 text-muted-foreground text-sm font-medium mt-3 cursor-not-allowed"
+        >
+          <Apple size={18} />
+          Continue with Apple
+          <span className="text-[10px] rounded-full bg-muted px-2 py-0.5 uppercase tracking-wide">Coming soon</span>
+        </button>
+
+        <div className="flex items-center gap-3 my-4">
           <div className="flex-1 h-px bg-border" />
           <span className="text-xs text-muted-foreground">or sign in with email</span>
           <div className="flex-1 h-px bg-border" />

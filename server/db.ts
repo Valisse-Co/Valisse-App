@@ -115,7 +115,7 @@ export async function createEmailUser(data: {
   name: string;
   email: string;
   passwordHash: string;
-  userType: "client" | "nail_tech";
+  userType?: "client" | "nail_tech";
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -125,7 +125,7 @@ export async function createEmailUser(data: {
     email: data.email,
     passwordHash: data.passwordHash,
     loginMethod: "email",
-    userType: data.userType,
+    userType: data.userType ?? "client",
     lastSignedIn: new Date(),
   });
   const created = await getUserByEmail(data.email);
