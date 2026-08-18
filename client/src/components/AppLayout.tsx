@@ -8,9 +8,7 @@ import {
   LayoutDashboard,
   PlusSquare,
   Settings,
-  Bell,
-  Flag,
-  Zap,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode, useEffect, useRef } from "react";
@@ -35,20 +33,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     hasDual
       ? ((user as any)?.activeMode ?? (isTech ? "nail_tech" : "client"))
       : (isTech ? "nail_tech" : "client");
-
-  // Fetch unread notification count (poll every 30s)
-  const { data: unreadData, refetch: refetchUnread } = trpc.notifications.unreadCount.useQuery(
-    undefined,
-    { enabled: isAuthenticated, refetchInterval: 30_000 }
-  );
-  const unreadCount = unreadData?.count ?? 0;
-
-  // Fetch unread last-minute slot notification count (poll every 30s)
-  const { data: unreadSlotData } = trpc.notifications.unreadSlotCount.useQuery(
-    undefined,
-    { enabled: isAuthenticated, refetchInterval: 30_000 }
-  );
-  const unreadSlotCount = unreadSlotData?.count ?? 0;
 
   // Fetch notifications list to detect new_post toasts
   const { data: notifList, refetch: refetchList } = trpc.notifications.list.useQuery(
@@ -94,14 +78,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     { label: "Messages", icon: <MessageCircle size={22} />, href: "/messages" },
     { label: "Bookings", icon: <Calendar size={22} />, href: "/bookings" },
     { label: "Saved", icon: <Bookmark size={22} />, href: "/saved" },
-    {
-      label: "Alerts",
-      icon: unreadSlotCount > 0
-        ? <Zap size={22} className="text-primary" fill="currentColor" />
-        : <Bell size={22} />,
-      href: "/notifications",
-      badge: unreadCount > 0 ? unreadCount : undefined,
-    },
+    { label: "Profile", icon: <UserRound size={22} />, href: "/profile" },
   ];
 
   const techNav: NavItem[] = [
@@ -112,12 +89,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     { label: "Settings", icon: <Settings size={22} />, href: "/settings" },
   ];
 
-  // Admin nav entry — appended to whichever nav is active
-  const adminEntry: NavItem = { label: "Reports", icon: <Flag size={22} />, href: "/admin/reports" };
-  const navItems = [
-    ...(activeMode === "nail_tech" ? techNav : clientNav),
-    ...(user?.role === "admin" ? [adminEntry] : []),
-  ];
+  const navItems = activeMode === "nail_tech" ? techNav : clientNav;
 
   return (
     <div className="mobile-container bg-background">

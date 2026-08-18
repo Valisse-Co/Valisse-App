@@ -24,6 +24,7 @@ import {
   CreditCard,
   Moon,
   FileText,
+  ShieldAlert,
 } from "lucide-react";
 
 type SettingsSection = {
@@ -152,6 +153,7 @@ export default function Settings() {
   }
 
   const isTech = user.userType === "nail_tech";
+  const isAdmin = user.role === "admin";
   const hasDual = (user as any).hasDualRole || isTech;
   const activeMode = (user as any).activeMode ?? (isTech ? "nail_tech" : "client");
   const visibleSections = SETTINGS_SECTIONS.filter((s) => !s.techOnly || isTech);
@@ -221,6 +223,24 @@ export default function Settings() {
           </div>
         ))}
       </div>
+
+      {isAdmin && (
+        <section className="mx-4 mt-4 rounded-2xl border border-amber-200 bg-amber-50/50 dark:bg-amber-950/10 dark:border-amber-900/50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-amber-200/80 dark:border-amber-900/50">
+            <p className="text-xs uppercase tracking-[0.14em] font-semibold text-amber-700 dark:text-amber-300">Administrator</p>
+          </div>
+          <button onClick={() => navigate("/admin/reports")} className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-amber-100/50 dark:hover:bg-amber-950/20 transition-colors text-left">
+            <div className="w-9 h-9 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
+              <ShieldAlert size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">Content moderation</p>
+              <p className="text-xs text-muted-foreground truncate">Review and resolve reported posts</p>
+            </div>
+            <ChevronRight size={16} className="text-muted-foreground flex-shrink-0" />
+          </button>
+        </section>
+      )}
 
       {/* Legal & Support */}
       <div className="mx-4 mt-4 rounded-2xl bg-card border border-border overflow-hidden">

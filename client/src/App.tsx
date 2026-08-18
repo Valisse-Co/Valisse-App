@@ -30,6 +30,7 @@ import SettingsAccount from "./pages/SettingsAccount";
 import SettingsSubscription from "./pages/SettingsSubscription";
 import SettingsAppearance from "./pages/SettingsAppearance";
 import SettingsSupport from "./pages/SettingsSupport";
+import ClientProfile from "./pages/ClientProfile";
 import { useAuth } from "./_core/hooks/useAuth";
 import Notifications from "./pages/Notifications";
 import AdminReports from "./pages/AdminReports";
@@ -163,6 +164,9 @@ function Router() {
         </Route>
         <Route path="/saved">
           <AppLayout><Saved /></AppLayout>
+        </Route>
+        <Route path="/profile">
+          <AppLayout><ClientProfile /></AppLayout>
         </Route>
         <Route path="/bookings">
           <AppLayout><Bookings /></AppLayout>

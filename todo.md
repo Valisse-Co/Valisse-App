@@ -510,3 +510,11 @@
 - [x] Require and validate the same shared fields before nail-tech-specific onboarding details
 - [x] Preserve email as a required identity field and make SMS marketing consent explicitly optional
 - [x] Add focused tests for shared required-field validation and complete the onboarding regression pass
+
+## Client Profile Navigation and Private Moderation
+- [x] Audit current client nav, profile/settings routes, report notifications, and admin report access
+- [x] Replace client Alerts and Reports navigation entries with a Profile entry
+- [x] Build a client Profile landing view with avatar editing and clear access to Settings
+- [x] Keep reported-post notices private to the post owner and admin moderators; remove any public client reporting navigation
+- [x] Verify or create a protected admin report-management route and document the authorized access path
+- [x] Add regression tests for client nav visibility and report/admin access controls

@@ -88,6 +88,7 @@ import {
   submitReport,
   hasUserReportedPost,
   getReportsForAdmin,
+  getAdminUserIds,
   dismissReport,
   hidePostByAdmin,
   deletePostByAdmin,
@@ -1182,6 +1183,20 @@ const reportsRouter = router({
           body: `A user reported your post for: ${input.reason.replace(/_/g, " ")}.`,
           relatedId: input.postId,
         });
+        const adminIds = await getAdminUserIds();
+        await Promise.all(
+          adminIds
+            .filter((adminId) => adminId !== post.techId)
+            .map((adminId) =>
+              createNotification({
+                userId: adminId,
+                type: "system",
+                title: "New post report",
+                body: `A post was reported for: ${input.reason.replace(/_/g, " ")}.`,
+                relatedId: input.postId,
+              })
+            )
+        );
         // Notify the platform owner/admin
         const { notifyOwner } = await import("./_core/notification");
         await notifyOwner({

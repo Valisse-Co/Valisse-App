@@ -103,6 +103,16 @@ export async function getUserById(id: number) {
   return result[0];
 }
 
+export async function getAdminUserIds(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, "admin"));
+  return rows.map((row) => row.id);
+}
+
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
