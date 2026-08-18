@@ -267,21 +267,28 @@ const usersRouter = router({
     .input(
       z.object({
         userType: z.enum(["client", "nail_tech"]),
+        name: z.string().trim().min(2, "Please enter your full name."),
+        phone: z.string().trim().refine(
+          (value) => value.replace(/\D/g, "").length >= 10,
+          "Please enter a valid mobile number."
+        ),
+        location: z.string().trim().min(2, "Please enter your location."),
         // client fields
         stylePreferences: z.array(z.string()).optional(),
         colorPreferences: z.array(z.string()).optional(),
-        location: z.string().optional(),
         // tech fields
         businessName: z.string().optional(),
         bio: z.string().optional(),
         services: z.array(z.string()).optional(),
         priceRange: z.string().optional(),
-        phone: z.string().optional(),
         lat: z.number().optional(),
         lng: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      if (!ctx.user.email) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required before completing onboarding." });
+      }
       await updateUserProfile(ctx.user.id, { ...input, onboardingCompleted: true } as any);
       if (input.userType === "nail_tech") {
         await getOrCreateSubscription(ctx.user.id);

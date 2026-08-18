@@ -503,3 +503,10 @@
 - [x] Remove the floating Client/Nail Tech DemoBar from the application shell
 - [x] Remove unused DemoBar client component and confirm no visible demo-switcher controls remain
 - [x] Add regression coverage and validate the normal application startup experience
+
+## Required Contact Details for Every Account
+- [x] Audit email signup, Google signup confirmation, onboarding profile fields, and consent persistence
+- [x] Require and validate full name, mobile number, and location for client onboarding
+- [x] Require and validate the same shared fields before nail-tech-specific onboarding details
+- [x] Preserve email as a required identity field and make SMS marketing consent explicitly optional
+- [x] Add focused tests for shared required-field validation and complete the onboarding regression pass

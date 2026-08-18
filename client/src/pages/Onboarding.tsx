@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Sparkles, Scissors, LocateFixed, MapPin, CheckCircle2 } from "lucide-react";
+import { ChevronRight, Sparkles, Scissors, LocateFixed, MapPin, CheckCircle2, Phone, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConsentStep from "./ConsentStep";
 
@@ -43,6 +43,7 @@ export default function Onboarding() {
   const hasOnboardingIntent = sessionStorage.getItem("valisse_onboarding_intent") === "new_account";
   const [step, setStep] = useState(0);
   const [userType, setUserType] = useState<UserType | null>(null);
+  const [fullName, setFullName] = useState("");
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [location, setLocation] = useState("");
@@ -82,6 +83,10 @@ export default function Onboarding() {
       navigate(mode === "nail_tech" ? "/dashboard" : "/discover");
     }
   }, [hasOnboardingIntent, isAuthenticated, loading, navigate, user]);
+
+  useEffect(() => {
+    if (user?.name) setFullName(user.name);
+  }, [user?.name]);
 
   if (loading || !isAuthenticated || !user || user.onboardingCompleted || !hasOnboardingIntent) {
     return (
@@ -163,19 +168,23 @@ export default function Onboarding() {
 
   const handleFinish = useCallback(async () => {
     if (!userType) return;
+    if (!fullName.trim()) return toast.error("Please enter your full name.");
+    if (phone.replace(/\D/g, "").length < 10) return toast.error("Please enter a valid mobile number.");
+    if (!location.trim()) return toast.error("Please enter your location.");
     // First complete onboarding profile
     await completeOnboarding.mutateAsync({
       userType,
+      name: fullName.trim(),
       stylePreferences: selectedStyles,
       colorPreferences: selectedColors,
-      location: location || undefined,
+      location: location.trim(),
       lat: geoLat,
       lng: geoLng,
       businessName: businessName || undefined,
       bio: bio || undefined,
       services: selectedServices,
       priceRange: priceRange || undefined,
-      phone: phone || undefined,
+      phone: phone.trim(),
     });
     // Then upsert each selected service with its price/duration
     if (userType === "nail_tech" && selectedServices.length > 0) {
@@ -193,7 +202,18 @@ export default function Onboarding() {
         })
       );
     }
-  }, [userType, selectedStyles, selectedColors, location, geoLat, geoLng, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
+  }, [userType, fullName, selectedStyles, selectedColors, location, geoLat, geoLng, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
+
+  const continueSharedContact = () => {
+    if (!fullName.trim()) return toast.error("Please enter your full name.");
+    if (phone.replace(/\D/g, "").length < 10) return toast.error("Please enter a valid mobile number.");
+    setStep(2);
+  };
+
+  const continueTechInfo = () => {
+    if (!addressConfirmed || !location.trim()) return toast.error("Please select and verify your studio address.");
+    setStep(3);
+  };
 
   const handleConsentComplete = () => {
     sessionStorage.removeItem("valisse_onboarding_intent");
@@ -202,8 +222,8 @@ export default function Onboarding() {
   };
 
   const steps = userType === "nail_tech"
-    ? ["role", "tech-info", "services", "done"]
-    : ["role", "preferences", "location", "done"];
+    ? ["role", "contact", "tech-info", "services", "done"]
+    : ["role", "contact", "preferences", "location", "done"];
 
   const currentStep = steps[step];
 
@@ -289,6 +309,36 @@ export default function Onboarding() {
             </motion.div>
           )}
 
+          {/* Shared contact details — required for all account types */}
+          {currentStep === "contact" && (
+            <motion.div
+              key="contact"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="flex flex-col gap-6 flex-1"
+            >
+              <div>
+                <h2 className="text-2xl font-display font-light mb-1">Your contact details</h2>
+                <p className="text-muted-foreground text-sm">We use these details to keep your account and bookings connected.</p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="relative">
+                  <UserRound size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Full name" value={fullName} onChange={e => setFullName(e.target.value)} className="rounded-xl h-12 pl-9" autoComplete="name" />
+                </div>
+                <div className="relative">
+                  <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Mobile number" value={phone} onChange={e => setPhone(e.target.value)} className="rounded-xl h-12 pl-9" type="tel" inputMode="tel" autoComplete="tel" />
+                </div>
+                <p className="text-xs text-muted-foreground">Your email is connected to your sign-in method. You can choose optional SMS notifications before finishing setup.</p>
+              </div>
+              <button onClick={continueSharedContact} className="btn-valisse mt-auto py-4 w-full">
+                Continue <ChevronRight size={16} className="inline ml-1" />
+              </button>
+            </motion.div>
+          )}
+
           {/* Client: Preferences */}
           {currentStep === "preferences" && (
             <motion.div
@@ -335,7 +385,7 @@ export default function Onboarding() {
                 </div>
               </div>
 
-              <button onClick={() => setStep(2)} className="btn-valisse mt-auto py-4 w-full">
+              <button onClick={() => setStep(3)} className="btn-valisse mt-auto py-4 w-full">
                 Continue <ChevronRight size={16} className="inline ml-1" />
               </button>
             </motion.div>
@@ -369,7 +419,7 @@ export default function Onboarding() {
                 <LocateFixed size={14} className={locating ? "animate-pulse" : ""} />
                 {locating ? "Detecting location…" : geoLat ? "Location detected ✓" : "Detect my location"}
               </button>
-              <button onClick={handleFinish} disabled={completeOnboarding.isPending} className="btn-valisse py-4 w-full mt-auto">
+              <button onClick={handleFinish} disabled={completeOnboarding.isPending || !location.trim()} className="btn-valisse py-4 w-full mt-auto">
                 {completeOnboarding.isPending ? "Setting up..." : "Continue"}
               </button>
             </motion.div>
@@ -431,7 +481,6 @@ export default function Onboarding() {
                   )}
                 </div>
 
-                <Input placeholder="Phone number (for bookings)" value={phone} onChange={e => setPhone(e.target.value)} className="rounded-xl h-12" />
                 <Textarea
                   placeholder="Tell clients about your style and experience..."
                   value={bio}
@@ -440,7 +489,7 @@ export default function Onboarding() {
                   rows={4}
                 />
               </div>
-              <button onClick={() => setStep(2)} className="btn-valisse py-4 w-full">
+              <button onClick={continueTechInfo} className="btn-valisse py-4 w-full">
                 Continue <ChevronRight size={16} className="inline ml-1" />
               </button>
             </motion.div>
