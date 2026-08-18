@@ -2,7 +2,10 @@ import { and, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql } from "drizzle-
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
+  bookingMatchAssessments,
   bookingRules,
+  bookingRevisions,
+  bookingServiceLines,
   bookings,
   collections,
   conversations,
@@ -1506,6 +1509,146 @@ export async function createBookingWithConflictCheck(data: InsertBooking): Promi
   return (result as any).insertId as number;
 }
 
+export type BookingServiceLineInput = {
+  techServiceId: number | null;
+  serviceName: string;
+  lineType: "primary" | "addon" | "upgrade";
+  priceInCents: number;
+  durationMinutes: number;
+  position: number;
+};
+
+export async function replaceBookingServiceLines(bookingId: number, lines: BookingServiceLineInput[]): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.delete(bookingServiceLines).where(eq(bookingServiceLines.bookingId, bookingId));
+  if (!lines.length) return;
+  await db.insert(bookingServiceLines).values(
+    lines.map((line) => ({ bookingId, ...line }))
+  );
+}
+
+export async function getBookingServiceLines(bookingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(bookingServiceLines)
+    .where(eq(bookingServiceLines.bookingId, bookingId))
+    .orderBy(bookingServiceLines.position);
+}
+
+export async function createBookingRevision(params: {
+  bookingId: number;
+  techId: number;
+  serviceLines: BookingServiceLineInput[];
+  techNote?: string;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const totalPriceInCents = params.serviceLines.reduce((sum, line) => sum + line.priceInCents, 0);
+  const totalDurationMinutes = params.serviceLines.reduce((sum, line) => sum + line.durationMinutes, 0);
+  const [result] = await db.insert(bookingRevisions).values({
+    bookingId: params.bookingId,
+    techId: params.techId,
+    serviceLines: params.serviceLines,
+    totalPriceInCents,
+    totalDurationMinutes,
+    techNote: params.techNote ?? null,
+  });
+  await db.update(bookings).set({ revisionStatus: "pending", needsReview: false }).where(eq(bookings.id, params.bookingId));
+  return (result as any).insertId as number;
+}
+
+export async function getLatestBookingRevision(bookingId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(bookingRevisions)
+    .where(eq(bookingRevisions.bookingId, bookingId))
+    .orderBy(desc(bookingRevisions.createdAt))
+    .limit(1);
+  return rows[0];
+}
+
+export async function resolveBookingRevision(params: {
+  bookingId: number;
+  revisionId: number;
+  clientId: number;
+  accepted: boolean;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [revision] = await db
+    .select()
+    .from(bookingRevisions)
+    .where(and(eq(bookingRevisions.id, params.revisionId), eq(bookingRevisions.bookingId, params.bookingId)))
+    .limit(1);
+  const [booking] = await db
+    .select({ clientId: bookings.clientId })
+    .from(bookings)
+    .where(eq(bookings.id, params.bookingId))
+    .limit(1);
+  if (!revision || !booking || booking.clientId !== params.clientId || revision.status !== "pending") {
+    throw new Error("This revised quote is no longer available.");
+  }
+  if (!params.accepted) {
+    await db.update(bookingRevisions).set({ status: "declined", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
+    await db.update(bookings).set({ revisionStatus: "declined", status: "declined" }).where(eq(bookings.id, params.bookingId));
+    return;
+  }
+  const lines = revision.serviceLines as BookingServiceLineInput[];
+  await replaceBookingServiceLines(params.bookingId, lines);
+  const primary = lines.find((line) => line.lineType === "primary") ?? lines[0];
+  await db.update(bookingRevisions).set({ status: "accepted", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
+  await db.update(bookings).set({
+    revisionStatus: "accepted",
+    status: "confirmed",
+    needsReview: false,
+    serviceType: primary?.serviceName ?? null,
+    duration: revision.totalDurationMinutes,
+  }).where(eq(bookings.id, params.bookingId));
+}
+
+export async function saveBookingMatchAssessment(params: {
+  bookingId: number;
+  serviceCategory: string;
+  answers: Record<string, string>;
+  outcome: "match" | "recommendation" | "review";
+  recommendedService: string | null;
+  recommendedAddOns: string[];
+  explanation: string;
+  photoUrls: string[];
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.insert(bookingMatchAssessments).values({
+    bookingId: params.bookingId,
+    serviceCategory: params.serviceCategory,
+    answers: params.answers,
+    outcome: params.outcome,
+    recommendedService: params.recommendedService ?? null,
+    recommendedAddOns: params.recommendedAddOns,
+    explanation: params.explanation,
+    photoUrls: params.photoUrls,
+  });
+  if (params.outcome === "review") {
+    await db.update(bookings).set({ needsReview: true }).where(eq(bookings.id, params.bookingId));
+  }
+}
+
+export async function getBookingMatchAssessment(bookingId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(bookingMatchAssessments)
+    .where(eq(bookingMatchAssessments.bookingId, bookingId))
+    .limit(1);
+  return rows[0];
+}
+
 // ─── Booking Rules (client-tier restrictions) ─────────────────────────────────
 
 /**
@@ -2171,6 +2314,43 @@ export async function getTechServices(techId: number): Promise<TechService[]> {
     .from(techServices)
     .where(and(eq(techServices.techId, techId), eq(techServices.isActive, true)))
     .orderBy(techServices.sortOrder, techServices.createdAt);
+}
+
+export async function getSmartServiceSettings(techId: number) {
+  const db = await getDb();
+  if (!db) return { globalEnabled: true, priceReviewThresholdCents: 0, services: [] as TechService[] };
+  const [user] = await db
+    .select({ smartMatchEnabled: users.smartMatchEnabled, priceReviewThresholdCents: users.smartMatchPriceReviewThresholdCents })
+    .from(users)
+    .where(eq(users.id, techId))
+    .limit(1);
+  return {
+    globalEnabled: user?.smartMatchEnabled ?? true,
+    priceReviewThresholdCents: user?.priceReviewThresholdCents ?? 0,
+    services: await getTechServices(techId),
+  };
+}
+
+export async function updateSmartServiceSettings(params: {
+  techId: number;
+  globalEnabled?: boolean;
+  priceReviewThresholdCents?: number;
+  serviceId?: number;
+  serviceEnabled?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  if (params.globalEnabled !== undefined || params.priceReviewThresholdCents !== undefined) {
+    await db.update(users).set({
+      ...(params.globalEnabled !== undefined ? { smartMatchEnabled: params.globalEnabled } : {}),
+      ...(params.priceReviewThresholdCents !== undefined ? { smartMatchPriceReviewThresholdCents: params.priceReviewThresholdCents } : {}),
+      updatedAt: new Date(),
+    }).where(eq(users.id, params.techId));
+  }
+  if (params.serviceId !== undefined && params.serviceEnabled !== undefined) {
+    await db.update(techServices).set({ smartMatchEnabled: params.serviceEnabled, updatedAt: new Date() })
+      .where(and(eq(techServices.id, params.serviceId), eq(techServices.techId, params.techId)));
+  }
 }
 
 export async function upsertTechService(data: {

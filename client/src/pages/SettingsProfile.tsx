@@ -50,12 +50,15 @@ const SERVICE_CATEGORIES = [
   "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
+  "Dip Powder with Tips",
   "Manicure",
   "Pedicure",
+  "Spa / Callus Pedicure Upgrade",
   "Nail Art / Add-Ons",
   "Removal / Soak-Off",
   "Repair",
   "Press-On Nails",
+  "Sizing Kit / Consultation",
   "Custom / Not Sure",
 ];
 
@@ -344,55 +347,16 @@ export default function SettingsProfile() {
   const [avatarPreview, setAvatarPreview] = useState<string | null>((user as any)?.avatarUrl ?? null);
   const avatarRef = useRef<HTMLInputElement>(null);
 
-  // Smart Match global toggle + configs
-  const { data: smGlobalEnabled, refetch: refetchSmGlobal } = trpc.smartMatch.getGlobalEnabled.useQuery(undefined, {
-    enabled: user?.userType === "nail_tech",
-  });
-  const setSmGlobal = trpc.smartMatch.setGlobalEnabled.useMutation({
-    onSuccess: () => { refetchSmGlobal(); toast.success("Smart Match setting saved"); },
-    onError: (e) => toast.error(e.message),
-  });
-  const { data: smConfigs, refetch: refetchSmConfigs } = trpc.smartMatch.getAllConfigs.useQuery(undefined, {
-    enabled: user?.userType === "nail_tech" && (smGlobalEnabled ?? true),
-  });
-  const upsertSmConfig = trpc.smartMatch.upsertConfig.useMutation({
-    onSuccess: () => { refetchSmConfigs(); toast.success("Smart Match config saved"); },
-    onError: (e) => toast.error(e.message),
-  });
+  // Retired legacy editor state. The visible control surface is now /settings/smart-service-match.
+  const smGlobalEnabled = false;
+  const setSmGlobal = { mutate: (_input: unknown) => undefined, isPending: false };
+  const smConfigs: any[] = [];
+  const upsertSmConfig = { mutate: (_input: unknown) => undefined, isPending: false };
   const [expandedSmService, setExpandedSmService] = useState<string | null>(null);
   const [editingSmService, setEditingSmService] = useState<string | null>(null);
   const [smDraft, setSmDraft] = useState<{ questions: any[]; rules: any[] } | null>(null);
-
-  const beginSmartMatchEdit = (serviceCategory: string, questions: any[], rules: any[]) => {
-    setEditingSmService(serviceCategory);
-    setSmDraft({
-      questions: questions.map((question: any) => ({ ...question, options: [...(question.options ?? [])] })),
-      rules: rules.map((rule: any) => ({ ...rule, if: [...(rule.if ?? [])] })),
-    });
-  };
-
-  const saveSmartMatchDraft = () => {
-    if (!editingSmService || !smDraft) return;
-    const questions = smDraft.questions
-      .map((question, index) => ({
-        id: question.id || `q${index + 1}`,
-        text: String(question.text ?? "").trim(),
-        options: (question.options ?? []).map((option: string) => option.trim()).filter(Boolean),
-        allowsPhoto: Boolean(question.allowsPhoto),
-      }))
-      .filter(question => question.text && question.options.length > 0);
-    const rules = smDraft.rules
-      .map(rule => ({
-        if: (rule.if ?? []).map((condition: string) => condition.trim()).filter(Boolean),
-        recommend: String(rule.recommend ?? "").trim(),
-        outcome: rule.outcome ?? "review",
-        message: String(rule.message ?? "").trim() || undefined,
-      }))
-      .filter(rule => rule.if.length > 0 && rule.recommend);
-    upsertSmConfig.mutate({ serviceCategory: editingSmService, questions, rules });
-    setEditingSmService(null);
-    setSmDraft(null);
-  };
+  const beginSmartMatchEdit = (_serviceCategory: string, _questions: any[], _rules: any[]) => undefined;
+  const saveSmartMatchDraft = () => undefined;
 
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
@@ -617,7 +581,8 @@ export default function SettingsProfile() {
               </div>
             </div>
 
-            {/* Smart Match settings */}
+            {false && <>
+            {/* Legacy Smart Match settings — retired in favor of the dedicated Settings page */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               {/* Global toggle header */}
               <div className="px-4 py-3 flex items-center justify-between border-b border-border">
@@ -797,6 +762,7 @@ export default function SettingsProfile() {
               )}
             </div>
 
+            </>}
             {/* Services */}
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between">

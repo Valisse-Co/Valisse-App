@@ -123,6 +123,33 @@ function CancelDialog({ bookingId, techId, onClose, onConfirmed }: CancelDialogP
   );
 }
 
+function RevisionApprovalCard({ bookingId, onResolved }: { bookingId: number; onResolved: () => void }) {
+  const { data: context, isLoading } = trpc.smartService.bookingContext.useQuery({ bookingId });
+  const respond = trpc.smartService.respondToRevision.useMutation({
+    onSuccess: (_, input) => {
+      toast.success(input.accepted ? "Updated booking accepted and confirmed." : "Updated booking declined.");
+      onResolved();
+    },
+    onError: (error) => toast.error(error.message || "Could not update the booking."),
+  });
+  const revision = context?.latestRevision;
+  if (isLoading || !revision || revision.status !== "pending") return null;
+  const lines = (revision.serviceLines ?? []) as Array<{ serviceName: string; durationMinutes: number; priceInCents: number }>;
+  const total = revision.totalPriceInCents ?? lines.reduce((sum, line) => sum + line.priceInCents, 0);
+  const duration = revision.totalDurationMinutes ?? lines.reduce((sum, line) => sum + line.durationMinutes, 0);
+  return (
+    <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3.5 space-y-3">
+      <div><p className="text-xs font-semibold text-amber-800">Your nail tech updated this booking</p><p className="text-xs text-amber-700 mt-0.5">Review the services, duration, and quote before it can be confirmed.</p></div>
+      <div className="rounded-lg bg-white/70 border border-amber-200 px-3 py-2 space-y-1.5">
+        {lines.map((line, index) => <div key={`${line.serviceName}-${index}`} className="flex justify-between gap-3 text-xs"><span className="text-foreground">{line.serviceName} <span className="text-muted-foreground">· {line.durationMinutes} min</span></span><span className="font-medium text-foreground">${(line.priceInCents / 100).toFixed(2)}</span></div>)}
+        <div className="pt-1.5 mt-1.5 border-t border-amber-200 flex justify-between text-xs font-semibold text-foreground"><span>Total · {duration} min</span><span>${(total / 100).toFixed(2)}</span></div>
+      </div>
+      {revision.techNote && <p className="text-xs text-amber-800 italic">“{revision.techNote}”</p>}
+      <div className="flex gap-2"><button onClick={() => respond.mutate({ bookingId, revisionId: revision.id, accepted: true })} disabled={respond.isPending} className="flex-1 py-2 rounded-lg bg-primary text-white text-xs font-semibold disabled:opacity-50">Accept updated booking</button><button onClick={() => respond.mutate({ bookingId, revisionId: revision.id, accepted: false })} disabled={respond.isPending} className="flex-1 py-2 rounded-lg border border-amber-300 text-amber-800 text-xs font-semibold disabled:opacity-50">Decline</button></div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Bookings() {
   const { isAuthenticated } = useAuth();
@@ -246,6 +273,8 @@ export default function Bookings() {
                     </div>
                   </div>
                 </div>
+
+                {(booking as any).revisionStatus === "pending" && <RevisionApprovalCard bookingId={booking.id} onResolved={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />}
 
                 {/* Address reveal — only for confirmed bookings */}
                 {booking.status === "confirmed" && (tech as any)?.fullAddress && (

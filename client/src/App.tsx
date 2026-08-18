@@ -30,6 +30,7 @@ import SettingsAccount from "./pages/SettingsAccount";
 import SettingsSubscription from "./pages/SettingsSubscription";
 import SettingsAppearance from "./pages/SettingsAppearance";
 import SettingsSupport from "./pages/SettingsSupport";
+import SmartServiceMatchSettings from "./pages/SmartServiceMatchSettings";
 import ClientProfile from "./pages/ClientProfile";
 import { useAuth } from "./_core/hooks/useAuth";
 import Notifications from "./pages/Notifications";
@@ -204,6 +205,9 @@ function Router() {
         </Route>
         <Route path="/settings/profile">
           <AppLayout><SettingsProfile /></AppLayout>
+        </Route>
+        <Route path="/settings/smart-service-match">
+          <AppLayout><SmartServiceMatchSettings /></AppLayout>
         </Route>
         <Route path="/settings/notifications">
           <AppLayout><SettingsNotifications /></AppLayout>

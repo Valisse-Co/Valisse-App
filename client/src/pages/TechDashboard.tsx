@@ -38,12 +38,15 @@ const SERVICE_CATEGORIES = [
   "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
+  "Dip Powder with Tips",
   "Manicure",
   "Pedicure",
+  "Spa / Callus Pedicure Upgrade",
   "Nail Art / Add-Ons",
   "Removal / Soak-Off",
   "Repair",
   "Press-On Nails",
+  "Sizing Kit / Consultation",
   "Custom / Not Sure",
 ];
 
@@ -188,13 +191,6 @@ export default function TechDashboard() {
   const { data: slots, refetch: refetchSlots } = trpc.lastMinute.mySlots.useQuery(undefined, { enabled: isAuthenticated });
   const { data: subscription } = trpc.subscriptions.mySubscription.useQuery(undefined, { enabled: isAuthenticated });
   const utils = trpc.useUtils();
-
-  // Smart Match configs
-  const { data: smConfigs, refetch: refetchSmConfigs } = trpc.smartMatch.getAllConfigs.useQuery(undefined, { enabled: isAuthenticated });
-  const upsertSmConfig = trpc.smartMatch.upsertConfig.useMutation({
-    onSuccess: () => { refetchSmConfigs(); toast.success("Smart Match config saved"); },
-    onError: (e) => toast.error(e.message),
-  });
 
   // Services
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false);

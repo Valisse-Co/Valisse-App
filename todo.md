@@ -518,3 +518,21 @@
 - [x] Keep reported-post notices private to the post owner and admin moderators; remove any public client reporting navigation
 - [x] Verify or create a protected admin report-management route and document the authorized access path
 - [x] Add regression tests for client nav visibility and report/admin access controls
+
+## Smart Service Match Replacement — Audit and Clarification First
+- [x] Inspect current booking flow, service relationships, Smart Match data, review states, media uploads, notifications, and dashboard components without changing implementation
+- [x] Document specification-to-implementation discrepancies and reusable architecture
+- [x] Ask one organized batch of implementation-critical questions before removing or rebuilding Smart Match
+- [x] Prepare a clean replacement plan after user decisions are confirmed
+
+## Smart Service Match Replacement — Confirmed Design
+- [x] Preserve Structured Gel / Builder Gel Fill and Extended Fill as independent bookable services with their own system questionnaires
+- [x] Add Spa/Callus Pedicure Upgrade, Sizing Kit / Consultation, and Dip with Tips as optional standardized technician services; continue mapping French/chrome through Nail Art / Add-Ons
+- [x] Create a true multi-line booking model that snapshots each selected service, price, and duration
+- [x] Add technician revision quotes that keep bookings pending until the client explicitly accepts or declines the revision
+- [x] Replace the first-match rules engine with all-rules evaluation and universal priority: safety/damage → review, major mismatch → recommendation, required add-on → add-on recommendation, uncertainty → review, clear match → match
+- [x] Retire old Smart Match configuration rows, response rows, editor UI, state, and APIs because the feature has not been released
+- [x] Rebuild system questionnaires and rules for the 13 core categories plus independent fill services
+- [x] Keep technician Smart Match controls limited to service enable/disable and pricing/time review thresholds in a dedicated Settings section
+- [x] Retain the existing Needs Review booking card as the sole technician review surface; do not add a separate notification requirement
+- [x] Add comprehensive unit and workflow regression coverage for all matching, recommendation, add-on, review, continuation, revision, and booking-persistence paths

@@ -27,6 +27,7 @@ import { useLocation, useRoute, useSearch } from "wouter";
 type BookingService = {
   id: string;
   label: string;
+  category: string;
   duration: number;
   price: number | null;
   photoUrl: string | null;
@@ -66,8 +67,8 @@ function formatDateStr(str: string) {
 const STEPS = ["Service", "Smart Match", "Date", "Time", "Confirm"];
 
 // ─── Smart Match types ────────────────────────────────────────────────────────
-type SMQuestion = { id: string; text: string; options: string[] };
-type SMOutcome = "match" | "recommend" | "addon" | "review" | "bundle";
+type SMQuestion = { id: string; text: string; options: string[]; allowsPhoto?: boolean };
+type SMOutcome = "match" | "recommendation" | "review";
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -95,14 +96,17 @@ export default function BookingFlow() {
   const [smAnswers, setSmAnswers]           = useState<Record<string, string>>({});
   const [smOutcome, setSmOutcome]           = useState<SMOutcome | null>(null);
   const [smRecommended, setSmRecommended]   = useState<string | null>(null);
+  const [smRecommendedAddOns, setSmRecommendedAddOns] = useState<string[]>([]);
   const [smPhotoFiles, setSmPhotoFiles]     = useState<File[]>([]);
   const [smPhotoPreviews, setSmPhotoPreviews] = useState<string[]>([]);
   const [smSkipped, setSmSkipped]           = useState(false);
   const [smMessage, setSmMessage]           = useState<string | null>(null);
-  const [smAddonAccepted, setSmAddonAccepted] = useState<boolean | null>(null);
-  const [smAddonService, setSmAddonService] = useState<BookingService | null>(null);
+  const [smSelectedAddOnServices, setSmSelectedAddOnServices] = useState<BookingService[]>([]);
   const [smResolvedOutcome, setSmResolvedOutcome] = useState<SMOutcome | null>(null);
-  const bookingDuration = (selectedService?.duration ?? 60) + (smAddonAccepted && smAddonService ? smAddonService.duration : 0);
+  const bookingServices = useMemo(() => selectedService ? [selectedService, ...smSelectedAddOnServices] : [], [selectedService, smSelectedAddOnServices]);
+  const bookingDuration = bookingServices.reduce((sum, service) => sum + service.duration, 0) || 60;
+  const bookingTotal = bookingServices.reduce((sum, service) => sum + (service.price ?? 0), 0);
+  const hasCompletePricing = bookingServices.every((service) => service.price != null);
   const [calMonth, setCalMonth]           = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -113,16 +117,16 @@ export default function BookingFlow() {
   const [booked, setBooked]               = useState(false);
 
   // ── Smart Match queries ───────────────────────────────────────────────────
-  const smEnabledQuery = trpc.smartMatch.isEnabled.useQuery(
+  const smEnabledQuery = trpc.smartService.isEnabled.useQuery(
     { techId, serviceId: selectedService ? Number(selectedService.id) : 0 },
     { enabled: techId > 0 && !!selectedService && !isNaN(Number(selectedService.id)) }
   );
-  const smConfigQuery = trpc.smartMatch.getConfig.useQuery(
-    { techId, serviceCategory: selectedService?.label ?? "" },
+  const smConfigQuery = trpc.smartService.getConfig.useQuery(
+    { serviceCategory: selectedService?.category ?? "" },
     { enabled: techId > 0 && !!selectedService }
   );
-  const smEvaluate = trpc.smartMatch.evaluate.useMutation();
-  const smUploadPhoto = trpc.smartMatch.uploadPhoto.useMutation();
+  const smEvaluate = trpc.smartService.evaluate.useMutation();
+  const smUploadPhoto = trpc.smartService.uploadPhoto.useMutation();
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const techQuery = trpc.users.getProfile.useQuery(
@@ -183,6 +187,7 @@ export default function BookingFlow() {
       return raw.map((s: any) => ({
         id: String(s.id),
         label: s.customName || s.category || s.name,
+        category: s.category || s.customName || s.name,
         duration: s.durationMinutes,
         price: s.priceInCents != null ? s.priceInCents / 100 : (s.price != null ? Number(s.price) : null),
         photoUrl: s.photoUrl ?? null,
@@ -190,21 +195,24 @@ export default function BookingFlow() {
     }
     // Fallback defaults when tech hasn't set up services yet
     return [
-      { id: "gel_manicure",        label: "Gel Manicure",                  duration: 60,  price: null, photoUrl: null },
-      { id: "structured_gel",      label: "Structured Gel / Builder Gel",  duration: 75,  price: null, photoUrl: null },
-      { id: "structured_gel_fill",  label: "Structured Gel / Builder Gel Fill", duration: 60, price: null, photoUrl: null },
-      { id: "acrylic_full",        label: "Acrylic Full Set",              duration: 90,  price: null, photoUrl: null },
-      { id: "acrylic_fill",        label: "Acrylic Fill",                  duration: 60,  price: null, photoUrl: null },
-      { id: "extended_fill",       label: "Extended Fill",                 duration: 90,  price: null, photoUrl: null },
-      { id: "gel_x",               label: "Gel-X / Soft Gel Extensions",   duration: 75,  price: null, photoUrl: null },
-      { id: "dip_powder",          label: "Dip Powder",                    duration: 60,  price: null, photoUrl: null },
-      { id: "manicure",            label: "Manicure",                      duration: 45,  price: null, photoUrl: null },
-      { id: "pedicure",            label: "Pedicure",                      duration: 60,  price: null, photoUrl: null },
-      { id: "nail_art",            label: "Nail Art / Add-Ons",            duration: 45,  price: null, photoUrl: null },
-      { id: "removal",             label: "Removal / Soak-Off",            duration: 45,  price: null, photoUrl: null },
-      { id: "repair",              label: "Repair",                        duration: 30,  price: null, photoUrl: null },
-      { id: "press_on",            label: "Press-On Nails",                duration: 45,  price: null, photoUrl: null },
-      { id: "custom",              label: "Custom / Not Sure",             duration: 60,  price: null, photoUrl: null },
+      { id: "gel_manicure", category: "Gel Manicure", label: "Gel Manicure", duration: 60, price: null, photoUrl: null },
+      { id: "structured_gel", category: "Structured Gel / Builder Gel", label: "Structured Gel / Builder Gel", duration: 75, price: null, photoUrl: null },
+      { id: "structured_gel_fill", category: "Structured Gel / Builder Gel Fill", label: "Structured Gel / Builder Gel Fill", duration: 60, price: null, photoUrl: null },
+      { id: "acrylic_full", category: "Acrylic Full Set", label: "Acrylic Full Set", duration: 90, price: null, photoUrl: null },
+      { id: "acrylic_fill", category: "Acrylic Fill", label: "Acrylic Fill", duration: 60, price: null, photoUrl: null },
+      { id: "extended_fill", category: "Extended Fill", label: "Extended Fill", duration: 90, price: null, photoUrl: null },
+      { id: "gel_x", category: "Gel-X / Soft Gel Extensions", label: "Gel-X / Soft Gel Extensions", duration: 75, price: null, photoUrl: null },
+      { id: "dip_powder", category: "Dip Powder", label: "Dip Powder", duration: 60, price: null, photoUrl: null },
+      { id: "dip_tips", category: "Dip Powder with Tips", label: "Dip Powder with Tips", duration: 75, price: null, photoUrl: null },
+      { id: "manicure", category: "Manicure", label: "Manicure", duration: 45, price: null, photoUrl: null },
+      { id: "pedicure", category: "Pedicure", label: "Pedicure", duration: 60, price: null, photoUrl: null },
+      { id: "spa_pedicure", category: "Spa / Callus Pedicure Upgrade", label: "Spa / Callus Pedicure Upgrade", duration: 30, price: null, photoUrl: null },
+      { id: "nail_art", category: "Nail Art / Add-Ons", label: "Nail Art / Add-Ons", duration: 45, price: null, photoUrl: null },
+      { id: "removal", category: "Removal / Soak-Off", label: "Removal / Soak-Off", duration: 45, price: null, photoUrl: null },
+      { id: "repair", category: "Repair", label: "Repair", duration: 30, price: null, photoUrl: null },
+      { id: "press_on", category: "Press-On Nails", label: "Press-On Nails", duration: 45, price: null, photoUrl: null },
+      { id: "sizing_kit", category: "Sizing Kit / Consultation", label: "Sizing Kit / Consultation", duration: 20, price: null, photoUrl: null },
+      { id: "custom", category: "Custom / Not Sure", label: "Custom / Not Sure", duration: 60, price: null, photoUrl: null },
     ];
   }, [techServicesQuery.data]);
 
@@ -237,6 +245,7 @@ export default function BookingFlow() {
         setSelectedService({
           id: String(match.id),
           label: match.customName || match.category || match.name,
+          category: match.category || match.customName || match.name,
           duration: match.durationMinutes,
           price: match.priceInCents != null ? match.priceInCents / 100 : null,
           photoUrl: match.photoUrl ?? null,
@@ -254,8 +263,9 @@ export default function BookingFlow() {
     const match = raw.find((s: any) => s.id === linkedServiceId);
     if (match) {
       setSelectedService({
-        id: String(match.id),
-        label: match.customName || match.category || match.name,
+          id: String(match.id),
+          label: match.customName || match.category || match.name,
+          category: match.category || match.customName || match.name,
         duration: match.durationMinutes,
         price: match.priceInCents != null ? match.priceInCents / 100 : null,
         photoUrl: match.photoUrl ?? null,
@@ -266,7 +276,7 @@ export default function BookingFlow() {
   }, [postData, techServicesQuery.data, autoSelected, preselectedServiceId]);
 
   const utils = trpc.useUtils();
-  const createBooking = trpc.bookings.create.useMutation({
+  const createBooking = trpc.bookings.createWithServiceLines.useMutation({
     onSuccess: () => {
       setBooked(true);
       utils.bookings.clientBookings.invalidate();
@@ -326,19 +336,26 @@ export default function BookingFlow() {
             return uploaded.url;
           }));
       const hasSmartMatch = !smSkipped && Object.keys(smAnswers).length > 0;
+      const serviceLines = bookingServices.map((service, position) => ({
+        techServiceId: Number(service.id),
+        lineType: position === 0 ? "primary" as const : "addon" as const,
+      }));
+      if (serviceLines.some((line) => Number.isNaN(line.techServiceId))) {
+        throw new Error("This nail tech needs to finish setting up their services before you can request a booking.");
+      }
       await createBooking.mutateAsync({
         techId,
         postId: postId ? Number(postId) : undefined,
-        serviceType: selectedService.label,
-        addonServiceId: smAddonAccepted && smAddonService && !Number.isNaN(Number(smAddonService.id)) ? Number(smAddonService.id) : undefined,
         scheduledAt: new Date(y, mo - 1, d, h, min).getTime(),
-        duration: bookingDuration,
         notes: notes || undefined,
-        smartMatch: hasSmartMatch ? {
-          serviceCategory: selectedService.label,
+        serviceLines,
+        smartServiceMatch: hasSmartMatch ? {
+          serviceCategory: selectedService.category,
           answers: smAnswers,
           outcome: smResolvedOutcome ?? "match",
-          recommendedService: smResolvedOutcome === "match" ? null : smRecommended,
+          recommendedService: smRecommended,
+          recommendedAddOns: smRecommendedAddOns,
+          explanation: smMessage ?? "Your selected service looks like a good match.",
           photoUrls,
         } : undefined,
       });
@@ -359,18 +376,28 @@ export default function BookingFlow() {
   async function advance() {
     if (step === 4) { handleConfirm(); return; }
     // When leaving Smart Match step, evaluate if answers were provided
-    if (step === 1 && !smSkipped && Object.keys(smAnswers).length > 0) {
+    if (step === 1 && !smSkipped) {
       const cfg = smConfigQuery.data as any;
+      const requiredQuestionCount = cfg?.questions?.length ?? 0;
+      if (!Object.keys(smAnswers).length) {
+        toast.error("Answer the service questions or choose Skip and continue.");
+        return;
+      }
+      if (requiredQuestionCount && Object.keys(smAnswers).length < requiredQuestionCount) {
+        toast.error("Please answer each service question before continuing.");
+        return;
+      }
       if (cfg) {
         const result = await smEvaluate.mutateAsync({
           techId,
-          serviceCategory: selectedService?.label ?? "",
+          serviceCategory: selectedService?.category ?? "",
           answers: smAnswers,
         });
         setSmOutcome(result.outcome as SMOutcome);
         setSmResolvedOutcome(result.outcome as SMOutcome);
         setSmRecommended(result.recommendedService);
-        setSmMessage((result as any).message ?? null);
+        setSmRecommendedAddOns(result.recommendedAddOns ?? []);
+        setSmMessage(result.explanation ?? null);
         // If outcome is not "match", stay on step 1 to show outcome screen
         if (result.outcome !== "match") {
           return; // show outcome screen
@@ -539,129 +566,58 @@ export default function BookingFlow() {
               return null;
             }
 
-            // Outcome screen — recommend (suggest switching service)
-            if (smOutcome === "recommend" && smRecommended) {
+            // System result — recommendations and review are resolved before date/time selection.
+            if (smOutcome === "recommendation" || smOutcome === "review") {
+              const suggestedAddOnServices = smRecommendedAddOns
+                .map((name) => techServices.find((service) => service.category === name || service.label === name))
+                .filter((service): service is BookingService => Boolean(service));
+              const suggestedPrimary = smRecommended
+                ? techServices.find((service) => service.category === smRecommended || service.label === smRecommended) ?? null
+                : null;
+              const continueToSchedule = (outcome: SMOutcome, nextAddOns: BookingService[] = smSelectedAddOnServices) => {
+                setSmSelectedAddOnServices(nextAddOns.filter((service, index, all) => service.id !== selectedService?.id && all.findIndex((candidate) => candidate.id === service.id) === index));
+                setSmResolvedOutcome(outcome);
+                setSmOutcome(null);
+                setStep(2);
+              };
+
+              if (smOutcome === "review") {
+                return (
+                  <div className="space-y-5">
+                    <div className="text-center">
+                      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3"><Shield className="w-7 h-7 text-primary" /></div>
+                      <h1 className="text-xl font-serif font-semibold text-foreground">Your tech will review this</h1>
+                      <p className="text-sm text-muted-foreground mt-1">{smMessage ?? "Your answers need a technician review before this booking can be confirmed."}</p>
+                    </div>
+                    <Card className="p-4 rounded-2xl border-border space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your answers</p>
+                      {Object.entries(smAnswers).map(([qId, answer]) => {
+                        const question = questions.find((item) => item.id === qId);
+                        return question ? <p key={qId} className="text-sm"><span className="text-muted-foreground">{question.text}: </span><span className="font-medium text-foreground">{answer}</span></p> : null;
+                      })}
+                    </Card>
+                    <Button className="w-full" onClick={() => continueToSchedule("review")}>Continue to booking</Button>
+                  </div>
+                );
+              }
+
               return (
                 <div className="space-y-5">
                   <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
-                      <Sparkles className="w-7 h-7 text-amber-500" />
-                    </div>
+                    <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-3"><Sparkles className="w-7 h-7 text-amber-500" /></div>
                     <h1 className="text-xl font-serif font-semibold text-foreground">We have a suggestion</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {smMessage ?? `Based on your answers, ${smRecommended} might be a better fit.`}
-                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">{smMessage ?? "We adjusted your booking recommendation based on your answers."}</p>
                   </div>
-                  <Card className="p-5 rounded-2xl border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
-                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Your nail tech will confirm the details after reviewing your booking.</p>
+                  <Card className="p-4 rounded-2xl border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 space-y-3">
+                    {suggestedPrimary && <div><p className="text-xs text-muted-foreground">Recommended primary service</p><p className="font-semibold text-foreground">{suggestedPrimary.label}</p></div>}
+                    {suggestedAddOnServices.length > 0 && <div><p className="text-xs text-muted-foreground mb-1">Suggested add-ons</p><div className="flex flex-wrap gap-1.5">{suggestedAddOnServices.map((service) => <Badge key={service.id} variant="secondary">+ {service.label}</Badge>)}</div></div>}
                   </Card>
                   <div className="flex flex-col gap-2">
-                    <Button className="w-full" onClick={() => {
-                      // Switch to recommended service if available
-                      const recSvc = techServices.find((s: BookingService) => s.label === smRecommended);
-                      if (recSvc) {
-                        setSelectedService(recSvc);
-                        setSmSkipped(true);
-                        setSmResolvedOutcome(null);
-                      }
-                      setSmOutcome(null);
-                      setStep(2);
-                    }}>Switch to {smRecommended}</Button>
-                    <Button variant="ghost" className="w-full" onClick={() => { setSmOutcome(null); setStep(2); }}>Continue with {selectedService?.label}</Button>
+                    {suggestedPrimary && <Button className="w-full" onClick={() => { setSelectedService(suggestedPrimary); continueToSchedule("recommendation", suggestedAddOnServices); }}>Switch to {suggestedPrimary.label}</Button>}
+                    {suggestedAddOnServices.length > 0 && <Button variant={suggestedPrimary ? "outline" : "default"} className="w-full" onClick={() => continueToSchedule("recommendation", suggestedAddOnServices)}>Add suggested services</Button>}
+                    <Button variant="ghost" className="w-full" onClick={() => continueToSchedule("recommendation", [])}>Continue with {selectedService?.label}</Button>
+                    <button type="button" className="text-xs text-muted-foreground underline underline-offset-2" onClick={() => continueToSchedule("review", [])}>Send to tech for review</button>
                   </div>
-                </div>
-              );
-            }
-
-            // Outcome screen — addon (suggest adding a service)
-            if (smOutcome === "addon" && smRecommended) {
-              return (
-                <div className="space-y-5">
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Sparkles className="w-7 h-7 text-primary" />
-                    </div>
-                    <h1 className="text-xl font-serif font-semibold text-foreground">Add-on suggested</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {smMessage ?? `Would you like to add ${smRecommended} to your booking?`}
-                    </p>
-                  </div>
-                  <Card className="p-5 rounded-2xl border-primary/20 bg-primary/5">
-                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
-                    <p className="text-xs text-muted-foreground mt-1">This will be noted on your booking for your tech to confirm pricing and timing.</p>
-                  </Card>
-                  <div className="flex flex-col gap-2">
-                    <Button className="w-full" onClick={() => {
-                      const addon = techServices.find((service: BookingService) => service.label === smRecommended);
-                      if (!addon) {
-                        setSmOutcome("review");
-                        setSmResolvedOutcome("review");
-                        setSmMessage(`${smRecommended} is not currently listed by this nail tech. Your tech will review your request before confirming.`);
-                        return;
-                      }
-                      setSmAddonService(addon);
-                      setSmAddonAccepted(true);
-                      setSmOutcome(null);
-                      setStep(2);
-                    }}>Yes, add {smRecommended}</Button>
-                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonService(null); setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>No thanks, continue without it</Button>
-                  </div>
-                </div>
-              );
-            }
-
-            // Outcome screen — bundle (suggest bundling services)
-            if (smOutcome === "bundle" && smRecommended) {
-              return (
-                <div className="space-y-5">
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Sparkles className="w-7 h-7 text-primary" />
-                    </div>
-                    <h1 className="text-xl font-serif font-semibold text-foreground">Bundle & save time</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {smMessage ?? "We can bundle your services together for a smoother appointment."}
-                    </p>
-                  </div>
-                  <Card className="p-5 rounded-2xl border-primary/20 bg-primary/5">
-                    <p className="font-semibold text-foreground text-lg">{smRecommended}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Your tech will confirm the combined pricing and timing when they review your booking.</p>
-                  </Card>
-                  <div className="flex flex-col gap-2">
-                    <Button className="w-full" onClick={() => { setSmAddonAccepted(true); setSmOutcome(null); setStep(2); }}>Yes, bundle my services</Button>
-                    <Button variant="ghost" className="w-full" onClick={() => { setSmAddonAccepted(false); setSmOutcome(null); setStep(2); }}>Continue with removal only</Button>
-                  </div>
-                </div>
-              );
-            }
-
-            // Outcome screen — needs review
-            if (smOutcome === "review") {
-              return (
-                <div className="space-y-5">
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                      <Shield className="w-7 h-7 text-primary" />
-                    </div>
-                    <h1 className="text-xl font-serif font-semibold text-foreground">Your tech will review this</h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {smMessage ?? "Your answers suggest a custom consultation. Your nail tech will review and confirm the best service for you before confirming."}
-                    </p>
-                  </div>
-                  <Card className="p-4 rounded-2xl border-border space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Your answers</p>
-                    {Object.entries(smAnswers).map(([qId, ans]) => {
-                      const q = questions.find((q: SMQuestion) => q.id === qId);
-                      return q ? (
-                        <div key={qId} className="text-sm">
-                          <span className="text-muted-foreground">{q.text}: </span>
-                          <span className="font-medium text-foreground">{ans}</span>
-                        </div>
-                      ) : null;
-                    })}
-                  </Card>
-                  <Button className="w-full" onClick={() => setStep(2)}>Continue to Booking</Button>
                 </div>
               );
             }
@@ -1077,20 +1033,22 @@ export default function BookingFlow() {
                     <p className="text-xs text-muted-foreground">Service</p>
                     <p className="text-sm font-medium text-foreground">{selectedService?.label}</p>
                   </div>
-                  <Badge variant="secondary" className="ml-auto text-xs">{selectedService?.duration} min</Badge>
+                  <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{selectedService?.duration} min</Badge>{selectedService?.price != null && <p className="text-xs text-primary font-medium mt-1">${selectedService.price.toFixed(2)}</p>}</div>
                 </div>
-                {smAddonAccepted && smAddonService && (
+                {smSelectedAddOnServices.map((service) => (
                   <div className="flex items-center gap-3 pl-5">
                     <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center">
                       <span className="text-primary text-sm leading-none">+</span>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Smart Match add-on</p>
-                      <p className="text-sm font-medium text-foreground">{smAddonService.label}</p>
+                      <p className="text-sm font-medium text-foreground">{service.label}</p>
                     </div>
-                    <Badge variant="secondary" className="ml-auto text-xs">{smAddonService.duration} min</Badge>
+                    <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{service.duration} min</Badge>{service.price != null && <p className="text-xs text-primary font-medium mt-1">${service.price.toFixed(2)}</p>}</div>
                   </div>
-                )}
+                ))}
+                <div className="h-px bg-border" />
+                <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Estimated total</span><span className="font-semibold text-foreground">{hasCompletePricing ? `$${bookingTotal.toFixed(2)}` : "Your tech will confirm pricing"}</span></div>
                 <div className="h-px bg-border" />
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">

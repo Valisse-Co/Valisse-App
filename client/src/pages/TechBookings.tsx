@@ -55,6 +55,53 @@ function formatDateFull(dateKey: string): string {
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
+function RevisionQuoteDialog({ bookingId, open, onClose, onSaved }: { bookingId: number; open: boolean; onClose: () => void; onSaved: () => void }) {
+  const utils = trpc.useUtils();
+  const { data: services = [] } = trpc.settings.getServices.useQuery(undefined, { enabled: open });
+  const { data: context } = trpc.smartService.bookingContext.useQuery({ bookingId }, { enabled: open });
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [primaryId, setPrimaryId] = useState<number | null>(null);
+  const [techNote, setTechNote] = useState("");
+  const propose = trpc.smartService.proposeRevision.useMutation({
+    onSuccess: () => { utils.bookings.timeline.invalidate(); toast.success("Updated quote sent to the client for approval."); onSaved(); onClose(); },
+    onError: (error) => toast.error(error.message || "Could not send the revised quote."),
+  });
+
+  useEffect(() => {
+    if (!open || !context?.serviceLines) return;
+    const ids = context.serviceLines.map((line: any) => line.techServiceId).filter((id: number | null): id is number => typeof id === "number");
+    setSelectedIds(ids);
+    setPrimaryId(context.serviceLines.find((line: any) => line.lineType === "primary")?.techServiceId ?? ids[0] ?? null);
+  }, [open, context?.serviceLines]);
+
+  const chosen = (services as any[]).filter((service) => selectedIds.includes(service.id));
+  const total = chosen.reduce((sum, service) => sum + service.priceInCents, 0);
+  const duration = chosen.reduce((sum, service) => sum + service.durationMinutes, 0);
+  const toggle = (id: number) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]);
+
+  return (
+    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
+      <DialogContent className="max-w-md mx-4 rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle className="font-display font-light text-xl">Send revised quote</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">The booking stays pending until the client approves these exact services, duration, and price.</p>
+        <div className="space-y-2">
+          {(services as any[]).filter((service) => service.isActive).map((service) => {
+            const selected = selectedIds.includes(service.id);
+            return <label key={service.id} className={cn("flex items-center gap-3 rounded-xl border p-3 cursor-pointer", selected ? "border-primary bg-primary/5" : "border-border")}>
+              <input type="checkbox" checked={selected} onChange={() => toggle(service.id)} />
+              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-foreground">{service.customName || service.category}</p><p className="text-xs text-muted-foreground">${(service.priceInCents / 100).toFixed(2)} · {service.durationMinutes} min</p></div>
+              {selected && <button type="button" onClick={(event) => { event.preventDefault(); setPrimaryId(service.id); }} className={cn("text-[10px] px-2 py-1 rounded-full border", primaryId === service.id ? "border-primary bg-primary text-white" : "border-border text-muted-foreground")}>{primaryId === service.id ? "Primary" : "Set primary"}</button>}
+            </label>;
+          })}
+        </div>
+        <Input value={techNote} onChange={(event) => setTechNote(event.target.value)} placeholder="Optional note to the client" />
+        <div className="rounded-xl bg-muted px-3 py-2.5 flex justify-between text-xs"><span>{duration} min total</span><span className="font-semibold">${(total / 100).toFixed(2)} total</span></div>
+        <button disabled={!chosen.length || !primaryId || propose.isPending} onClick={() => propose.mutate({ bookingId, techNote: techNote || undefined, serviceLines: chosen.map((service) => ({ techServiceId: service.id, lineType: service.id === primaryId ? "primary" : "addon" })) })} className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-50">{propose.isPending ? "Sending…" : "Send quote for client approval"}</button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Booking Card ─────────────────────────────────────────────────────────────
 type BookingCardProps = {
   booking: {
@@ -69,6 +116,7 @@ type BookingCardProps = {
     reviewRecommendedService?: string | null;
     reviewPhotoUrls?: string[] | null;
     addonServiceId?: number | null;
+    revisionStatus?: string | null;
   };
   client: { name?: string | null; avatarUrl?: string | null } | null;
   addonService?: { category?: string | null; customName?: string | null; durationMinutes?: number | null } | null;
@@ -89,6 +137,16 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
   const isToday = toDateKey(time) === toDateKey(now);
   const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
   const [reviewExpanded, setReviewExpanded] = useState(false);
+  const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
+  const { data: smartContext } = trpc.smartService.bookingContext.useQuery(
+    { bookingId: booking.id },
+    { enabled: booking.needsReview || booking.revisionStatus === "pending" }
+  );
+  const assessment = smartContext?.assessment as any;
+  const reviewAnswers = assessment?.answers ?? booking.reviewAnswers;
+  const reviewPhotos = assessment?.photoUrls ?? booking.reviewPhotoUrls;
+  const reviewRecommendation = assessment?.recommendedService ?? booking.reviewRecommendedService;
+  const serviceLines = smartContext?.serviceLines ?? [];
 
   return (
     <div className={cn(
@@ -109,8 +167,8 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Needs Review</span>
-            {booking.reviewRecommendedService && (
-              <span className="text-xs text-amber-600 dark:text-amber-400">· {booking.reviewRecommendedService}</span>
+            {reviewRecommendation && (
+              <span className="text-xs text-amber-600 dark:text-amber-400">· {reviewRecommendation}</span>
             )}
           </div>
           <ChevronDown size={14} className={cn("text-amber-600 transition-transform", reviewExpanded && "rotate-180")} />
@@ -120,19 +178,19 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
       {/* Expandable review panel */}
       {booking.needsReview && reviewExpanded && (
         <div className="mb-3 rounded-xl bg-card border border-amber-200 dark:border-amber-800 p-3 space-y-2">
-          {booking.reviewAnswers && Object.keys(booking.reviewAnswers).length > 0 && (
+          {reviewAnswers && Object.keys(reviewAnswers).length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Client's answers</p>
-              {Object.entries(booking.reviewAnswers).map(([k, v]) => (
-                <p key={k} className="text-xs text-foreground"><span className="text-muted-foreground">Q{k.replace('q','')}: </span>{v}</p>
+              {Object.entries(reviewAnswers).map(([k, v]) => (
+                <p key={k} className="text-xs text-foreground"><span className="text-muted-foreground">Q{k.replace('q','')}: </span>{String(v)}</p>
               ))}
             </div>
           )}
-          {booking.reviewPhotoUrls && booking.reviewPhotoUrls.length > 0 && (
+          {reviewPhotos && reviewPhotos.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Inspiration photos</p>
               <div className="flex flex-wrap gap-2">
-                {booking.reviewPhotoUrls.map((url, i) => (
+                {reviewPhotos.map((url: string, i: number) => (
                   <a key={i} href={url} target="_blank" rel="noopener noreferrer">
                     <img src={url} alt="" className="w-16 h-16 rounded-lg object-cover border border-border" />
                   </a>
@@ -140,8 +198,17 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
               </div>
             </div>
           )}
+          {serviceLines.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Requested services</p>
+              {serviceLines.map((line: any) => <p key={line.id} className="text-xs text-foreground">{line.serviceName} <span className="text-muted-foreground">· {line.durationMinutes} min · ${(line.priceInCents / 100).toFixed(2)}</span></p>)}
+            </div>
+          )}
+          <button onClick={() => setRevisionDialogOpen(true)} className="w-full py-2 rounded-lg border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/5">Adjust services, time, or price</button>
         </div>
       )}
+
+      {booking.revisionStatus === "pending" && <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">Waiting for the client to accept the revised quote before this booking can be confirmed.</div>}
 
       {/* Top row: time + status */}
       <div className="flex items-start justify-between mb-3">
@@ -181,7 +248,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
       )}
 
       {/* Actions */}
-      {booking.status === "pending" && (
+      {booking.status === "pending" && booking.revisionStatus !== "pending" && (
         <div className="flex gap-2 mt-3">
           <button
             onClick={() => onConfirm(booking.id)}
@@ -216,6 +283,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           </button>
         </div>
       )}
+      <RevisionQuoteDialog bookingId={booking.id} open={revisionDialogOpen} onClose={() => setRevisionDialogOpen(false)} onSaved={() => setRevisionDialogOpen(false)} />
     </div>
   );
 }

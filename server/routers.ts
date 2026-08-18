@@ -69,6 +69,7 @@ import {
   getAvailableSlots,
   getMonthBookableStatus,
   createBookingWithConflictCheck,
+  createBookingRevision,
   isReturningClient,
   getBookingRulesForTech,
   getClientTierForSlot,
@@ -93,6 +94,9 @@ import {
   hidePostByAdmin,
   deletePostByAdmin,
   getBookingById,
+  getBookingMatchAssessment,
+  getBookingServiceLines,
+  getLatestBookingRevision,
   getCancellationPolicy,
   upsertCancellationPolicy,
   resolveCancellationFee,
@@ -107,6 +111,11 @@ import {
   getUpcomingBookingsForUser,
   updateUserDarkMode,
   getTechServices,
+  getSmartServiceSettings,
+  replaceBookingServiceLines,
+  resolveBookingRevision,
+  saveBookingMatchAssessment,
+  updateSmartServiceSettings,
   upsertTechService,
   deleteTechService,
   updateTechServicePhoto,
@@ -127,6 +136,11 @@ import {
   createEmailUser,
 } from "./db";
 import { storagePut } from "./storage";
+import {
+  evaluateSmartServiceMatch,
+  getSystemSmartServiceMatchConfig,
+  SMART_SERVICE_MATCH_CONFIGS,
+} from "./smartServiceMatch";
 import {
   getSmartMatchConfig,
   getAllSmartMatchConfigsForTech,
@@ -693,55 +707,59 @@ const bookingsRouter = router({
       getMonthBookableStatus(input.techId, input.year, input.month, input.duration)
     ),
 
-  create: protectedProcedure
-    .input(
-      z.object({
-        techId: z.number(),
-        postId: z.number().optional(),
-        serviceType: z.string().optional(),
-        addonServiceId: z.number().optional(),
-        scheduledAt: z.number(), // timestamp ms
-        duration: z.number().default(60),
-        notes: z.string().optional(),
-        smartMatch: z.object({
-          serviceCategory: z.string(),
-          answers: z.record(z.string(), z.string()),
-          outcome: z.enum(["match", "recommend", "addon", "review", "bundle"]),
-          recommendedService: z.string().nullable(),
-          photoUrls: z.array(z.string()).max(5).default([]),
-        }).optional(),
-      })
-    )
+  createWithServiceLines: protectedProcedure
+    .input(z.object({
+      techId: z.number(),
+      postId: z.number().optional(),
+      scheduledAt: z.number(),
+      notes: z.string().max(2000).optional(),
+      serviceLines: z.array(z.object({
+        techServiceId: z.number(),
+        lineType: z.enum(["primary", "addon", "upgrade"]),
+      })).min(1),
+      smartServiceMatch: z.object({
+        serviceCategory: z.string(),
+        answers: z.record(z.string(), z.string()),
+        outcome: z.enum(["match", "recommendation", "review"]),
+        recommendedService: z.string().nullable(),
+        recommendedAddOns: z.array(z.string()).max(5),
+        explanation: z.string().max(1000),
+        photoUrls: z.array(z.string()).max(5),
+      }).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
-      let addonServiceId: number | null = null;
-      if (input.addonServiceId) {
-        const offeredServices = await getTechServices(input.techId);
-        const addon = offeredServices.find(service => service.id === input.addonServiceId);
-        if (!addon) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "That add-on is no longer offered by this nail tech." });
-        }
-        addonServiceId = addon.id;
+      const offeredServices = await getTechServices(input.techId);
+      const serviceIds = new Set(input.serviceLines.map((line) => line.techServiceId));
+      if (serviceIds.size !== input.serviceLines.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Each service can only be added once." });
       }
+      const lines = input.serviceLines.map((requestedLine, position) => {
+        const service = offeredServices.find((candidate) => candidate.id === requestedLine.techServiceId);
+        if (!service) throw new TRPCError({ code: "BAD_REQUEST", message: "One of the selected services is no longer offered by this nail tech." });
+        return {
+          techServiceId: service.id,
+          serviceName: service.customName || service.category,
+          lineType: requestedLine.lineType,
+          priceInCents: service.priceInCents,
+          durationMinutes: service.durationMinutes,
+          position,
+        } as const;
+      });
+      const primary = lines.find((line) => line.lineType === "primary");
+      if (!primary) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose one primary service for this booking." });
+      const totalDuration = lines.reduce((sum, line) => sum + line.durationMinutes, 0);
       const bookingId = await createBookingWithConflictCheck({
         clientId: ctx.user.id,
         techId: input.techId,
         postId: input.postId ?? null,
-        serviceType: input.serviceType ?? null,
-        addonServiceId,
+        serviceType: primary.serviceName,
         scheduledAt: new Date(input.scheduledAt),
-        duration: input.duration,
+        duration: totalDuration,
         notes: input.notes ?? null,
       } as any);
-      if (input.smartMatch) {
-        await saveSmartMatchResponse({
-          bookingId,
-          techId: input.techId,
-          serviceCategory: input.smartMatch.serviceCategory,
-          answers: input.smartMatch.answers,
-          outcome: input.smartMatch.outcome,
-          recommendedService: input.smartMatch.recommendedService,
-          photoUrls: input.smartMatch.photoUrls,
-        });
+      await replaceBookingServiceLines(bookingId, lines);
+      if (input.smartServiceMatch) {
+        await saveBookingMatchAssessment({ bookingId, ...input.smartServiceMatch });
       }
       await createNotification({
         userId: input.techId,
@@ -772,6 +790,10 @@ const bookingsRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (booking?.revisionStatus === "pending" && input.status === "confirmed") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Wait for the client to accept the revised quote before confirming this booking." });
+      }
       await updateBookingStatus(input.bookingId, input.status, ctx.user.id);
       return { success: true };
     }),
@@ -1582,7 +1604,193 @@ const settingsRouter = router({
     }),
 });
 
-// ─── Smart Match ─────────────────────────────────────────────────────────────
+// ─── Replacement Smart Service Match ──────────────────────────────────────────
+const smartServiceMatchRouter = router({
+  getConfig: publicProcedure
+    .input(z.object({ serviceCategory: z.string() }))
+    .query(({ input }) => getSystemSmartServiceMatchConfig(input.serviceCategory)),
+
+  getCategories: publicProcedure.query(() => SMART_SERVICE_MATCH_CONFIGS.map((config) => config.serviceCategory)),
+
+  publicSettings: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => {
+      const settings = await getSmartServiceSettings(input.techId);
+      return { globalEnabled: settings.globalEnabled, priceReviewThresholdCents: settings.priceReviewThresholdCents };
+    }),
+
+  isEnabled: publicProcedure
+    .input(z.object({ techId: z.number(), serviceId: z.number() }))
+    .query(({ input }) => isSmartMatchEnabled(input.techId, input.serviceId)),
+
+  getSettings: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      return getSmartServiceSettings(ctx.user.id);
+    }),
+
+  updateSettings: protectedProcedure
+    .input(z.object({
+      globalEnabled: z.boolean().optional(),
+      priceReviewThresholdCents: z.number().int().min(0).max(100000).optional(),
+      serviceId: z.number().optional(),
+      serviceEnabled: z.boolean().optional(),
+    }).refine((input) => input.globalEnabled !== undefined || input.priceReviewThresholdCents !== undefined || (input.serviceId !== undefined && input.serviceEnabled !== undefined), {
+      message: "Choose at least one Smart Service Match setting to update.",
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      if ((input.serviceId === undefined) !== (input.serviceEnabled === undefined)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A service toggle needs both a service and an enabled value." });
+      }
+      await updateSmartServiceSettings({ techId: ctx.user.id, ...input });
+      return { success: true };
+    }),
+
+  evaluate: publicProcedure
+    .input(z.object({
+      techId: z.number(),
+      serviceCategory: z.string(),
+      answers: z.record(z.string(), z.string()),
+    }))
+    .mutation(async ({ input }) => {
+      const config = getSystemSmartServiceMatchConfig(input.serviceCategory);
+      if (!config) {
+        return { outcome: "match" as const, recommendedService: null, recommendedAddOns: [], explanation: "Your selected service looks like a good match.", needsReview: false };
+      }
+      const result = evaluateSmartServiceMatch(input.answers, config.rules);
+      const offeredServices = await getTechServices(input.techId);
+      const offeredNames = new Set(offeredServices.flatMap((service) => [service.category, service.customName].filter((name): name is string => Boolean(name))));
+      const unavailable = [result.recommendedService, ...result.recommendedAddOns]
+        .filter((service): service is string => Boolean(service))
+        .find((service) => !offeredNames.has(service));
+      if (unavailable) {
+        return {
+          outcome: "review" as const,
+          recommendedService: result.recommendedService,
+          recommendedAddOns: result.recommendedAddOns,
+          explanation: `${unavailable} may be a better fit, but this nail tech does not currently offer it. Your tech will review your answers before confirming.`,
+          needsReview: true,
+        };
+      }
+      const settings = await getSmartServiceSettings(input.techId);
+      const addedPriceInCents = offeredServices
+        .filter((service) => result.recommendedAddOns.includes(service.customName || service.category))
+        .reduce((sum, service) => sum + service.priceInCents, 0);
+      if (settings.priceReviewThresholdCents > 0 && addedPriceInCents >= settings.priceReviewThresholdCents) {
+        return {
+          outcome: "review" as const,
+          recommendedService: result.recommendedService,
+          recommendedAddOns: result.recommendedAddOns,
+          explanation: `These recommendations add $${(addedPriceInCents / 100).toFixed(2)} to the appointment. Your tech will review the full quote before confirming.`,
+          needsReview: true,
+        };
+      }
+      return result;
+    }),
+
+  uploadPhoto: protectedProcedure
+    .input(z.object({
+      base64: z.string().min(1).max(7_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Inspiration photos must be 5 MB or smaller." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const { url } = await storagePut(`smart-service-match/${ctx.user.id}/${Date.now()}.${extension}`, buffer, input.mimeType);
+      return { url };
+    }),
+
+  proposeRevision: protectedProcedure
+    .input(z.object({
+      bookingId: z.number(),
+      serviceLines: z.array(z.object({
+        techServiceId: z.number(),
+        lineType: z.enum(["primary", "addon", "upgrade"]),
+      })).min(1),
+      techNote: z.string().max(1000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      const offeredServices = await getTechServices(ctx.user.id);
+      const lineIds = new Set(input.serviceLines.map((line) => line.techServiceId));
+      if (lineIds.size !== input.serviceLines.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Each revised service can only be included once." });
+      }
+      const lines = input.serviceLines.map((line, position) => {
+        const service = offeredServices.find((candidate) => candidate.id === line.techServiceId);
+        if (!service) throw new TRPCError({ code: "BAD_REQUEST", message: "One of the revised services is no longer offered." });
+        return {
+          techServiceId: service.id,
+          serviceName: service.customName || service.category,
+          lineType: line.lineType,
+          priceInCents: service.priceInCents,
+          durationMinutes: service.durationMinutes,
+          position,
+        } as const;
+      });
+      if (!lines.some((line) => line.lineType === "primary")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A revised quote needs one primary service." });
+      }
+      const revisionId = await createBookingRevision({ bookingId: booking.id, techId: ctx.user.id, serviceLines: lines, techNote: input.techNote });
+      await createNotification({
+        userId: booking.clientId,
+        type: "booking_revision",
+        title: "Your nail tech updated your booking request",
+        body: "Review the updated services, time, and quote before your appointment is confirmed.",
+        relatedId: booking.id,
+      });
+      return { revisionId };
+    }),
+
+  latestRevision: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return getLatestBookingRevision(input.bookingId);
+    }),
+
+  bookingContext: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const [serviceLines, assessment, latestRevision] = await Promise.all([
+        getBookingServiceLines(input.bookingId),
+        getBookingMatchAssessment(input.bookingId),
+        getLatestBookingRevision(input.bookingId),
+      ]);
+      return { serviceLines, assessment, latestRevision };
+    }),
+
+  respondToRevision: protectedProcedure
+    .input(z.object({ bookingId: z.number(), revisionId: z.number(), accepted: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      await resolveBookingRevision({ ...input, clientId: ctx.user.id });
+      await createNotification({
+        userId: booking.techId,
+        type: "booking_revision_response",
+        title: input.accepted ? "Client accepted the revised booking" : "Client declined the revised booking",
+        body: input.accepted ? "The booking has been confirmed with the revised services and quote." : "The client declined the revised booking request.",
+        relatedId: input.bookingId,
+      });
+      return { success: true };
+    }),
+});
+
+// ─── Legacy Smart Match (removed during UI cutover) ───────────────────────────
 const smartMatchRouter = router({
   // Get the effective config (tech override or system default) for a category
   getConfig: publicProcedure
@@ -1755,7 +1963,7 @@ export const appRouter = router({
   reports: reportsRouter,
   cancellation: cancellationRouter,
   settings: settingsRouter,
-  smartMatch: smartMatchRouter,
+  smartService: smartServiceMatchRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -20,12 +20,15 @@ const SERVICE_CATEGORIES = [
   "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
+  "Dip Powder with Tips",
   "Manicure",
   "Pedicure",
+  "Spa / Callus Pedicure Upgrade",
   "Nail Art / Add-Ons",
   "Removal / Soak-Off",
   "Repair",
   "Press-On Nails",
+  "Sizing Kit / Consultation",
   "Custom / Not Sure",
 ];
 

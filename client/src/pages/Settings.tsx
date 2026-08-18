@@ -42,6 +42,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "privacy", label: "Privacy", description: "Profile visibility, blocked users", icon: <Shield size={20} />, href: "/settings/privacy" },
   { id: "account", label: "Account & Security", description: "Connected account, display name", icon: <Lock size={20} />, href: "/settings/account" },
   { id: "subscription", label: "Subscription", description: "Plan, billing, trial status", icon: <CreditCard size={20} />, href: "/settings/subscription", techOnly: true },
+  { id: "smart-service-match", label: "Smart Service Match", description: "Service matching and quote review controls", icon: <Sparkles size={20} />, href: "/settings/smart-service-match", techOnly: true },
   { id: "appearance", label: "Appearance", description: "Dark mode, display preferences", icon: <Moon size={20} />, href: "/settings/appearance" },
 ];
 
@@ -79,12 +80,15 @@ const SERVICE_OPTIONS = [
   "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
+  "Dip Powder with Tips",
   "Manicure",
   "Pedicure",
+  "Spa / Callus Pedicure Upgrade",
   "Nail Art / Add-Ons",
   "Removal / Soak-Off",
   "Repair",
   "Press-On Nails",
+  "Sizing Kit / Consultation",
   "Custom / Not Sure",
 ];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];

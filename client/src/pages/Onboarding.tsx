@@ -23,12 +23,15 @@ const SERVICE_OPTIONS = [
   "Extended Fill",
   "Gel-X / Soft Gel Extensions",
   "Dip Powder",
+  "Dip Powder with Tips",
   "Manicure",
   "Pedicure",
+  "Spa / Callus Pedicure Upgrade",
   "Nail Art / Add-Ons",
   "Removal / Soak-Off",
   "Repair",
   "Press-On Nails",
+  "Sizing Kit / Consultation",
   "Custom / Not Sure",
 ];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];

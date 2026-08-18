@@ -60,6 +60,8 @@ export const users = mysqlTable("users", {
   activeMode: mysqlEnum("activeMode", ["client", "nail_tech"]).default("client").notNull(),
   // Smart Service Match global toggle (tech only)
   smartMatchEnabled: boolean("smartMatchEnabled").default(true).notNull(),
+  // A technician-controlled threshold for sending price-impacting Smart Match changes to review.
+  smartMatchPriceReviewThresholdCents: int("smartMatchPriceReviewThresholdCents").default(0).notNull(),
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),
@@ -274,12 +276,78 @@ export const bookings = mysqlTable("bookings", {
   reviewAnswers: json("reviewAnswers").$type<Record<string, string>>(),
   reviewRecommendedService: varchar("reviewRecommendedService", { length: 128 }),
   reviewPhotoUrls: json("reviewPhotoUrls").$type<string[]>(),
+  revisionStatus: mysqlEnum("revisionStatus", ["none", "pending", "accepted", "declined"]).default("none").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Booking = typeof bookings.$inferSelect;
 export type InsertBooking = typeof bookings.$inferInsert;
+
+// ─── Booking Service Lines ────────────────────────────────────────────────────
+// Each booked service is stored as a snapshot so later service edits never alter
+// the agreed booking price or duration. A booking may have a primary service plus
+// any number of Smart Match additions or upgrades.
+export const bookingServiceLines = mysqlTable("booking_service_lines", {
+  id: int("id").autoincrement().primaryKey(),
+  bookingId: int("bookingId").notNull(),
+  techServiceId: int("techServiceId"),
+  serviceName: varchar("serviceName", { length: 128 }).notNull(),
+  lineType: mysqlEnum("lineType", ["primary", "addon", "upgrade"]).default("primary").notNull(),
+  priceInCents: int("priceInCents").default(0).notNull(),
+  durationMinutes: int("durationMinutes").default(0).notNull(),
+  position: int("position").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type BookingServiceLine = typeof bookingServiceLines.$inferSelect;
+export type InsertBookingServiceLine = typeof bookingServiceLines.$inferInsert;
+
+// ─── Booking Revisions ────────────────────────────────────────────────────────
+// Technicians can propose a revised service mix, duration, and quote. The client
+// must explicitly accept the pending revision before the booking can be confirmed.
+export const bookingRevisions = mysqlTable("booking_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  bookingId: int("bookingId").notNull(),
+  techId: int("techId").notNull(),
+  serviceLines: json("serviceLines").$type<Array<{
+    techServiceId: number | null;
+    serviceName: string;
+    lineType: "primary" | "addon" | "upgrade";
+    priceInCents: number;
+    durationMinutes: number;
+    position: number;
+  }>>().notNull(),
+  totalPriceInCents: int("totalPriceInCents").default(0).notNull(),
+  totalDurationMinutes: int("totalDurationMinutes").default(0).notNull(),
+  techNote: text("techNote"),
+  status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+});
+
+export type BookingRevision = typeof bookingRevisions.$inferSelect;
+export type InsertBookingRevision = typeof bookingRevisions.$inferInsert;
+
+// ─── Booking Smart Service Match Assessments ──────────────────────────────────
+// Current booking review context for the replacement system. This replaces the
+// old generic Smart Match response records while keeping the active technician
+// review card fully informed.
+export const bookingMatchAssessments = mysqlTable("booking_match_assessments", {
+  id: int("id").autoincrement().primaryKey(),
+  bookingId: int("bookingId").notNull().unique(),
+  serviceCategory: varchar("serviceCategory", { length: 128 }).notNull(),
+  answers: json("answers").$type<Record<string, string>>().notNull(),
+  outcome: mysqlEnum("outcome", ["match", "recommendation", "review"]).notNull(),
+  recommendedService: varchar("recommendedService", { length: 128 }),
+  recommendedAddOns: json("recommendedAddOns").$type<string[]>().default([]).notNull(),
+  explanation: text("explanation"),
+  photoUrls: json("photoUrls").$type<string[]>().default([]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type BookingMatchAssessment = typeof bookingMatchAssessments.$inferSelect;
+export type InsertBookingMatchAssessment = typeof bookingMatchAssessments.$inferInsert;
 
 // ─── Conversations ────────────────────────────────────────────────────────────
 export const conversations = mysqlTable("conversations", {
