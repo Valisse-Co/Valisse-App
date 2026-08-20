@@ -136,6 +136,7 @@ import {
   createEmailUser,
 } from "./db";
 import { storagePut } from "./storage";
+import { isValidInspirationImageReference } from "../shared/inspirationImage";
 import {
   evaluateSmartServiceMatch,
   getSystemSmartServiceMatchConfig,
@@ -724,7 +725,9 @@ const bookingsRouter = router({
     .input(z.object({
       techId: z.number(),
       postId: z.number().optional(),
-      inspirationImageUrl: z.string().url().max(2000).optional(),
+      inspirationImageUrl: z.string().max(2000).refine((value) => isValidInspirationImageReference(value), {
+        message: "Use a secure image URL or a Valisse storage image path.",
+      }).optional(),
       scheduledAt: z.number(),
       notes: z.string().max(2000).optional(),
       serviceLines: z.array(z.object({

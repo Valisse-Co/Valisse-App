@@ -548,3 +548,7 @@
 - [x] Preserve a Book This Look post reference and currently viewed image as editable appointment inspiration for client and technician views
 - [x] Add regression tests covering client-to-tech service onboarding, multi-service duration, Smart Match add-on pricing, and Book This Look inspiration persistence
 - [x] Run the relevant Smart Service Match questionnaire for each initially selected service while deduplicating shared questions and aggregating outcomes into one appointment
+
+## Book This Look Internal Image Validation Fix
+- [x] Allow secure internal `/manus-storage/` inspiration paths in booking creation while retaining absolute URL validation for external images
+- [x] Add regression coverage for accepted internal storage paths and rejected malformed image references
