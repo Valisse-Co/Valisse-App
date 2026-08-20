@@ -536,3 +536,15 @@
 - [x] Keep technician Smart Match controls limited to service enable/disable and pricing/time review thresholds in a dedicated Settings section
 - [x] Retain the existing Needs Review booking card as the sole technician review surface; do not add a separate notification requirement
 - [x] Add comprehensive unit and workflow regression coverage for all matching, recommendation, add-on, review, continuation, revision, and booking-persistence paths
+
+## Technician Services and Combined Booking Refinements
+- [x] Audit the existing nail-tech upgrade onboarding path and ensure selected services require and retain price and duration
+- [x] Restore or persist onboarding-selected services when an existing client becomes a nail tech
+- [x] Redesign Smart Service Match toggles with an in-track left/off and right/on thumb, a master control, and optional per-service customization
+- [x] Remove Smart Service Match price-review threshold behavior so every technician quote revision requires client acceptance
+- [x] Support unlimited initial multi-service selection with live combined price and duration summary
+- [x] Use combined service duration for calendar availability, time slots, and final booking validation
+- [x] Show price and duration on Smart Service Match add-on choices and include accepted add-ons in the combined appointment summary
+- [x] Preserve a Book This Look post reference and currently viewed image as editable appointment inspiration for client and technician views
+- [x] Add regression tests covering client-to-tech service onboarding, multi-service duration, Smart Match add-on pricing, and Book This Look inspiration persistence
+- [x] Run the relevant Smart Service Match questionnaire for each initially selected service while deduplicating shared questions and aggregating outcomes into one appointment

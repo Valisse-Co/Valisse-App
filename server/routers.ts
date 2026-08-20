@@ -94,7 +94,7 @@ import {
   hidePostByAdmin,
   deletePostByAdmin,
   getBookingById,
-  getBookingMatchAssessment,
+  getBookingMatchAssessments,
   getBookingServiceLines,
   getLatestBookingRevision,
   getCancellationPolicy,
@@ -405,18 +405,31 @@ const usersRouter = router({
       z.object({
         businessName: z.string().optional(),
         bio: z.string().optional(),
-        services: z.array(z.string()).optional(),
+        services: z.array(z.object({
+          category: z.string().min(1),
+          priceInCents: z.number().int().positive(),
+          durationMinutes: z.number().int().min(5).max(360),
+        })).min(1, "Add at least one service with its price and duration."),
         priceRange: z.string().optional(),
         phone: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const { services, ...profile } = input;
       await updateUserProfile(ctx.user.id, {
-        ...input,
+        ...profile,
+        services: services.map((service) => service.category),
         userType: "nail_tech",
         hasDualRole: true,
         activeMode: "nail_tech",
       } as any);
+      await Promise.all(services.map((service, sortOrder) => upsertTechService({
+        techId: ctx.user.id,
+        category: service.category,
+        priceInCents: service.priceInCents,
+        durationMinutes: service.durationMinutes,
+        sortOrder,
+      })));
       await getOrCreateSubscription(ctx.user.id);
       return { success: true };
     }),
@@ -711,13 +724,14 @@ const bookingsRouter = router({
     .input(z.object({
       techId: z.number(),
       postId: z.number().optional(),
+      inspirationImageUrl: z.string().url().max(2000).optional(),
       scheduledAt: z.number(),
       notes: z.string().max(2000).optional(),
       serviceLines: z.array(z.object({
         techServiceId: z.number(),
         lineType: z.enum(["primary", "addon", "upgrade"]),
       })).min(1),
-      smartServiceMatch: z.object({
+      smartServiceMatches: z.array(z.object({
         serviceCategory: z.string(),
         answers: z.record(z.string(), z.string()),
         outcome: z.enum(["match", "recommendation", "review"]),
@@ -725,7 +739,7 @@ const bookingsRouter = router({
         recommendedAddOns: z.array(z.string()).max(5),
         explanation: z.string().max(1000),
         photoUrls: z.array(z.string()).max(5),
-      }).optional(),
+      })).max(20).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const offeredServices = await getTechServices(input.techId);
@@ -752,14 +766,15 @@ const bookingsRouter = router({
         clientId: ctx.user.id,
         techId: input.techId,
         postId: input.postId ?? null,
+        inspirationImageUrl: input.inspirationImageUrl ?? null,
         serviceType: primary.serviceName,
         scheduledAt: new Date(input.scheduledAt),
         duration: totalDuration,
         notes: input.notes ?? null,
       } as any);
       await replaceBookingServiceLines(bookingId, lines);
-      if (input.smartServiceMatch) {
-        await saveBookingMatchAssessment({ bookingId, ...input.smartServiceMatch });
+      if (input.smartServiceMatches?.length) {
+        await Promise.all(input.smartServiceMatches.map((assessment) => saveBookingMatchAssessment({ bookingId, ...assessment })));
       }
       await createNotification({
         userId: input.techId,
@@ -1616,7 +1631,7 @@ const smartServiceMatchRouter = router({
     .input(z.object({ techId: z.number() }))
     .query(async ({ input }) => {
       const settings = await getSmartServiceSettings(input.techId);
-      return { globalEnabled: settings.globalEnabled, priceReviewThresholdCents: settings.priceReviewThresholdCents };
+      return { globalEnabled: settings.globalEnabled };
     }),
 
   isEnabled: publicProcedure
@@ -1632,10 +1647,9 @@ const smartServiceMatchRouter = router({
   updateSettings: protectedProcedure
     .input(z.object({
       globalEnabled: z.boolean().optional(),
-      priceReviewThresholdCents: z.number().int().min(0).max(100000).optional(),
       serviceId: z.number().optional(),
       serviceEnabled: z.boolean().optional(),
-    }).refine((input) => input.globalEnabled !== undefined || input.priceReviewThresholdCents !== undefined || (input.serviceId !== undefined && input.serviceEnabled !== undefined), {
+    }).refine((input) => input.globalEnabled !== undefined || (input.serviceId !== undefined && input.serviceEnabled !== undefined), {
       message: "Choose at least one Smart Service Match setting to update.",
     }))
     .mutation(async ({ ctx, input }) => {
@@ -1670,19 +1684,6 @@ const smartServiceMatchRouter = router({
           recommendedService: result.recommendedService,
           recommendedAddOns: result.recommendedAddOns,
           explanation: `${unavailable} may be a better fit, but this nail tech does not currently offer it. Your tech will review your answers before confirming.`,
-          needsReview: true,
-        };
-      }
-      const settings = await getSmartServiceSettings(input.techId);
-      const addedPriceInCents = offeredServices
-        .filter((service) => result.recommendedAddOns.includes(service.customName || service.category))
-        .reduce((sum, service) => sum + service.priceInCents, 0);
-      if (settings.priceReviewThresholdCents > 0 && addedPriceInCents >= settings.priceReviewThresholdCents) {
-        return {
-          outcome: "review" as const,
-          recommendedService: result.recommendedService,
-          recommendedAddOns: result.recommendedAddOns,
-          explanation: `These recommendations add $${(addedPriceInCents / 100).toFixed(2)} to the appointment. Your tech will review the full quote before confirming.`,
           needsReview: true,
         };
       }
@@ -1765,12 +1766,12 @@ const smartServiceMatchRouter = router({
       if (!booking || (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id)) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      const [serviceLines, assessment, latestRevision] = await Promise.all([
+      const [serviceLines, assessments, latestRevision] = await Promise.all([
         getBookingServiceLines(input.bookingId),
-        getBookingMatchAssessment(input.bookingId),
+        getBookingMatchAssessments(input.bookingId),
         getLatestBookingRevision(input.bookingId),
       ]);
-      return { serviceLines, assessment, latestRevision };
+      return { serviceLines, assessments, latestRevision };
     }),
 
   respondToRevision: protectedProcedure

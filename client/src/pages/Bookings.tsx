@@ -274,6 +274,13 @@ export default function Bookings() {
                   </div>
                 </div>
 
+                {(booking as any).inspirationImageUrl && (
+                  <div className="mt-3 flex items-center gap-3 rounded-xl border border-primary/15 bg-primary/5 p-2.5">
+                    <img src={(booking as any).inspirationImageUrl} alt="Appointment inspiration" className="h-14 w-14 rounded-lg object-cover" />
+                    <div><p className="text-xs font-semibold text-foreground">Your selected nail inspiration</p><p className="text-xs text-muted-foreground mt-0.5">Saved from the look you booked.</p></div>
+                  </div>
+                )}
+
                 {(booking as any).revisionStatus === "pending" && <RevisionApprovalCard bookingId={booking.id} onResolved={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />}
 
                 {/* Address reveal — only for confirmed bookings */}

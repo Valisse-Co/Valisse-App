@@ -134,6 +134,20 @@
       "when": 1787072620149,
       "tag": "0018_strong_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1787231987488,
+      "tag": "0019_early_hannibal_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1787232490016,
+      "tag": "0020_youthful_shriek",
+      "breakpoints": true
     }
   ]
 }

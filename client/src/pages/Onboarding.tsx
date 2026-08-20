@@ -174,6 +174,14 @@ export default function Onboarding() {
     if (!fullName.trim()) return toast.error("Please enter your full name.");
     if (phone.replace(/\D/g, "").length < 10) return toast.error("Please enter a valid mobile number.");
     if (!location.trim()) return toast.error("Please enter your location.");
+    if (userType === "nail_tech") {
+      if (selectedServices.length === 0) return toast.error("Select at least one service you offer.");
+      const hasIncompleteService = selectedServices.some((service) => {
+        const detail = serviceDetails[service];
+        return !detail?.price || Number(detail.price) <= 0 || !detail.duration;
+      });
+      if (hasIncompleteService) return toast.error("Add a price and duration for every selected service.");
+    }
     // First complete onboarding profile
     await completeOnboarding.mutateAsync({
       userType,

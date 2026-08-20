@@ -92,6 +92,7 @@ const SERVICE_OPTIONS = [
   "Custom / Not Sure",
 ];
 const PRICE_OPTIONS = ["$30–$60", "$60–$100", "$100–$150", "$150+"];
+const DURATION_OPTIONS = Array.from({ length: 48 }, (_, index) => (index + 1) * 5);
 
 export default function Settings() {
   const { user, logout } = useAuth();
@@ -100,6 +101,7 @@ export default function Settings() {
   const [businessName, setBusinessName] = useState("");
   const [bio, setBio] = useState("");
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [serviceDetails, setServiceDetails] = useState<Record<string, { price: string; duration: number }>>({});
   const [priceRange, setPriceRange] = useState("");
   const [phone, setPhone] = useState("");
 
@@ -133,13 +135,28 @@ export default function Settings() {
     setSelectedServices(prev =>
       prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
     );
+    if (!serviceDetails[s]) {
+      setServiceDetails(prev => ({ ...prev, [s]: { price: "", duration: 60 } }));
+    }
   };
 
   const handleBecomeNailTech = () => {
+    if (selectedServices.length === 0) {
+      toast.error("Select at least one service you offer.");
+      return;
+    }
+    const services = selectedServices.map((category) => {
+      const detail = serviceDetails[category];
+      return { category, priceInCents: Math.round(Number(detail?.price) * 100), durationMinutes: detail?.duration ?? 0 };
+    });
+    if (services.some((service) => !Number.isFinite(service.priceInCents) || service.priceInCents <= 0 || service.durationMinutes <= 0)) {
+      toast.error("Add a price and duration for every selected service.");
+      return;
+    }
     becomeNailTech.mutate({
       businessName: businessName || undefined,
       bio: bio || undefined,
-      services: selectedServices,
+      services,
       priceRange: priceRange || undefined,
       phone: phone || undefined,
     });
@@ -355,23 +372,32 @@ export default function Settings() {
 
                   {/* Services */}
                   <div>
-                    <p className="text-sm text-muted-foreground mb-2">Services offered</p>
-                    <div className="flex flex-wrap gap-2">
-                      {SERVICE_OPTIONS.map(s => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => toggleService(s)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-full text-xs border transition-all",
-                            selectedServices.includes(s)
-                              ? "bg-primary text-white border-primary"
-                              : "bg-white border-border text-foreground hover:border-primary/40"
-                          )}
-                        >
-                          {s}
-                        </button>
-                      ))}
+                    <p className="text-sm text-muted-foreground mb-2">Services offered <span className="text-primary">· add price and time</span></p>
+                    <div className="flex flex-col gap-2">
+                      {SERVICE_OPTIONS.map((service) => {
+                        const isSelected = selectedServices.includes(service);
+                        const detail = serviceDetails[service] ?? { price: "", duration: 60 };
+                        return (
+                          <div key={service} className={cn("rounded-xl border overflow-hidden transition-colors", isSelected ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                            <button type="button" onClick={() => toggleService(service)} className="w-full flex items-center justify-between px-3 py-2.5 text-left text-sm font-medium">
+                              <span>{service}</span>
+                              <span className={cn("w-5 h-5 rounded-full border-2", isSelected ? "border-primary bg-primary" : "border-muted-foreground/40")} />
+                            </button>
+                            {isSelected && (
+                              <div className="grid grid-cols-2 gap-2 px-3 pb-3">
+                                <label className="text-xs text-muted-foreground">Price ($)
+                                  <input type="number" min="1" step="1" placeholder="65" value={detail.price} onChange={(event) => setServiceDetails(prev => ({ ...prev, [service]: { ...detail, price: event.target.value } }))} className="mt-1 h-9 w-full rounded-lg border border-border bg-white px-2 text-sm text-foreground" />
+                                </label>
+                                <label className="text-xs text-muted-foreground">Duration
+                                  <select value={detail.duration} onChange={(event) => setServiceDetails(prev => ({ ...prev, [service]: { ...detail, duration: Number(event.target.value) } }))} className="mt-1 h-9 w-full rounded-lg border border-border bg-white px-2 text-sm text-foreground">
+                                    {DURATION_OPTIONS.map((duration) => <option key={duration} value={duration}>{duration < 60 ? `${duration} min` : duration % 60 === 0 ? `${duration / 60}h` : `${Math.floor(duration / 60)}h ${duration % 60}m`}</option>)}
+                                  </select>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 

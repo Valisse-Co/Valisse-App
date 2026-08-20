@@ -257,6 +257,7 @@ export const bookings = mysqlTable("bookings", {
   clientId: int("clientId").notNull(),
   techId: int("techId").notNull(),
   postId: int("postId"),
+  inspirationImageUrl: text("inspirationImageUrl"),
   serviceType: varchar("serviceType", { length: 128 }),
   // Optional second service selected through Smart Service Match (for example, nail art or removal).
   addonServiceId: int("addonServiceId"),
@@ -335,7 +336,7 @@ export type InsertBookingRevision = typeof bookingRevisions.$inferInsert;
 // review card fully informed.
 export const bookingMatchAssessments = mysqlTable("booking_match_assessments", {
   id: int("id").autoincrement().primaryKey(),
-  bookingId: int("bookingId").notNull().unique(),
+  bookingId: int("bookingId").notNull(),
   serviceCategory: varchar("serviceCategory", { length: 128 }).notNull(),
   answers: json("answers").$type<Record<string, string>>().notNull(),
   outcome: mysqlEnum("outcome", ["match", "recommendation", "review"]).notNull(),

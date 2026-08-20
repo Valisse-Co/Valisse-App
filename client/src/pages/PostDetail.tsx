@@ -30,6 +30,7 @@ export default function PostDetail({ postId }: Props) {
   const clientLat = (() => { const v = localStorage.getItem("valisse_userLat"); return v ? parseFloat(v) : undefined; })();
   const clientLng = (() => { const v = localStorage.getItem("valisse_userLng"); return v ? parseFloat(v) : undefined; })();
   const [reportOpen, setReportOpen] = useState(false);
+  const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const search = useSearch();
   const searchParams = new URLSearchParams(search);
   const isPreview = searchParams.get("preview") === "1";
@@ -89,7 +90,10 @@ export default function PostDetail({ postId }: Props) {
       return;
     }
     if (!isAuthenticated) { toast.error("Sign in to book"); return; }
-    navigate(`/book/${tech?.id}?postId=${postId}`);
+    const inspirationImage = mediaUrls[selectedMediaIndex];
+    const query = new URLSearchParams({ postId: String(postId) });
+    if (inspirationImage) query.set("inspirationImage", inspirationImage);
+    navigate(`/book/${tech?.id}?${query.toString()}`);
   };
 
   const handleMessage = () => {
@@ -120,6 +124,7 @@ export default function PostDetail({ postId }: Props) {
             urls={mediaUrls}
             aspectRatio="4/5"
             showBadge={false}
+            onIndexChange={setSelectedMediaIndex}
             className="w-full"
           />
         ) : (

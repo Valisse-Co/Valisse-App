@@ -1,0 +1,1 @@
+ALTER TABLE `bookings` ADD `inspirationImageUrl` text;

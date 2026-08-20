@@ -38,6 +38,8 @@ interface MediaCarouselProps {
   showBadge?: boolean;
   /** Called when the user taps the media without swiping */
   onClick?: () => void;
+  /** Called whenever the currently visible media item changes */
+  onIndexChange?: (index: number) => void;
 }
 
 // ─── Pinch-to-zoom hook ───────────────────────────────────────────────────────
@@ -169,6 +171,7 @@ export function MediaCarousel({
   className,
   showBadge = true,
   onClick,
+  onIndexChange,
 }: MediaCarouselProps) {
   const [current, setCurrent] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -185,8 +188,10 @@ export function MediaCarousel({
   const count = urls.length;
 
   const goTo = useCallback((idx: number) => {
-    setCurrent(Math.max(0, Math.min(count - 1, idx)));
-  }, [count]);
+    const nextIndex = Math.max(0, Math.min(count - 1, idx));
+    setCurrent(nextIndex);
+    onIndexChange?.(nextIndex);
+  }, [count, onIndexChange]);
 
   // ── Pointer events with capture for reliable swipe tracking ──────────────
 

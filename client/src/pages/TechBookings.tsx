@@ -115,6 +115,7 @@ type BookingCardProps = {
     reviewAnswers?: Record<string, string> | null;
     reviewRecommendedService?: string | null;
     reviewPhotoUrls?: string[] | null;
+    inspirationImageUrl?: string | null;
     addonServiceId?: number | null;
     revisionStatus?: string | null;
   };
@@ -142,7 +143,8 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
     { bookingId: booking.id },
     { enabled: booking.needsReview || booking.revisionStatus === "pending" }
   );
-  const assessment = smartContext?.assessment as any;
+  const assessments = (smartContext?.assessments as any[] | undefined) ?? [];
+  const assessment = assessments[0];
   const reviewAnswers = assessment?.answers ?? booking.reviewAnswers;
   const reviewPhotos = assessment?.photoUrls ?? booking.reviewPhotoUrls;
   const reviewRecommendation = assessment?.recommendedService ?? booking.reviewRecommendedService;
@@ -178,26 +180,15 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
       {/* Expandable review panel */}
       {booking.needsReview && reviewExpanded && (
         <div className="mb-3 rounded-xl bg-card border border-amber-200 dark:border-amber-800 p-3 space-y-2">
-          {reviewAnswers && Object.keys(reviewAnswers).length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Client's answers</p>
-              {Object.entries(reviewAnswers).map(([k, v]) => (
-                <p key={k} className="text-xs text-foreground"><span className="text-muted-foreground">Q{k.replace('q','')}: </span>{String(v)}</p>
+          {(assessments.length > 0 ? assessments : [{ serviceCategory: booking.serviceType, answers: reviewAnswers, photoUrls: reviewPhotos }]).map((item: any, assessmentIndex: number) => (
+            <div key={item.id ?? assessmentIndex} className={cn(assessmentIndex > 0 && "pt-2 border-t border-amber-100 dark:border-amber-900/50")}>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{item.serviceCategory || "Service"} answers</p>
+              {item.answers && Object.keys(item.answers).length > 0 && Object.entries(item.answers).map(([key, value]) => (
+                <p key={key} className="text-xs text-foreground"><span className="text-muted-foreground">Q{key.replace("q", "")}: </span>{String(value)}</p>
               ))}
+              {item.photoUrls && item.photoUrls.length > 0 && <div className="mt-2"><p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Inspiration photos</p><div className="flex flex-wrap gap-2">{item.photoUrls.map((url: string, photoIndex: number) => <a key={photoIndex} href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt="" className="w-16 h-16 rounded-lg object-cover border border-border" /></a>)}</div></div>}
             </div>
-          )}
-          {reviewPhotos && reviewPhotos.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Inspiration photos</p>
-              <div className="flex flex-wrap gap-2">
-                {reviewPhotos.map((url: string, i: number) => (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                    <img src={url} alt="" className="w-16 h-16 rounded-lg object-cover border border-border" />
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
+          ))}
           {serviceLines.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Requested services</p>
@@ -239,6 +230,13 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           )}
         </div>
       </div>
+
+      {booking.inspirationImageUrl && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-primary/15 bg-primary/5 p-2">
+          <img src={booking.inspirationImageUrl} alt="Client nail inspiration" className="h-12 w-12 rounded-lg object-cover" />
+          <div><p className="text-xs font-semibold text-foreground">Booked look inspiration</p><p className="text-xs text-muted-foreground">The exact image the client selected.</p></div>
+        </div>
+      )}
 
       {/* Notes */}
       {booking.notes && (
@@ -1471,8 +1469,7 @@ export function ScheduleTab() {
           </button>
         ))}
       </div>
-
-      {/* Day rows */}
+      {/* actions */}
       <div className="space-y-2 mb-6">
         {schedule.map(day => {
           // Rules for this day: recurring rules for this dayOfWeek + one-off rules whose date falls on this day-of-week

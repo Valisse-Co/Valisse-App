@@ -1638,15 +1638,13 @@ export async function saveBookingMatchAssessment(params: {
   }
 }
 
-export async function getBookingMatchAssessment(bookingId: number) {
+export async function getBookingMatchAssessments(bookingId: number) {
   const db = await getDb();
-  if (!db) return undefined;
-  const rows = await db
+  if (!db) return [];
+  return db
     .select()
     .from(bookingMatchAssessments)
-    .where(eq(bookingMatchAssessments.bookingId, bookingId))
-    .limit(1);
-  return rows[0];
+    .where(eq(bookingMatchAssessments.bookingId, bookingId));
 }
 
 // ─── Booking Rules (client-tier restrictions) ─────────────────────────────────
