@@ -552,3 +552,15 @@
 ## Book This Look Internal Image Validation Fix
 - [x] Allow secure internal `/manus-storage/` inspiration paths in booking creation while retaining absolute URL validation for external images
 - [x] Add regression coverage for accepted internal storage paths and rejected malformed image references
+
+## OAuth Callback Failure Fix
+- [ ] Inspect Manus OAuth and direct Google OAuth callback handlers, registered routing state, and server logs for the reported failure
+- [ ] Correct the failing callback branch while retaining duplicate-account protection and secure session issuance
+- [ ] Add regression coverage for callback intent parsing and post-login routing
+
+## Technician-Readable Smart Service Match Preview
+- [x] Audit current service questionnaire and outcome definitions for a concise technician-facing preview
+- [x] Add per-service expandable question cards showing answer choices and plain-language decision paths
+- [x] Show distinct recommendation, service-change, add-on, and technician-review outcomes with readable labels
+- [x] Keep master and per-service enablement controls adjacent to each service’s decision preview
+- [x] Add regression coverage and visual validation for the settings preview

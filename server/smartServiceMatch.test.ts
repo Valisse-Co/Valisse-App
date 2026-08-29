@@ -65,4 +65,15 @@ describe("evaluateSmartServiceMatch", () => {
     expect(SMART_SERVICE_MATCH_CONFIGS.find((config) => config.serviceCategory === "Structured Gel / Builder Gel Fill")?.questions.length).toBeGreaterThan(0);
     expect(SMART_SERVICE_MATCH_CONFIGS.find((config) => config.serviceCategory === "Extended Fill")?.questions.length).toBeGreaterThan(0);
   });
+
+  it("provides technician-previewable answer options and explainable decision paths", () => {
+    const gelManicure = SMART_SERVICE_MATCH_CONFIGS.find((config) => config.serviceCategory === "Gel Manicure");
+
+    expect(gelManicure?.questions.every((question) => question.text.length > 0 && question.options.length > 1)).toBe(true);
+    expect(gelManicure?.rules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "recommend_service", service: "Gel-X / Soft Gel Extensions" }),
+      expect.objectContaining({ action: "add_service", service: "Removal / Soak-Off" }),
+    ]));
+    expect(gelManicure?.rules.every((rule) => rule.explanation.length > 0)).toBe(true);
+  });
 });

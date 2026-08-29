@@ -1630,6 +1630,12 @@ const smartServiceMatchRouter = router({
 
   getCategories: publicProcedure.query(() => SMART_SERVICE_MATCH_CONFIGS.map((config) => config.serviceCategory)),
 
+  getPreviewConfigs: protectedProcedure
+    .query(({ ctx }) => {
+      if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      return SMART_SERVICE_MATCH_CONFIGS;
+    }),
+
   publicSettings: publicProcedure
     .input(z.object({ techId: z.number() }))
     .query(async ({ input }) => {
