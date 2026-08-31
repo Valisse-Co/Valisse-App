@@ -77,24 +77,26 @@ export function registerOAuthRoutes(app: Express) {
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.clearCookie("valisse_oauth_intent", { ...cookieOptions, maxAge: -1 });
 
-      // Route returning (already-onboarded) users directly to their home screen.
-      if (user && user.onboardingCompleted) {
-        const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
-        if (effectiveMode === "nail_tech") {
-          res.redirect(302, "/dashboard");
-        } else {
-          res.redirect(302, "/discover");
-        }
-      } else {
-        // New and incomplete social accounts explicitly confirm the selected
-        // Google identity before role-selection onboarding begins.
-        const email = user?.email ?? userInfo.email ?? "";
-        const source = existingByOpenId || oauthIntent === "signup" ? "signup" : "login";
-        res.redirect(302, `/signup/google-confirm?email=${encodeURIComponent(email)}&source=${source}`);
-      }
+      // New incomplete accounts confirm their Google identity; returning
+      // accounts route directly to the home screen appropriate to their mode.
+      const email = user?.email ?? userInfo.email ?? "";
+      const source = existingByOpenId || oauthIntent === "signup" ? "signup" : "login";
+      res.redirect(302, getOAuthPostLoginPath(user as Parameters<typeof getOAuthPostLoginPath>[0], email, source));
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });
+}
+
+export function getOAuthPostLoginPath(
+  user: { onboardingCompleted: boolean; hasDualRole: boolean; activeMode: "client" | "nail_tech"; userType: "client" | "nail_tech" } | null,
+  email: string,
+  source: "login" | "signup",
+) {
+  if (user?.onboardingCompleted) {
+    const effectiveMode = user.hasDualRole ? user.activeMode : user.userType;
+    return effectiveMode === "nail_tech" ? "/dashboard" : "/discover";
+  }
+  return `/signup/google-confirm?email=${encodeURIComponent(email)}&source=${source}`;
 }

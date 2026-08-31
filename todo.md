@@ -554,9 +554,9 @@
 - [x] Add regression coverage for accepted internal storage paths and rejected malformed image references
 
 ## OAuth Callback Failure Fix
-- [ ] Inspect Manus OAuth and direct Google OAuth callback handlers, registered routing state, and server logs for the reported failure
-- [ ] Correct the failing callback branch while retaining duplicate-account protection and secure session issuance
-- [ ] Add regression coverage for callback intent parsing and post-login routing
+- [x] Inspect Manus OAuth and direct Google OAuth callback handlers, registered routing state, and server logs for the reported failure
+- [x] Restore the managed database connection behind the callback and retain duplicate-account protection and secure session issuance
+- [x] Add regression coverage for callback intent parsing and post-login routing
 
 ## Technician-Readable Smart Service Match Preview
 - [x] Audit current service questionnaire and outcome definitions for a concise technician-facing preview

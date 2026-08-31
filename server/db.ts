@@ -1047,7 +1047,9 @@ export async function getUserConversations(userId: number) {
     .where(or(eq(conversations.clientId, userId), eq(conversations.techId, userId)))
     .orderBy(desc(conversations.lastMessageAt));
 
-  return Promise.all(userConversations.map(async ({ conversation }) => {
+  const conversationSummaries = await Promise.all(userConversations.map(async ({ conversation }) => {
+    const otherUserId = conversation.clientId === userId ? conversation.techId : conversation.clientId;
+    if (await isDirectMessageBlocked(userId, otherUserId)) return null;
     const [lastMessage] = await db
       .select()
       .from(messages)
@@ -1068,6 +1070,7 @@ export async function getUserConversations(userId: number) {
       unreadCount: Number(unread?.count ?? 0),
     };
   }));
+  return conversationSummaries.filter((summary): summary is NonNullable<typeof summary> => summary !== null);
 }
 
 export async function getConversationMessages(conversationId: number, limit = 50) {
