@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` ADD CONSTRAINT `conversations_client_tech_unique` UNIQUE(`clientId`,`techId`);

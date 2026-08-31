@@ -991,21 +991,83 @@ export async function getOrCreateConversation(clientId: number, techId: number) 
     .where(and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)))
     .limit(1);
   if (existing.length > 0) return existing[0];
-  const [result] = await db.insert(conversations).values({ clientId, techId });
-  const id = (result as any).insertId as number;
-  const created = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
-  return created[0];
+  try {
+    const [result] = await db.insert(conversations).values({ clientId, techId });
+    const id = (result as any).insertId as number;
+    const created = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+    return created[0];
+  } catch {
+    // A concurrent request may have created the unique client/tech thread first.
+    const [concurrentConversation] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)))
+      .limit(1);
+    if (concurrentConversation) return concurrentConversation;
+    throw new Error("Unable to create conversation");
+  }
+}
+
+/** Returns a conversation only when the requesting user is a participant. */
+export async function getConversationForParticipant(conversationId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [conversation] = await db
+    .select()
+    .from(conversations)
+    .where(and(
+      eq(conversations.id, conversationId),
+      or(eq(conversations.clientId, userId), eq(conversations.techId, userId)),
+    ))
+    .limit(1);
+  return conversation ?? null;
+}
+
+/** True when either party has blocked the other. */
+export async function isDirectMessageBlocked(userId: number, otherUserId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const [block] = await db
+    .select({ id: blockedUsers.id })
+    .from(blockedUsers)
+    .where(or(
+      and(eq(blockedUsers.blockerId, userId), eq(blockedUsers.blockedId, otherUserId)),
+      and(eq(blockedUsers.blockerId, otherUserId), eq(blockedUsers.blockedId, userId)),
+    ))
+    .limit(1);
+  return Boolean(block);
 }
 
 export async function getUserConversations(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select({ conversation: conversations, client: users, tech: users })
+  const userConversations = await db
+    .select({ conversation: conversations })
     .from(conversations)
-    .leftJoin(users, or(eq(conversations.clientId, users.id), eq(conversations.techId, users.id)))
     .where(or(eq(conversations.clientId, userId), eq(conversations.techId, userId)))
     .orderBy(desc(conversations.lastMessageAt));
+
+  return Promise.all(userConversations.map(async ({ conversation }) => {
+    const [lastMessage] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversation.id))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(1);
+    const [unread] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(messages)
+      .where(and(
+        eq(messages.conversationId, conversation.id),
+        ne(messages.senderId, userId),
+        eq(messages.isRead, false),
+      ));
+    return {
+      conversation,
+      lastMessage: lastMessage ?? null,
+      unreadCount: Number(unread?.count ?? 0),
+    };
+  }));
 }
 
 export async function getConversationMessages(conversationId: number, limit = 50) {

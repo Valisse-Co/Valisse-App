@@ -564,3 +564,10 @@
 - [x] Show distinct recommendation, service-change, add-on, and technician-review outcomes with readable labels
 - [x] Keep master and per-service enablement controls adjacent to each service’s decision preview
 - [x] Add regression coverage and visual validation for the settings preview
+
+## Direct Message System Audit and Improvements
+- [x] Audit conversation, message, and unread-state schema; messaging routers; client inbox/thread UI; and authorization guards
+- [x] Run targeted tests for participant isolation, conversation creation, sending, ordering, unread counts, read status, and role interactions
+- [x] Document detected message-system bugs and confirm the proposed Instagram-style interaction model
+- [x] Implement validated conversation, inbox, thread, composition, and read-state improvements
+- [x] Add regression coverage and visual validation for secure direct messages

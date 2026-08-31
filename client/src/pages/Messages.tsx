@@ -1,7 +1,7 @@
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { MessageCircle } from "lucide-react";
+import { Image as ImageIcon, MessageCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -61,15 +61,17 @@ export default function Messages() {
             )}
           </div>
         ) : (
-          conversations.map(({ conversation }) => {
-            const isClient = user?.userType === "client";
-            const otherId = isClient ? conversation.techId : conversation.clientId;
+          conversations.map(({ conversation, lastMessage, unreadCount }) => {
+            const isClientMode = user?.userType === "client" || user?.activeMode === "client";
+            const otherId = isClientMode ? conversation.techId : conversation.clientId;
             return (
               <ConversationItem
                 key={conversation.id}
                 conversationId={conversation.id}
                 otherId={otherId}
                 lastMessageAt={new Date(conversation.lastMessageAt as any)}
+                lastMessage={lastMessage}
+                unreadCount={unreadCount}
                 onClick={() => navigate(`/chat/${conversation.id}`)}
               />
             );
@@ -80,10 +82,12 @@ export default function Messages() {
   );
 }
 
-function ConversationItem({ conversationId, otherId, lastMessageAt, onClick }: {
+function ConversationItem({ conversationId, otherId, lastMessageAt, lastMessage, unreadCount, onClick }: {
   conversationId: number;
   otherId: number;
   lastMessageAt: Date;
+  lastMessage: { content: string | null; imageUrl: string | null; senderId: number; type: string } | null;
+  unreadCount: number;
   onClick: () => void;
 }) {
   const { data: profileData } = trpc.users.getProfile.useQuery({ userId: otherId });
@@ -106,13 +110,20 @@ function ConversationItem({ conversationId, otherId, lastMessageAt, onClick }: {
           <p className="font-semibold text-sm text-foreground truncate">
             {other?.businessName || other?.name || "Loading..."}
           </p>
-          <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
+          <span className={cn("text-xs flex-shrink-0 ml-2", unreadCount > 0 ? "text-primary font-semibold" : "text-muted-foreground")}>
             {lastMessageAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">
-          {other?.userType === "nail_tech" ? "Nail Tech" : "Client"} · Tap to open chat
-        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className={cn("text-xs truncate flex-1", unreadCount > 0 ? "text-foreground font-medium" : "text-muted-foreground")}>
+            {lastMessage?.imageUrl ? <><ImageIcon size={12} className="inline mr-1 -mt-0.5" />Photo</> : (lastMessage?.content || "Start a conversation")}
+          </p>
+          {unreadCount > 0 && (
+            <span className="min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </div>
       </div>
     </motion.button>
   );

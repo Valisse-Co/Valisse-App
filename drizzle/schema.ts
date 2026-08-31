@@ -357,7 +357,9 @@ export const conversations = mysqlTable("conversations", {
   techId: int("techId").notNull(),
   lastMessageAt: timestamp("lastMessageAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => ({
+  uniqueClientTechConversation: unique("conversations_client_tech_unique").on(t.clientId, t.techId),
+}));
 
 export type Conversation = typeof conversations.$inferSelect;
 

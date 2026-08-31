@@ -19,6 +19,7 @@ import {
   hardDeletePost,
   restorePost,
   getClientBookings,
+  getConversationForParticipant,
   getConversationMessages,
   getDiscoverFeed,
   getFollowerCount,
@@ -127,6 +128,7 @@ import {
   unblockUser,
   getBlockedUsers,
   getInteractedUsers,
+  isDirectMessageBlocked,
   getTechSubscriptionStatus,
   initTechSubscription,
   getTechFollowerIds,
@@ -137,6 +139,7 @@ import {
 } from "./db";
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
+import { getDirectMessageValidationError, isConversationParticipant, isSafeDirectMessageImageReference } from "../shared/directMessaging";
 import {
   evaluateSmartServiceMatch,
   getSystemSmartServiceMatchConfig,
@@ -1016,41 +1019,66 @@ const messagingRouter = router({
   getOrCreateConversation: protectedProcedure
     .input(z.object({ techId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const clientId = ctx.user.userType === "client" ? ctx.user.id : input.techId;
-      const techId = ctx.user.userType === "nail_tech" ? ctx.user.id : input.techId;
-      return getOrCreateConversation(clientId, techId);
+      const isClientMode = ctx.user.userType === "client" || ctx.user.activeMode === "client";
+      if (!isClientMode) throw new TRPCError({ code: "FORBIDDEN", message: "Switch to client mode to start a new conversation." });
+      if (input.techId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot message yourself." });
+      const tech = await getUserById(input.techId);
+      if (!tech || tech.userType !== "nail_tech") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "That nail tech is unavailable." });
+      }
+      if (await isDirectMessageBlocked(ctx.user.id, tech.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Messaging is unavailable for this account." });
+      }
+      return getOrCreateConversation(ctx.user.id, tech.id);
     }),
 
-  conversations: protectedProcedure.query(async ({ ctx }) => {
-    const convs = await getUserConversations(ctx.user.id);
-    // deduplicate by conversation id
-    const seen = new Set<number>();
-    return convs.filter(c => {
-      if (seen.has(c.conversation.id)) return false;
-      seen.add(c.conversation.id);
-      return true;
-    });
-  }),
+  conversations: protectedProcedure.query(async ({ ctx }) => getUserConversations(ctx.user.id)),
 
   messages: protectedProcedure
     .input(z.object({ conversationId: z.number() }))
     .query(async ({ ctx, input }) => {
+      const conversation = await getConversationForParticipant(input.conversationId, ctx.user.id);
+      if (!conversation || !isConversationParticipant(conversation, ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this conversation." });
+      }
+      const otherUserId = conversation.clientId === ctx.user.id ? conversation.techId : conversation.clientId;
+      if (await isDirectMessageBlocked(ctx.user.id, otherUserId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Messaging is unavailable for this account." });
+      }
       await markMessagesRead(input.conversationId, ctx.user.id);
       const msgs = await getConversationMessages(input.conversationId);
       return msgs.reverse();
     }),
 
   send: protectedProcedure
-    .input(
-      z.object({
-        conversationId: z.number(),
-        content: z.string().optional(),
-        imageUrl: z.string().optional(),
-        bookingId: z.number().optional(),
-        type: z.enum(["text", "image", "booking_request", "booking_card"]).default("text"),
-      })
-    )
+    .input(z.object({
+      conversationId: z.number(),
+      content: z.string().trim().max(2_000).optional(),
+      imageUrl: z.string().optional(),
+      bookingId: z.number().optional(),
+      type: z.enum(["text", "image", "booking_request", "booking_card"]).default("text"),
+    }).superRefine((data, issueCtx) => {
+      if (!data.content && !data.imageUrl) {
+        issueCtx.addIssue({ code: z.ZodIssueCode.custom, path: ["content"], message: "A message or image is required." });
+      }
+      if (data.type === "image" && !data.imageUrl) {
+        issueCtx.addIssue({ code: z.ZodIssueCode.custom, path: ["imageUrl"], message: "An image is required for image messages." });
+      }
+    }))
     .mutation(async ({ ctx, input }) => {
+      const conversation = await getConversationForParticipant(input.conversationId, ctx.user.id);
+      if (!conversation || !isConversationParticipant(conversation, ctx.user.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this conversation." });
+      }
+      const otherUserId = conversation.clientId === ctx.user.id ? conversation.techId : conversation.clientId;
+      if (await isDirectMessageBlocked(ctx.user.id, otherUserId)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Messaging is unavailable for this account." });
+      }
+      const validationError = getDirectMessageValidationError(input);
+      if (validationError) throw new TRPCError({ code: "BAD_REQUEST", message: validationError });
+      if (input.imageUrl && !isSafeDirectMessageImageReference(input.imageUrl, ctx.user.id)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid message image reference." });
+      }
       const id = await sendMessage({
         conversationId: input.conversationId,
         senderId: ctx.user.id,
@@ -1060,6 +1088,21 @@ const messagingRouter = router({
         type: input.type,
       } as any);
       return { id };
+    }),
+
+  uploadImage: protectedProcedure
+    .input(z.object({
+      base64: z.string().min(1).max(7_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      if (buffer.length === 0 || buffer.length > 5 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Images must be 5 MB or smaller." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const { url } = await storagePut(`messages/${ctx.user.id}/${Date.now()}.${extension}`, buffer, input.mimeType);
+      return { url };
     }),
 });
 
