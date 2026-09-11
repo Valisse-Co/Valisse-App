@@ -1,0 +1,56 @@
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
+import { Loader2, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+
+function PaymentSetupForm({ bookingId, onComplete }: { bookingId: number; onComplete: () => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [submitting, setSubmitting] = useState(false);
+  const completeSetup = trpc.appointment.paymentSetupComplete.useMutation();
+
+  const submit = async () => {
+    if (!stripe || !elements) return;
+    setSubmitting(true);
+    const { error, setupIntent } = await stripe.confirmSetup({ elements, redirect: "if_required" });
+    if (error || !setupIntent) {
+      toast.error(error?.message ?? "We could not save this payment method.");
+      setSubmitting(false);
+      return;
+    }
+    try {
+      await completeSetup.mutateAsync({ bookingId, setupIntentId: setupIntent.id });
+      onComplete();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "We could not verify this payment method.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <PaymentElement options={{ layout: "tabs" }} />
+      <div className="flex items-start gap-2 rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <p>Your card is securely saved for this appointment. You will not be charged now; Valisse charges only after your verified appointment is complete or when an applicable cancellation fee is due.</p>
+      </div>
+      <Button className="w-full" onClick={submit} disabled={!stripe || !elements || submitting || completeSetup.isPending}>
+        {submitting || completeSetup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        Save payment method
+      </Button>
+    </div>
+  );
+}
+
+export function BookingPaymentSetup({ bookingId, clientSecret, onComplete }: { bookingId: number; clientSecret: string; onComplete: () => void }) {
+  return (
+    <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#008f62", borderRadius: "12px" } } }}>
+      <PaymentSetupForm bookingId={bookingId} onComplete={onComplete} />
+    </Elements>
+  );
+}

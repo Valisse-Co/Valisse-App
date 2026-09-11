@@ -576,3 +576,16 @@
 - [x] Document detected message-system bugs and confirm the proposed Instagram-style interaction model
 - [x] Implement validated conversation, inbox, thread, composition, and read-state improvements
 - [x] Add regression coverage and visual validation for secure direct messages
+
+## Stripe Marketplace Payment Setup
+- [x] Confirm Valisse’s deferred client charge, nail-tech payout, platform fee, cancellation-fee, completion, and dispute model
+- [x] Enable Stripe integration scaffolding and claim the secure Valisse Stripe test sandbox
+- [x] Implement payment-method collection at booking, charge after completion, cancellation fees, and post-completion payouts with server-side validation and signed webhooks
+- [ ] Run end-to-end Stripe sandbox transactions, refund handling, and failed-payment scenarios before live launch
+
+## Verified Appointment and Deferred Payment Flow
+- [x] Generate a secure client-held appointment code for every confirmed booking and display it to the client 24 hours before service start
+- [x] Require the nail tech to enter the client code to start and then complete the appointment
+- [x] Charge the client-approved service total after verified completion, then offer an optional 100%-to-tech tip
+- [x] Retain Valisse’s 5% service fee, exclude tips from the fee, and hold connected-account payout for a 24-hour client-dispute window that pauses on a reported issue for administrator review
+- [x] Enforce each tech’s accepted cancellation policy automatically; never charge a client for a tech cancellation or no-show

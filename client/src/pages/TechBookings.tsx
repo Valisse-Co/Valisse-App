@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -31,6 +32,9 @@ function to12Hour(time: string): string {
 const STATUS_CONFIG: Record<string, { label: string; bg: string }> = {
   pending:   { label: "Pending",   bg: "bg-accent text-accent-foreground" },
   confirmed: { label: "Confirmed", bg: "bg-primary/10 text-primary" },
+  in_progress: { label: "In Progress", bg: "bg-violet-100 text-violet-700" },
+  payment_due: { label: "Payment Due", bg: "bg-amber-100 text-amber-800" },
+  disputed: { label: "Issue Reported", bg: "bg-red-100 text-red-700" },
   completed: { label: "Completed", bg: "bg-muted text-foreground" },
   declined:  { label: "Declined",  bg: "bg-muted text-muted-foreground" },
   cancelled: { label: "Cancelled", bg: "bg-muted text-muted-foreground" },
@@ -118,6 +122,8 @@ type BookingCardProps = {
     inspirationImageUrl?: string | null;
     addonServiceId?: number | null;
     revisionStatus?: string | null;
+    paymentStatus?: string | null;
+    payoutStatus?: string | null;
   };
   client: { name?: string | null; avatarUrl?: string | null } | null;
   addonService?: { category?: string | null; customName?: string | null; durationMinutes?: number | null } | null;
@@ -129,6 +135,7 @@ type BookingCardProps = {
 };
 
 function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating }: BookingCardProps) {
+  const utils = trpc.useUtils();
   const time = new Date(booking.scheduledAt as any);
   const now = new Date();
   const timeStr = time.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -139,6 +146,18 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
   const cfg = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
   const [reviewExpanded, setReviewExpanded] = useState(false);
   const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
+  const [startDialogOpen, setStartDialogOpen] = useState(false);
+  const [appointmentCode, setAppointmentCode] = useState("");
+  const startAppointment = trpc.appointment.start.useMutation({
+    onSuccess: () => {
+      utils.bookings.timeline.invalidate();
+      toast.success("Appointment started");
+      setAppointmentCode("");
+      setStartDialogOpen(false);
+    },
+    onError: (error) => toast.error(error.message || "Could not start this appointment."),
+  });
+  const codeWindowOpen = time.getTime() - Date.now() <= 24 * 60 * 60 * 1000;
   const { data: smartContext } = trpc.smartService.bookingContext.useQuery(
     { bookingId: booking.id },
     { enabled: booking.needsReview || booking.revisionStatus === "pending" }
@@ -267,11 +286,11 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
       {booking.status === "confirmed" && (isToday || !isPast) && (
         <div className="flex gap-2 mt-3">
           <button
-            onClick={() => onMarkComplete(booking.id)}
-            disabled={isUpdating}
-            className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+            onClick={() => setStartDialogOpen(true)}
+            disabled={isUpdating || !codeWindowOpen}
+            className="flex-1 py-2 rounded-xl bg-primary text-white text-xs font-medium disabled:opacity-50"
           >
-            Mark as Completed
+            {codeWindowOpen ? "Start with client code" : "Code available 24h before"}
           </button>
           <button
             onClick={() => onCancel(booking.id)}
@@ -281,6 +300,27 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           </button>
         </div>
       )}
+      {booking.status === "in_progress" && (
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={() => onMarkComplete(booking.id)}
+            disabled={isUpdating}
+            className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+          >
+            Complete appointment & charge
+          </button>
+        </div>
+      )}
+      {booking.status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">Appointment completed. The client must update their payment method before payout can begin.</div>}
+      {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">Client reported an issue. Payout is on hold for administrator review.</div>}
+      <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader><DialogTitle>Start verified appointment</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Ask the client for the six-digit code shown in their Valisse booking. Enter it to start the appointment.</p>
+          <Input inputMode="numeric" maxLength={6} value={appointmentCode} onChange={(event) => setAppointmentCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="text-center text-lg tracking-[0.35em]" />
+          <Button disabled={appointmentCode.length !== 6 || startAppointment.isPending} onClick={() => startAppointment.mutate({ bookingId: booking.id, code: appointmentCode })}>{startAppointment.isPending ? "Verifying…" : "Start appointment"}</Button>
+        </DialogContent>
+      </Dialog>
       <RevisionQuoteDialog bookingId={booking.id} open={revisionDialogOpen} onClose={() => setRevisionDialogOpen(false)} onSaved={() => setRevisionDialogOpen(false)} />
     </div>
   );
@@ -304,6 +344,14 @@ function BookingsTimelineTab() {
     onSuccess: () => {
       utils.bookings.timeline.invalidate();
       toast.success("Booking updated");
+    },
+  });
+
+  const completeAppointment = trpc.appointment.complete.useMutation({
+    onSuccess: (result) => {
+      utils.bookings.timeline.invalidate();
+      utils.bookings.pastBookings.invalidate();
+      toast.success(result.paymentDue ? "Appointment complete — client payment is due" : "Appointment complete — payment processed");
     },
   });
 
@@ -462,8 +510,8 @@ function BookingsTimelineTab() {
                       onConfirm={id => updateStatus.mutate({ bookingId: id, status: "confirmed" })}
                       onDecline={id => updateStatus.mutate({ bookingId: id, status: "declined" })}
                       onCancel={id => setCancellingId(id)}
-                      onMarkComplete={id => updateStatus.mutate({ bookingId: id, status: "completed" })}
-                      isUpdating={updateStatus.isPending}
+                      onMarkComplete={id => completeAppointment.mutate({ bookingId: id })}
+                      isUpdating={updateStatus.isPending || completeAppointment.isPending}
                     />
                   ))}
                 </div>

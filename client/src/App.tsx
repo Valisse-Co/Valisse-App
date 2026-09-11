@@ -30,6 +30,7 @@ import SettingsAccount from "./pages/SettingsAccount";
 import SettingsSubscription from "./pages/SettingsSubscription";
 import SettingsAppearance from "./pages/SettingsAppearance";
 import SettingsSupport from "./pages/SettingsSupport";
+import SettingsPayouts from "./pages/SettingsPayouts";
 import SmartServiceMatchSettings from "./pages/SmartServiceMatchSettings";
 import ClientProfile from "./pages/ClientProfile";
 import { useAuth } from "./_core/hooks/useAuth";
@@ -220,6 +221,9 @@ function Router() {
         </Route>
         <Route path="/settings/subscription">
           <AppLayout><SettingsSubscription /></AppLayout>
+        </Route>
+        <Route path="/settings/payouts">
+          <AppLayout><SettingsPayouts /></AppLayout>
         </Route>
         <Route path="/settings/appearance">
           <AppLayout><SettingsAppearance /></AppLayout>

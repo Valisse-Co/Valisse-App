@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { COOKIE_NAME, CURRENT_TOS_VERSION, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
+import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
@@ -35,6 +36,7 @@ import {
   getTechRatingStats,
   getTechReviews,
   getUserById,
+  hasOutstandingAppointmentPayment,
   getUserCollections,
   getUserConversations,
   getUserLikes,
@@ -91,6 +93,7 @@ import {
   hasUserReportedPost,
   getReportsForAdmin,
   getAdminUserIds,
+  getDisputedBookingsForAdmin,
   dismissReport,
   hidePostByAdmin,
   deletePostByAdmin,
@@ -136,10 +139,40 @@ import {
   getTechsNearMe,
   getUserByEmail,
   createEmailUser,
+  updateUserStripeReferences,
+  setBookingPaymentMethodState,
+  setBookingAppointmentCode,
+  recordAppointmentCodeFailure,
+  startVerifiedAppointment,
+  markAppointmentCompleted,
+  markBookingPaymentResult,
+  reportBookingIssue,
+  getBookingServiceTotalInCents,
+  getPayoutEligibleBookings,
+  markBookingPayoutResult,
+  setBookingTipPaymentIntent,
 } from "./db";
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
 import { getDirectMessageValidationError, isConversationParticipant, isSafeDirectMessageImageReference } from "../shared/directMessaging";
+import {
+  appointmentCodeVisibleAt,
+  deriveAppointmentCode,
+  hashAppointmentCode,
+  isValidAppointmentCodeInput,
+  payoutEligibleAt,
+} from "../shared/appointmentLifecycle";
+import {
+  chargeSavedCard,
+  createTipPaymentIntent,
+  createBookingSetupIntent,
+  createConnectedAccountLink,
+  createExpressConnectedAccount,
+  createStripeCustomer,
+  getConnectedAccountReadiness,
+  releaseBookingPayout,
+  verifyBookingSetupIntent,
+} from "./stripe";
 import {
   evaluateSmartServiceMatch,
   getSystemSmartServiceMatchConfig,
@@ -748,6 +781,9 @@ const bookingsRouter = router({
       })).max(20).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      if (await hasOutstandingAppointmentPayment(ctx.user.id)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Resolve your outstanding appointment payment before creating another booking request." });
+      }
       const offeredServices = await getTechServices(input.techId);
       const serviceIds = new Set(input.serviceLines.map((line) => line.techServiceId));
       if (serviceIds.size !== input.serviceLines.length) {
@@ -807,17 +843,223 @@ const bookingsRouter = router({
     .input(
       z.object({
         bookingId: z.number(),
-        status: z.enum(["confirmed", "declined", "cancelled", "completed"]),
+        status: z.enum(["confirmed", "declined"]),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
-      if (booking?.revisionStatus === "pending" && input.status === "confirmed") {
+      if (!booking || booking.techId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned nail tech can update this booking request." });
+      }
+      if (booking.revisionStatus === "pending" && input.status === "confirmed") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Wait for the client to accept the revised quote before confirming this booking." });
       }
+      if (input.status === "confirmed" && booking.paymentMethodStatus !== "saved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The client must save a payment method before this booking can be confirmed." });
+      }
       await updateBookingStatus(input.bookingId, input.status, ctx.user.id);
+      if (input.status === "confirmed") {
+        const code = deriveAppointmentCode(booking.id, booking.scheduledAt, ENV.cookieSecret);
+        await setBookingAppointmentCode(
+          booking.id,
+          hashAppointmentCode(booking.id, code, ENV.cookieSecret),
+          appointmentCodeVisibleAt(booking.scheduledAt)
+        );
+      }
       return { success: true };
     }),
+});
+
+// ─── Verified appointment and deferred-payment lifecycle ──────────────────────
+const appointmentRouter = router({
+  paymentSetup: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (!ctx.user.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address before saving a payment method." });
+
+      let customerId = ctx.user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await createStripeCustomer({ userId: ctx.user.id, name: ctx.user.name, email: ctx.user.email });
+        customerId = customer.id;
+        await updateUserStripeReferences(ctx.user.id, { stripeCustomerId: customerId });
+      }
+      const setupIntent = await createBookingSetupIntent({ bookingId: booking.id, customerId });
+      await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: setupIntent.id, paymentMethodStatus: "required" });
+      return { clientSecret: setupIntent.client_secret };
+    }),
+
+  paymentSetupComplete: protectedProcedure
+    .input(z.object({ bookingId: z.number(), setupIntentId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id || booking.stripeSetupIntentId !== input.setupIntentId) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      try {
+        await verifyBookingSetupIntent({ setupIntentId: input.setupIntentId, customerId: ctx.user.stripeCustomerId, bookingId: booking.id });
+      } catch (error) {
+        await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: input.setupIntentId, paymentMethodStatus: "failed" });
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Payment method setup failed." });
+      }
+      await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: input.setupIntentId, paymentMethodStatus: "saved" });
+      if (booking.status === "payment_due") {
+        try {
+          const totalInCents = await getBookingServiceTotalInCents(booking.id);
+          const payment = await chargeSavedCard({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion" });
+          if (payment.status !== "succeeded") throw new Error("Payment requires additional action.");
+          const capturedAt = new Date();
+          await markBookingPaymentResult(booking.id, {
+            stripePaymentIntentId: payment.id,
+            paymentStatus: "paid",
+            paymentCapturedAt: capturedAt,
+            status: "completed",
+            payoutStatus: "pending_dispute_window",
+          });
+          await markAppointmentCompleted(booking.id, booking.completedAt ?? capturedAt, payoutEligibleAt(capturedAt));
+        } catch {
+          await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The payment method was saved, but the appointment balance could not be collected. Please use a different card." });
+        }
+      }
+      return { success: true };
+    }),
+
+  clientCode: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.status !== "confirmed" || !booking.appointmentCodeVisibleAt || booking.appointmentCodeVisibleAt > new Date()) {
+        return { available: false, code: null };
+      }
+      return { available: true, code: deriveAppointmentCode(booking.id, booking.scheduledAt, ENV.cookieSecret) };
+    }),
+
+  start: protectedProcedure
+    .input(z.object({ bookingId: z.number(), code: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.status !== "confirmed") throw new TRPCError({ code: "BAD_REQUEST", message: "Only confirmed appointments can be started." });
+      if (!booking.appointmentCodeVisibleAt || booking.appointmentCodeVisibleAt > new Date()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The appointment code is not available yet." });
+      }
+      if (booking.appointmentCodeLockedUntil && booking.appointmentCodeLockedUntil > new Date()) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many incorrect code attempts. Try again shortly." });
+      }
+      if (!isValidAppointmentCodeInput(input.code)) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter the six-digit appointment code." });
+      const receivedHash = hashAppointmentCode(booking.id, input.code, ENV.cookieSecret);
+      if (!booking.appointmentCodeHash || receivedHash !== booking.appointmentCodeHash) {
+        const failures = booking.appointmentCodeFailures + 1;
+        const lockedUntil = failures >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+        await recordAppointmentCodeFailure(booking.id, failures, lockedUntil);
+        throw new TRPCError({ code: "BAD_REQUEST", message: lockedUntil ? "Too many incorrect attempts. Try again in 15 minutes." : "That appointment code does not match." });
+      }
+      await startVerifiedAppointment(booking.id, new Date());
+      await createNotification({ userId: booking.clientId, type: "appointment_started", title: "Appointment started", body: "Your nail appointment is now in progress.", relatedId: booking.id });
+      return { success: true };
+    }),
+
+  complete: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "Start the verified appointment before completing it." });
+      const client = await getUserById(booking.clientId);
+      if (!client?.stripeCustomerId || booking.paymentMethodStatus !== "saved") {
+        await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The client has no verified payment method. Payment is now due." });
+      }
+      const completedAt = new Date();
+      const eligibleAt = payoutEligibleAt(completedAt);
+      await markAppointmentCompleted(booking.id, completedAt, eligibleAt);
+      const totalInCents = await getBookingServiceTotalInCents(booking.id);
+      try {
+        const payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion" });
+        if (payment.status !== "succeeded") throw new Error("The service charge requires client action.");
+        await markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" });
+        await createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id });
+        await createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id });
+        return { success: true, paymentDue: false };
+      } catch (error) {
+        await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id });
+        return { success: true, paymentDue: true };
+      }
+    }),
+
+  reportIssue: protectedProcedure
+    .input(z.object({ bookingId: z.number(), reason: z.string().trim().min(10).max(1500) }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This booking is not currently eligible for an issue report." });
+      }
+      await reportBookingIssue(booking.id, input.reason, new Date());
+      await createNotification({ userId: booking.techId, type: "booking_issue_reported", title: "Client reported an issue", body: "Payout is paused while the issue is reviewed.", relatedId: booking.id });
+      for (const adminId of await getAdminUserIds()) {
+        await createNotification({ userId: adminId, type: "booking_issue_reported", title: "Booking issue reported", body: "A client reported an issue and the payout is on hold.", relatedId: booking.id });
+      }
+      return { success: true };
+    }),
+
+  createTip: protectedProcedure
+    .input(z.object({ bookingId: z.number(), amountInCents: z.number().int().min(50).max(100_000) }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Tips can be added only after a paid, completed appointment during the issue window." });
+      }
+      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents });
+      return { clientSecret: intent.client_secret, paymentIntentId: intent.id };
+    }),
+
+  tipComplete: protectedProcedure
+    .input(z.object({ bookingId: z.number(), paymentIntentId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      await setBookingTipPaymentIntent(booking.id, input.paymentIntentId);
+      await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id });
+      return { success: true };
+    }),
+
+  disputedBookings: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    return getDisputedBookingsForAdmin();
+  }),
+
+  connectTech: protectedProcedure
+    .input(z.object({ origin: z.string().url() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      let accountId = ctx.user.stripeConnectedAccountId;
+      if (!accountId) {
+        const account = await createExpressConnectedAccount({ techId: ctx.user.id, email: ctx.user.email });
+        accountId = account.id;
+        await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountId: accountId, stripeConnectedAccountReady: false });
+      }
+      const link = await createConnectedAccountLink({
+        accountId,
+        refreshUrl: `${input.origin}/settings/payouts?refresh=1`,
+        returnUrl: `${input.origin}/settings/payouts?return=1`,
+      });
+      return { onboardingUrl: link.url };
+    }),
+
+  refreshTechConnection: protectedProcedure.query(async ({ ctx }) => {
+    if (!ctx.user.stripeConnectedAccountId) return { connected: false, ready: false };
+    const { ready } = await getConnectedAccountReadiness(ctx.user.stripeConnectedAccountId);
+    await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountReady: ready });
+    return { connected: true, ready };
+  }),
 });
 
 // ─── Availability ─────────────────────────────────────────────────────────────
@@ -1397,8 +1639,9 @@ const cancellationRouter = router({
 
       const cancelledBy: "client" | "tech" = isClient ? "client" : "tech";
 
-      let feeStatus: "none" | "pending" | "waived" = "none";
+      let feeStatus: "none" | "pending" | "waived" | "charged" = "none";
       let feeAmountDollars = 0;
+      let stripeCancellationPaymentIntentId: string | undefined;
 
       if (isClient) {
         const policy = await getCancellationPolicy(booking.techId);
@@ -1409,8 +1652,28 @@ const cancellationRouter = router({
             input.servicePrice ?? null
           );
           if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
-            feeStatus = "pending";
             feeAmountDollars = resolved.feeAmountDollars;
+            const client = await getUserById(booking.clientId);
+            if (client?.stripeCustomerId && booking.paymentMethodStatus === "saved") {
+              try {
+                const payment = await chargeSavedCard({
+                  bookingId: booking.id,
+                  customerId: client.stripeCustomerId,
+                  amountInCents: Math.round(resolved.feeAmountDollars * 100),
+                  kind: "cancellation_fee",
+                });
+                if (payment.status === "succeeded") {
+                  feeStatus = "charged";
+                  stripeCancellationPaymentIntentId = payment.id;
+                } else {
+                  feeStatus = "pending";
+                }
+              } catch {
+                feeStatus = "pending";
+              }
+            } else {
+              feeStatus = "pending";
+            }
           }
         }
       } else {
@@ -1424,7 +1687,7 @@ const cancellationRouter = router({
         });
       }
 
-      await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars);
+      await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars, stripeCancellationPaymentIntentId);
       return { success: true, feeStatus, feeAmountDollars };
     }),
 
@@ -2015,6 +2278,7 @@ export const appRouter = router({
   techFollows: techFollowsRouter,
   reports: reportsRouter,
   cancellation: cancellationRouter,
+  appointment: appointmentRouter,
   settings: settingsRouter,
   smartService: smartServiceMatchRouter,
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
@@ -146,6 +146,17 @@ export async function getUserById(id: number) {
   return result[0];
 }
 
+export async function hasOutstandingAppointmentPayment(clientId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(and(eq(bookings.clientId, clientId), eq(bookings.paymentStatus, "payment_due")))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function getAdminUserIds(): Promise<number[]> {
   const db = await getDb();
   if (!db) return [];
@@ -154,6 +165,16 @@ export async function getAdminUserIds(): Promise<number[]> {
     .from(users)
     .where(eq(users.role, "admin"));
   return rows.map((row) => row.id);
+}
+
+export async function getDisputedBookingsForAdmin() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.payoutStatus, "on_hold"))
+    .orderBy(desc(bookings.issueReportedAt));
 }
 
 export async function getUserByEmail(email: string) {
@@ -775,7 +796,7 @@ export async function getTechBookings(techId: number) {
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
     .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
-    .where(eq(bookings.techId, techId))
+    .where(and(eq(bookings.techId, techId), ne(bookings.paymentMethodStatus, "required")))
     .orderBy(desc(bookings.scheduledAt));
 }
 
@@ -818,7 +839,8 @@ export async function getTechBookingsTimeline(techId: number) {
       and(
         eq(bookings.techId, techId),
         gt(bookings.scheduledAt, thirtyDaysAgo),
-        inArray(bookings.status, ["pending", "confirmed"])
+        ne(bookings.paymentMethodStatus, "required"),
+        inArray(bookings.status, ["pending", "confirmed", "in_progress", "payment_due", "disputed"])
       )
     )
     .orderBy(bookings.scheduledAt);
@@ -933,6 +955,118 @@ export async function updateBookingStatus(
         .where(eq(postAnalytics.postId, booking[0].postId));
     }
   }
+}
+
+export async function updateUserStripeReferences(
+  userId: number,
+  values: {
+    stripeCustomerId?: string;
+    stripeConnectedAccountId?: string;
+    stripeConnectedAccountReady?: boolean;
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(users).set(values).where(eq(users.id, userId));
+}
+
+export async function setBookingPaymentMethodState(
+  bookingId: number,
+  values: { stripeSetupIntentId?: string; paymentMethodStatus: "none" | "required" | "saved" | "failed" }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set(values).where(eq(bookings.id, bookingId));
+}
+
+export async function setBookingAppointmentCode(bookingId: number, codeHash: string, visibleAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({
+    appointmentCodeHash: codeHash,
+    appointmentCodeVisibleAt: visibleAt,
+    appointmentCodeFailures: 0,
+    appointmentCodeLockedUntil: null,
+  }).where(eq(bookings.id, bookingId));
+}
+
+export async function recordAppointmentCodeFailure(bookingId: number, failures: number, lockedUntil: Date | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ appointmentCodeFailures: failures, appointmentCodeLockedUntil: lockedUntil }).where(eq(bookings.id, bookingId));
+}
+
+export async function startVerifiedAppointment(bookingId: number, startedAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ status: "in_progress", startedAt }).where(eq(bookings.id, bookingId));
+}
+
+export async function markAppointmentCompleted(bookingId: number, completedAt: Date, eligibleAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({
+    status: "completed",
+    completedAt,
+    payoutEligibleAt: eligibleAt,
+    payoutStatus: "pending_dispute_window",
+  }).where(eq(bookings.id, bookingId));
+}
+
+export async function markBookingPaymentResult(
+  bookingId: number,
+  values: {
+    stripePaymentIntentId?: string;
+    paymentStatus: "unpaid" | "payment_due" | "paid" | "failed" | "refunded";
+    paymentCapturedAt?: Date | null;
+    status?: "completed" | "payment_due" | "disputed";
+    payoutStatus?: "not_ready" | "pending_dispute_window" | "on_hold" | "released" | "failed";
+  }
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set(values).where(eq(bookings.id, bookingId));
+}
+
+export async function setBookingTipPaymentIntent(bookingId: number, stripeTipPaymentIntentId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ stripeTipPaymentIntentId }).where(eq(bookings.id, bookingId));
+}
+
+export async function reportBookingIssue(bookingId: number, reason: string, reportedAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({
+    status: "disputed",
+    payoutStatus: "on_hold",
+    issueReason: reason,
+    issueReportedAt: reportedAt,
+  }).where(eq(bookings.id, bookingId));
+}
+
+export async function getPayoutEligibleBookings(now: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ booking: bookings, tech: users })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.techId, users.id))
+    .where(and(
+      eq(bookings.paymentStatus, "paid"),
+      eq(bookings.payoutStatus, "pending_dispute_window"),
+      lte(bookings.payoutEligibleAt, now)
+    ));
+}
+
+export async function markBookingPayoutResult(
+  bookingId: number,
+  status: "released" | "failed",
+  stripeTransferId?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ payoutStatus: status, stripeTransferId: stripeTransferId ?? null }).where(eq(bookings.id, bookingId));
 }
 
 // ─── Availability ─────────────────────────────────────────────────────────────
@@ -1643,6 +1777,11 @@ export async function getBookingServiceLines(bookingId: number) {
     .orderBy(bookingServiceLines.position);
 }
 
+export async function getBookingServiceTotalInCents(bookingId: number): Promise<number> {
+  const lines = await getBookingServiceLines(bookingId);
+  return lines.reduce((total, line) => total + line.priceInCents, 0);
+}
+
 export async function createBookingRevision(params: {
   bookingId: number;
   techId: number;
@@ -2242,8 +2381,9 @@ export function resolveCancellationFee(
 export async function cancelBooking(
   bookingId: number,
   cancelledBy: "client" | "tech",
-  feeStatus: "none" | "pending" | "waived",
-  feeAmountDollars: number
+  feeStatus: "none" | "pending" | "waived" | "charged",
+  feeAmountDollars: number,
+  stripeCancellationPaymentIntentId?: string
 ) {
   const db = await getDb();
   if (!db) return;
@@ -2255,6 +2395,7 @@ export async function cancelBooking(
       cancelledAt: new Date(),
       cancellationFeeStatus: feeStatus,
       cancellationFeeAmount: feeAmountDollars > 0 ? feeAmountDollars : null,
+      stripeCancellationPaymentIntentId: stripeCancellationPaymentIntentId ?? null,
     })
     .where(eq(bookings.id, bookingId));
 }

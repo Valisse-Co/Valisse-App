@@ -45,6 +45,10 @@ export const users = mysqlTable("users", {
   deactivatedAt: timestamp("deactivatedAt"),
   connectedProvider: varchar("connectedProvider", { length: 64 }),
   passwordHash: varchar("passwordHash", { length: 255 }), // bcrypt hash for email+password accounts
+  // Stripe references only; Stripe remains the source of truth for card and charge details.
+  stripeCustomerId: varchar("stripeCustomerId", { length: 255 }).unique(),
+  stripeConnectedAccountId: varchar("stripeConnectedAccountId", { length: 255 }).unique(),
+  stripeConnectedAccountReady: boolean("stripeConnectedAccountReady").default(false).notNull(),
   // Subscription (tech only)
   subscriptionStatus: mysqlEnum("subscriptionStatus", ["trial", "active", "expired", "cancelled"]).default("trial"),
   subscriptionStartedAt: timestamp("subscriptionStartedAt"),
@@ -263,7 +267,7 @@ export const bookings = mysqlTable("bookings", {
   addonServiceId: int("addonServiceId"),
   scheduledAt: timestamp("scheduledAt").notNull(),
   duration: int("duration").default(60).notNull(), // minutes
-  status: mysqlEnum("status", ["pending", "confirmed", "declined", "cancelled", "completed"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "confirmed", "in_progress", "completed", "payment_due", "disputed", "declined", "cancelled"]).default("pending").notNull(),
   depositPaid: boolean("depositPaid").default(false).notNull(),
   notes: text("notes"),
   techNotes: text("techNotes"),
@@ -278,6 +282,26 @@ export const bookings = mysqlTable("bookings", {
   reviewRecommendedService: varchar("reviewRecommendedService", { length: 128 }),
   reviewPhotoUrls: json("reviewPhotoUrls").$type<string[]>(),
   revisionStatus: mysqlEnum("revisionStatus", ["none", "pending", "accepted", "declined"]).default("none").notNull(),
+  // Verified appointment lifecycle. The client code is hashed and becomes visible 24h before service.
+  appointmentCodeHash: varchar("appointmentCodeHash", { length: 128 }),
+  appointmentCodeVisibleAt: timestamp("appointmentCodeVisibleAt"),
+  appointmentCodeFailures: int("appointmentCodeFailures").default(0).notNull(),
+  appointmentCodeLockedUntil: timestamp("appointmentCodeLockedUntil"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  // Stripe identifiers plus business workflow state. No card data, payment amount, or Stripe status is duplicated locally.
+  stripeSetupIntentId: varchar("stripeSetupIntentId", { length: 255 }),
+  stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }),
+  stripeCancellationPaymentIntentId: varchar("stripeCancellationPaymentIntentId", { length: 255 }),
+  stripeTipPaymentIntentId: varchar("stripeTipPaymentIntentId", { length: 255 }),
+  stripeTransferId: varchar("stripeTransferId", { length: 255 }),
+  paymentMethodStatus: mysqlEnum("paymentMethodStatus", ["none", "required", "saved", "failed"]).default("none").notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ["unpaid", "payment_due", "paid", "failed", "refunded"]).default("unpaid").notNull(),
+  payoutStatus: mysqlEnum("payoutStatus", ["not_ready", "pending_dispute_window", "on_hold", "released", "failed"]).default("not_ready").notNull(),
+  payoutEligibleAt: timestamp("payoutEligibleAt"),
+  paymentCapturedAt: timestamp("paymentCapturedAt"),
+  issueReportedAt: timestamp("issueReportedAt"),
+  issueReason: text("issueReason"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

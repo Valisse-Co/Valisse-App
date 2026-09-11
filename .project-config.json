@@ -7,17 +7,19 @@
   ],
   "dev_command": "pnpm run dev",
   "env_vars": {
-    "DATABASE_URL": "mysql://39zy4Xriz7sgVfL.e79b92e2bbb7:47gS4soHSGUg69gTnGD5@gateway05.us-east-1.prod.aws.tidbcloud.com:4000/f5fDK6NnMqbHPKTgeCgLZS?ssl={\"rejectUnauthorized\":true}"
+    "DATABASE_URL": "mysql://2GiHnX4rqVu4vid.ccd6b6f4be91:wY1nvME34k00iENJ4zte@gateway04.us-east-1.prod.aws.tidbcloud.com:4000/f5fDK6NnMqbHPKTgeCgLZS?ssl={\"rejectUnauthorized\":true}",
+    "DRIZZLE_DATABASE_URL": "mysql://2GiHnX4rqVu4vid.ccd6b6f4be91:wY1nvME34k00iENJ4zte@gateway04.us-east-1.prod.aws.tidbcloud.com:4000/f5fDK6NnMqbHPKTgeCgLZS?ssl={\"rejectUnauthorized\":true}",
+    "MANUS_WEBDEV_PROJECT_ID": "f5fDK6NnMqbHPKTgeCgLZS"
   },
   "experiments": [
     "no_db_push"
   ],
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663596449434/f5fDK6NnMqbHPKTgeCgLZS",
-    "access_key_id": "ASIAZV3A2ECZBRR4QS6I",
-    "secret_access_key": "9dZSvBLsDZSue7xOYxWI6LwpO+GjfrvH69aCRMlr",
-    "session_token": "IQoJb3JpZ2luX2VjENf//////////wEaCXVzLWVhc3QtMSJGMEQCIGXk6nyPpJaBYtVlohYRM5UABKI1sl9MZ+QATYN9CTv4AiAryxkLyaKmypFGmTBpCGNf/nJfDXrG3MtRlTh3DLfIkyr/Awif//////////8BEAQaDDY2NTM4NjA5ODg2NiIMuH9lopMg9LmfJaVcKtMDXpoe/DACfGBUxgvL48oCef9a52sJVOskwBSpVshVtWL0rkwBHTaJW//2Gx6/f+7eOaPOOrI9YhkQI9R99zvqEC6ztm8uoEG07fthnyHlbU6A/Q8SgiTcx1erKlsNpe7HarFL12uS6CXhXYVpmHrmsZogHTGqs1UYhL2O62INwciPPoRcV27Mq43ej1EkXs7Rc6zx0dhcZaY5bEC2gsNY1W9tX/BK/3EudxzE/k8/h8MdowlzQFFDFv8LpjEmnVqPA/4Y2h5yzuKk+LhYSgoVmKDUfS3KJlyH+n+WXZe+unp5G/Nce2RgQqHa3v6EKOiCPNEpIiqg1aO49TqnwLlJ/ldsuaCKTuthVrZw72GZ4OD4RY1jvdJKqh4hvIMMngWQ8kITNaPYwdhvOs5MwN1bU8GSU8uoR00wri5oRfEvdaz3seug0Y0JqTTd6qujNo4nR5p9NinIX62aUl4lvX0/ozZhvPVwD0MB7cFTkoUm9+PX5ZziIYlHhp+Cl0pQI6ec2Jr4pb7TMf5fvfr00ryl6eaAd1avDhe1tUfCD3+5/f+h3l647zt77ZUfePA3Tg89SZTya9y9ck8WV2L/wuJpKoYHxIOE1GXXn6vtSfq2/jUiFNAw14rY1AY6ngFAnDrRADVV0SbTjZNS4RJkpoFJjVc0/0y9+8OmcT9XfA7hsMfs8LtC29JWteNGCfbni09/4WjRbctCaIQaDnDQaw2XTLlZu2WGZWkM/MCPyFD/HuDCXElxGiSx9dsT0osXKpK4BKpvfj/rlnE4RNlvxK75cMooQxQbXkLnudOl5J+AnOztFD/mccdOlE3epywlAHNfaNqj2fB0cfn3WQ==",
-    "expiration": "2026-09-01T10:51:03.000Z",
+    "access_key_id": "ASIAZV3A2ECZBOT3S4OD",
+    "secret_access_key": "+SNm13CJPuVasRW8OO+QiuokojuJKX8MKd++GQAy",
+    "session_token": "IQoJb3JpZ2luX2VjEMv//////////wEaCXVzLWVhc3QtMSJHMEUCIForkLDnZXvsD6xu6vq6juZxjUM3IK6TvLlxKiBXUhNCAiEAxDo5ehf2buYK3xWUWvjrsrWMmd1lvxmr8COg2Dv22D4q/wMIlP//////////ARAEGgw2NjUzODYwOTg4NjYiDBz0TO0HctZmQQTvYCrTA7aOuT2OM2IpTBK8XGnzgNrbtZp/AHugf1q4TC3sRZ9qZ0EqY1F7BDMrr5V6b6miXfC3AmDjJ0RmqhvWcsiAzsbzfZv56/yF5mM3Yy4Y3g2g1VsEO7gxWxP1iLl/hLvZCmCPieuAJH/XuZT+HCImWHj3o5u6rnDGIEJpIZJLlzQvgJqLN4rI0g12k8Gf50CZviXlOyKa57Q//HFqHYbrapal4WKU8b5/WLyH5iydVotLwxmW2cEv/DO52lLPIu8WxFk3W70pO7cGNzYtN3Ikflisb/x+civslqiPsZ9Y+8wAqfFh0KlzaMDp6vtLgTbGYgpIh3XvOHFZI8orPqgpGYBzz/N1VMwHG8eFfVJDW9QHaGgLO+0CqFmLgRP4aCXmToWZdoMjyjud/YwgqKCmDd/KqUm7m+Iq2yodsNdFuQnEXTp/gWfm0SyTln+XPfwbNpTf7CNMTT9uv+TtXnVYSpgRq87PngcDefwqvb6Rs0VlwWlQbN0yL61fdVUYdulhH5iX/+oqnaSDCXR00pwHks0OWNDaRreaT4HSAAbE6wszSqpmEmzyTTUhy97ogVckO2XrzWYK6EiEB1ML3N+llW/ArYLlqxJSeJ+Ye30CZnv9veeDMLrZjdUGOp0BzVeiiA0B+Bzls1g1MJym/EDR72mzH913Rxj2YmQX8kzrgKYgpLNrseIevuDCMCdLoHQMmgtOJpd+Mqk+qsPOKyI5caP+FFQGyF58zAI36YgEWGEI9Jt+nnvtCtVqg4WEGW+FIRAnZopvKXHqTbAmUyifbi8qvFtXPwIWw+BSQMEoFcMOP5VuSlgMxrIXduPJozEtKyosmHjRanyFZA==",
+    "expiration": "2026-09-11T14:51:38.000Z",
     "backend": "GIT_BACKEND_S3"
   },
   "name": "valisse",
@@ -30,6 +32,8 @@
     "OAUTH_SERVER_URL": "https://api.manus.im",
     "OWNER_NAME": "Ashton Earl",
     "OWNER_OPEN_ID": "bebQ2xBqBDC6SUTQxLcmKb",
+    "STRIPE_SECRET_KEY": "sk_test_51UELdHGWZ3686LBB0W9qhlf1B6QZQnoKb4PuspKMAmidCHv8UsMdgRqubNUuMr3nY3D4xtyDTq6pCqnIYBZtdH7n0079NwoEwK",
+    "STRIPE_WEBHOOK_SECRET": "whsec_DTQKAwFKwvfrNd83XUkVyVi0qY4hRE9u",
     "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
     "VITE_ANALYTICS_WEBSITE_ID": "01fc851a-e154-4737-ba3c-1e031316cc97",
     "VITE_APP_ID": "f5fDK6NnMqbHPKTgeCgLZS",
@@ -37,7 +41,8 @@
     "VITE_APP_TITLE": "Valisse",
     "VITE_FRONTEND_FORGE_API_KEY": "L4L7hrVsSFr2DcVw93L2DE",
     "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
-    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im",
+    "VITE_STRIPE_PUBLISHABLE_KEY": "pk_test_51UELdHGWZ3686LBBLJniiFhiTIgSXVxSmsY3d0EIal4QnN0B7NLve3eBVyHCdFGWJDSBdxifMq5P2YMzK94RAzGF00biAnBGMu"
   },
   "template_id": "web-db-user",
   "test_command": "pnpm test"

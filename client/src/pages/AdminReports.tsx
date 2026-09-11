@@ -35,6 +35,9 @@ export default function AdminReports() {
   const { data: reports = [], isLoading, refetch } = trpc.reports.list.useQuery(undefined, {
     enabled: isAuthenticated && user?.role === "admin",
   });
+  const { data: disputedBookings = [] } = trpc.appointment.disputedBookings.useQuery(undefined, {
+    enabled: isAuthenticated && user?.role === "admin",
+  });
 
   const dismissMutation = trpc.reports.dismiss.useMutation({
     onSuccess: () => { toast.success("Report dismissed"); refetch(); },
@@ -115,6 +118,7 @@ export default function AdminReports() {
 
       {/* Content */}
       <div className="px-4 py-4 flex flex-col gap-3">
+        {(disputedBookings as any[]).length > 0 && <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4"><div className="flex items-center gap-2"><AlertTriangle size={18} className="text-destructive" /><h2 className="font-semibold text-sm text-foreground">Appointment issues holding payout</h2></div><p className="mt-1 text-xs text-muted-foreground">These client reports pause connected-account payout until your review.</p><div className="mt-3 space-y-2">{(disputedBookings as any[]).map((booking) => <div key={booking.id} className="rounded-xl bg-background/80 p-3 text-xs"><div className="flex justify-between gap-3"><span className="font-semibold text-foreground">Booking #{booking.id}</span><span className="text-destructive">Payout on hold</span></div><p className="mt-1 text-muted-foreground">{booking.issueReason}</p><p className="mt-1 text-[10px] text-muted-foreground">Reported {booking.issueReportedAt ? new Date(booking.issueReportedAt).toLocaleString() : "recently"}</p></div>)}</div></section>}
         {isLoading ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />

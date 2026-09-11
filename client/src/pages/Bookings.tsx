@@ -7,10 +7,18 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { BookingTipDialog } from "@/components/BookingTipDialog";
+import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-accent text-accent-foreground border border-border",
   confirmed: "bg-primary/10 text-primary border border-primary/20",
+  in_progress: "bg-violet-100 text-violet-700 border border-violet-200",
+  payment_due: "bg-amber-100 text-amber-800 border border-amber-200",
+  disputed: "bg-red-100 text-red-700 border border-red-200",
   declined: "bg-muted text-muted-foreground border border-border",
   cancelled: "bg-muted text-muted-foreground border border-border",
   completed: "bg-accent text-accent-foreground border border-border",
@@ -150,6 +158,39 @@ function RevisionApprovalCard({ bookingId, onResolved }: { bookingId: number; on
   );
 }
 
+function ClientAppointmentTools({ bookingId, status, paymentStatus, payoutStatus, onChanged }: { bookingId: number; status: string; paymentStatus?: string | null; payoutStatus?: string | null; onChanged: () => void }) {
+  const { data: code } = trpc.appointment.clientCode.useQuery({ bookingId }, { enabled: status === "confirmed" });
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipClientSecret, setTipClientSecret] = useState<string | null>(null);
+  const [tipPaymentIntentId, setTipPaymentIntentId] = useState<string | null>(null);
+  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
+  const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
+  const startPaymentSetup = trpc.appointment.paymentSetup.useMutation({
+    onSuccess: ({ clientSecret }) => { setPaymentSetupClientSecret(clientSecret); setPaymentSetupOpen(true); },
+    onError: (error) => toast.error(error.message || "Could not update your payment method."),
+  });
+  const createTip = trpc.appointment.createTip.useMutation({
+    onSuccess: (result) => { setTipClientSecret(result.clientSecret); setTipPaymentIntentId(result.paymentIntentId); setTipOpen(true); },
+    onError: (error) => toast.error(error.message || "Could not start this tip."),
+  });
+  const reportIssue = trpc.appointment.reportIssue.useMutation({
+    onSuccess: () => { toast.success("Issue reported. The payout is paused for review."); setIssueOpen(false); setReason(""); onChanged(); },
+    onError: (error) => toast.error(error.message || "Could not report this issue."),
+  });
+
+  return <>
+    {code?.available && code.code && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3"><div className="flex items-start gap-2"><Shield size={15} className="mt-0.5 text-primary" /><div><p className="text-xs font-semibold text-foreground">Your appointment start code</p><p className="mt-0.5 text-xs text-muted-foreground">Show this code to your nail tech when your service begins.</p><p className="mt-2 font-mono text-2xl font-bold tracking-[0.35em] text-primary">{code.code}</p></div></div></div>}
+    {status === "in_progress" && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">Your verified appointment is in progress.</div>}
+    {status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-800">Payment needed</p><p className="mt-1 text-xs text-amber-700">Update your saved card to settle this completed appointment before making another booking request.</p><button onClick={() => startPaymentSetup.mutate({ bookingId })} disabled={startPaymentSetup.isPending} className="mt-2 w-full rounded-full bg-amber-700 py-2 text-xs font-semibold text-white disabled:opacity-50">{startPaymentSetup.isPending ? "Preparing…" : "Update payment method"}</button></div>}
+    {paymentStatus === "paid" && payoutStatus === "pending_dispute_window" && <div className="mt-3 flex gap-2"><button onClick={() => createTip.mutate({ bookingId, amountInCents: 500 })} disabled={createTip.isPending} className="flex-1 rounded-full bg-primary py-2 text-xs font-medium text-white disabled:opacity-50">{createTip.isPending ? "Preparing…" : "Add $5 tip"}</button><button onClick={() => setIssueOpen(true)} className="flex-1 rounded-full border border-destructive/30 py-2 text-xs font-medium text-destructive hover:bg-destructive/5">Report an issue</button></div>}
+    <Dialog open={issueOpen} onOpenChange={setIssueOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Report an appointment issue</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Tell us what happened. This pauses the nail tech’s payout while an administrator reviews the report.</p><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Describe the issue" className="min-h-28" /><Button variant="destructive" disabled={reason.trim().length < 10 || reportIssue.isPending} onClick={() => reportIssue.mutate({ bookingId, reason: reason.trim() })}>{reportIssue.isPending ? "Submitting…" : "Submit issue report"}</Button></DialogContent></Dialog>
+    <Dialog open={tipOpen} onOpenChange={setTipOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Add a tip</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Your $5 tip goes entirely to your nail tech and is released with their payout after the issue window.</p>{tipClientSecret && tipPaymentIntentId && <BookingTipDialog bookingId={bookingId} clientSecret={tipClientSecret} paymentIntentId={tipPaymentIntentId} onComplete={() => { setTipOpen(false); onChanged(); }} />}</DialogContent></Dialog>
+    <Dialog open={paymentSetupOpen} onOpenChange={setPaymentSetupOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Update payment method</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Save a different card to retry the outstanding appointment charge.</p>{paymentSetupClientSecret && <BookingPaymentSetup bookingId={bookingId} clientSecret={paymentSetupClientSecret} onComplete={() => { setPaymentSetupOpen(false); onChanged(); }} />}</DialogContent></Dialog>
+  </>;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Bookings() {
   const { isAuthenticated } = useAuth();
@@ -282,6 +323,7 @@ export default function Bookings() {
                 )}
 
                 {(booking as any).revisionStatus === "pending" && <RevisionApprovalCard bookingId={booking.id} onResolved={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />}
+                <ClientAppointmentTools bookingId={booking.id} status={booking.status} paymentStatus={(booking as any).paymentStatus} payoutStatus={(booking as any).payoutStatus} onChanged={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />
 
                 {/* Address reveal — only for confirmed bookings */}
                 {booking.status === "confirmed" && (tech as any)?.fullAddress && (

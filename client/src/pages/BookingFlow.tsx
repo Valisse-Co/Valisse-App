@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { getUnansweredQuestions } from "../../../shared/bookingComposition";
 import { MediaCarousel } from "@/components/MediaCarousel";
+import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 import {
   ArrowLeft,
   Calendar,
@@ -138,6 +139,8 @@ export default function BookingFlow() {
   const [notes, setNotes]                 = useState("");
   const [appointmentInspirationImage, setAppointmentInspirationImage] = useState<string | null>(requestedInspirationImage);
   const [booked, setBooked]               = useState(false);
+  const [pendingPaymentBookingId, setPendingPaymentBookingId] = useState<number | null>(null);
+  const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
 
   // ── Smart Match queries ───────────────────────────────────────────────────
   const smEnabledQuery = trpc.smartService.isEnabled.useQuery(
@@ -300,14 +303,11 @@ export default function BookingFlow() {
 
   const utils = trpc.useUtils();
   const createBooking = trpc.bookings.createWithServiceLines.useMutation({
-    onSuccess: () => {
-      setBooked(true);
-      utils.bookings.clientBookings.invalidate();
-    },
     onError: (err) => {
       toast.error(err.message ?? "Could not create booking. Please try again.");
     },
   });
+  const beginPaymentSetup = trpc.appointment.paymentSetup.useMutation();
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const today = new Date();
@@ -387,7 +387,7 @@ export default function BookingFlow() {
       if (serviceLines.some((line) => Number.isNaN(line.techServiceId))) {
         throw new Error("This nail tech needs to finish setting up their services before you can request a booking.");
       }
-      await createBooking.mutateAsync({
+      const created = await createBooking.mutateAsync({
         techId,
         postId: postId ? Number(postId) : undefined,
         inspirationImageUrl: appointmentInspirationImage ?? undefined,
@@ -399,6 +399,10 @@ export default function BookingFlow() {
           photoUrls: index === 0 ? [...assessment.photoUrls, ...photoUrls] : assessment.photoUrls,
         })),
       });
+      const setup = await beginPaymentSetup.mutateAsync({ bookingId: created.bookingId });
+      if (!setup.clientSecret) throw new Error("We could not prepare secure payment setup for this appointment.");
+      setPendingPaymentBookingId(created.bookingId);
+      setPaymentSetupClientSecret(setup.clientSecret);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create booking. Please try again.");
     }
@@ -475,6 +479,30 @@ export default function BookingFlow() {
   useEffect(() => { if (!techId) navigate("/discover"); }, [techId]);
 
   // ── Success screen ───────────────────────────────────────────────────────
+  if (pendingPaymentBookingId && paymentSetupClientSecret) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
+        <div className="w-full max-w-md space-y-5">
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10"><Shield className="h-7 w-7 text-primary" /></div>
+            <h1 className="text-2xl font-serif font-semibold text-foreground">Secure your booking</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Your booking request is ready. Save a card to reserve the appointment—there is no charge today.</p>
+          </div>
+          <Card className="rounded-2xl border-border p-5">
+            <BookingPaymentSetup
+              bookingId={pendingPaymentBookingId}
+              clientSecret={paymentSetupClientSecret}
+              onComplete={() => {
+                setBooked(true);
+                utils.bookings.clientBookings.invalidate();
+              }}
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (booked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
@@ -1202,10 +1230,10 @@ export default function BookingFlow() {
         <div className="max-w-lg mx-auto">
           <Button
             className="w-full h-12 text-sm font-semibold rounded-xl"
-            disabled={!canAdvance() || createBooking.isPending}
+            disabled={!canAdvance() || createBooking.isPending || beginPaymentSetup.isPending}
             onClick={advance}
           >
-            {createBooking.isPending ? (
+            {createBooking.isPending || beginPaymentSetup.isPending ? (
               <><Loader2 className="w-4 h-4 animate-spin mr-2" />Requesting…</>
             ) : step === 4 ? "Confirm & Request"
               : step === 3 ? "Review Booking"

@@ -25,6 +25,7 @@ import {
   Moon,
   FileText,
   ShieldAlert,
+  Landmark,
 } from "lucide-react";
 
 type SettingsSection = {
@@ -42,6 +43,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "privacy", label: "Privacy", description: "Profile visibility, blocked users", icon: <Shield size={20} />, href: "/settings/privacy" },
   { id: "account", label: "Account & Security", description: "Connected account, display name", icon: <Lock size={20} />, href: "/settings/account" },
   { id: "subscription", label: "Subscription", description: "Plan, billing, trial status", icon: <CreditCard size={20} />, href: "/settings/subscription", techOnly: true },
+  { id: "payouts", label: "Payouts", description: "Stripe account and completed appointment payouts", icon: <Landmark size={20} />, href: "/settings/payouts", techOnly: true },
   { id: "smart-service-match", label: "Smart Service Match", description: "Service matching and quote review controls", icon: <Sparkles size={20} />, href: "/settings/smart-service-match", techOnly: true },
   { id: "appearance", label: "Appearance", description: "Dark mode, display preferences", icon: <Moon size={20} />, href: "/settings/appearance" },
 ];
