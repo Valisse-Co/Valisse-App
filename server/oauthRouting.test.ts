@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getOAuthPostLoginPath } from "./_core/oauth";
+import { isManagedDatabaseCredentialError } from "./db";
 
 describe("OAuth post-login routing", () => {
   it("sends returning client accounts to Discover", () => {
@@ -13,5 +14,15 @@ describe("OAuth post-login routing", () => {
 
   it("sends new identities through a safely encoded Google confirmation step", () => {
     expect(getOAuthPostLoginPath(null, "new.user+test@example.com", "signup")).toBe("/signup/google-confirm?email=new.user%2Btest%40example.com&source=signup");
+  });
+
+  it("recognizes only managed-database access-denied errors for a single client refresh retry", () => {
+    expect(
+      isManagedDatabaseCredentialError({
+        message: "Failed query",
+        cause: { code: "ER_UNKNOWN_ERROR", message: "Access denied. Please check your user name and password." },
+      })
+    ).toBe(true);
+    expect(isManagedDatabaseCredentialError(new Error("Connection timed out"))).toBe(false);
   });
 });

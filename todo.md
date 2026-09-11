@@ -558,6 +558,11 @@
 - [x] Restore the managed database connection behind the callback and retain duplicate-account protection and secure session issuance
 - [x] Add regression coverage for callback intent parsing and post-login routing
 
+## Persistent Google OAuth Callback Failure
+- [x] Capture fresh callback logs and identify the exact failing OAuth handler and operation
+- [x] Fix the managed-database credential failure with a one-time safe client refresh while retaining session, identity, and duplicate-account protections
+- [x] Add a regression test for the identified callback failure and validate the repaired Google sign-in flow
+
 ## Technician-Readable Smart Service Match Preview
 - [x] Audit current service questionnaire and outcome definitions for a concise technician-facing preview
 - [x] Add per-service expandable question cards showing answer choices and plain-language decision paths

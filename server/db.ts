@@ -44,6 +44,46 @@ import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+export function isManagedDatabaseCredentialError(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+
+  while (current && typeof current === "object" && !visited.has(current)) {
+    visited.add(current);
+    const candidate = current as { message?: unknown; code?: unknown; cause?: unknown };
+    const message = typeof candidate.message === "string" ? candidate.message.toLowerCase() : "";
+    if (
+      message.includes("access denied") ||
+      candidate.code === "ER_ACCESS_DENIED_ERROR" ||
+      (candidate.code === "ER_UNKNOWN_ERROR" && message.includes("password"))
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+
+  return false;
+}
+
+async function withManagedDatabaseRetry<T>(operation: (database: ReturnType<typeof drizzle>) => Promise<T>): Promise<T> {
+  const database = await getDb();
+  if (!database) throw new Error("Database connection is unavailable");
+
+  try {
+    return await operation(database);
+  } catch (error) {
+    if (!isManagedDatabaseCredentialError(error)) throw error;
+
+    // The managed database gateway can rotate credentials while a development
+    // process is still holding a lazy mysql pool. Discard the stale client and
+    // retry once with a newly initialized pool; never retry other failures.
+    _db = null;
+    const refreshedDatabase = await getDb();
+    if (!refreshedDatabase) throw error;
+    return operation(refreshedDatabase);
+  }
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -59,8 +99,6 @@ export async function getDb() {
 // ─── Users ────────────────────────────────────────────────────────────────────
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
-  const db = await getDb();
-  if (!db) return;
 
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
@@ -89,13 +127,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (!values.lastSignedIn) values.lastSignedIn = new Date();
   if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
 
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+  await withManagedDatabaseRetry((database) =>
+    database.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet })
+  );
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await withManagedDatabaseRetry((database) =>
+    database.select().from(users).where(eq(users.openId, openId)).limit(1)
+  );
   return result[0];
 }
 
@@ -117,9 +157,9 @@ export async function getAdminUserIds(): Promise<number[]> {
 }
 
 export async function getUserByEmail(email: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const result = await withManagedDatabaseRetry((database) =>
+    database.select().from(users).where(eq(users.email, email)).limit(1)
+  );
   return result[0];
 }
 
