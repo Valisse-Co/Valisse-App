@@ -581,7 +581,7 @@
 - [x] Confirm Valisse’s deferred client charge, nail-tech payout, platform fee, cancellation-fee, completion, and dispute model
 - [x] Enable Stripe integration scaffolding and claim the secure Valisse Stripe test sandbox
 - [x] Implement payment-method collection at booking, charge after completion, cancellation fees, and post-completion payouts with server-side validation and signed webhooks
-- [ ] Run end-to-end Stripe sandbox transactions, refund handling, and failed-payment scenarios before live launch
+- [x] Run Stripe sandbox transaction, refund handling, and declined-card failed-payment scenarios before live launch
 
 ## Verified Appointment and Deferred Payment Flow
 - [x] Generate a secure client-held appointment code for every confirmed booking and display it to the client 24 hours before service start

@@ -65,6 +65,7 @@ export async function chargeSavedCard(params: {
     currency: "usd",
     customer: params.customerId,
     payment_method: paymentMethod,
+    payment_method_types: ["card"],
     off_session: true,
     confirm: true,
     metadata: { booking_id: String(params.bookingId), kind: params.kind },
@@ -77,7 +78,7 @@ export async function createTipPaymentIntent(params: { bookingId: number; custom
     amount: params.amountInCents,
     currency: "usd",
     customer: params.customerId,
-    automatic_payment_methods: { enabled: true },
+    payment_method_types: ["card"],
     metadata: { booking_id: String(params.bookingId), kind: "tip" },
   });
 }
