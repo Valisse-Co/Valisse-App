@@ -9,4 +9,8 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  telnyxApiKey: process.env.TELNYX_API_KEY ?? "",
+  telnyxMessagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID ?? "",
+  telnyxSenderNumber: process.env.TELNYX_SENDER_NUMBER ?? "",
+  telnyxPublicKey: process.env.TELNYX_PUBLIC_KEY ?? "",
 };

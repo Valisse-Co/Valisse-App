@@ -589,3 +589,20 @@
 - [x] Charge the client-approved service total after verified completion, then offer an optional 100%-to-tech tip
 - [x] Retain Valisse’s 5% service fee, exclude tips from the fee, and hold connected-account payout for a 24-hour client-dispute window that pauses on a reported issue for administrator review
 - [x] Enforce each tech’s accepted cancellation policy automatically; never charge a client for a tech cancellation or no-show
+
+## Telnyx SMS Integration
+- [ ] Review existing SMS consent, phone normalization, appointment notifications, and Telnyx configuration prerequisites
+- [ ] Guide Telnyx account, messaging profile, test phone number, and U.S. A2P 10DLC registration setup
+- [ ] Add secure Telnyx credentials and consent-gated transactional SMS notification foundation
+- [ ] Test Telnyx delivery safely and document production activation, STOP, and HELP handling
+
+## Twilio SMS Integration
+- [ ] Review existing SMS consent, phone normalization, appointment notifications, and Twilio configuration prerequisites
+- [ ] Guide Twilio project setup, a test phone number, and U.S. A2P 10DLC registration for production messaging
+- [ ] Add server-side Twilio credentials and a consent-gated transactional SMS notification foundation
+- [ ] Test sandbox delivery safely, retain STOP/HELP handling requirements, and document live activation steps
+
+## Uber-Style In-Person Appointment Experience
+- [x] Audit client, technician, and admin appointment screens for confirmation, code visibility, verified start, completion, payment, tip, issue, and payout states
+- [x] Improve lifecycle status hierarchy and in-person handoff controls across booking cards
+- [x] Add lifecycle transition regression coverage and validate mobile appointment UX

@@ -285,6 +285,7 @@ export const bookings = mysqlTable("bookings", {
   // Verified appointment lifecycle. The client code is hashed and becomes visible 24h before service.
   appointmentCodeHash: varchar("appointmentCodeHash", { length: 128 }),
   appointmentCodeVisibleAt: timestamp("appointmentCodeVisibleAt"),
+  appointmentCodeSmsSentAt: timestamp("appointmentCodeSmsSentAt"),
   appointmentCodeFailures: int("appointmentCodeFailures").default(0).notNull(),
   appointmentCodeLockedUntil: timestamp("appointmentCodeLockedUntil"),
   startedAt: timestamp("startedAt"),

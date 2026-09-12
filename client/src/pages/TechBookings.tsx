@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield, Zap } from "lucide-react";
+import { Calendar, Clock, Check, X, ChevronDown, ChevronUp, Plus, Trash2, DollarSign, Percent, Shield, Zap, CircleCheck } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -158,6 +158,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
     onError: (error) => toast.error(error.message || "Could not start this appointment."),
   });
   const codeWindowOpen = time.getTime() - Date.now() <= 24 * 60 * 60 * 1000;
+  const startWindowOpen = Date.now() >= time.getTime() - 30 * 60 * 1000;
   const { data: smartContext } = trpc.smartService.bookingContext.useQuery(
     { bookingId: booking.id },
     { enabled: booking.needsReview || booking.revisionStatus === "pending" }
@@ -284,13 +285,15 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
         </div>
       )}
       {booking.status === "confirmed" && (isToday || !isPast) && (
-        <div className="flex gap-2 mt-3">
+        <div className="mt-3 space-y-2">
+          <div className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2"><p className="text-xs font-semibold text-foreground">In-person check-in</p><p className="mt-0.5 text-xs text-muted-foreground">Ask the client for their six-digit Valisse code when they arrive. Code verification is available 30 minutes before the appointment.</p></div>
+          <div className="flex gap-2">
           <button
             onClick={() => setStartDialogOpen(true)}
-            disabled={isUpdating || !codeWindowOpen}
+            disabled={isUpdating || !codeWindowOpen || !startWindowOpen}
             className="flex-1 py-2 rounded-xl bg-primary text-white text-xs font-medium disabled:opacity-50"
           >
-            {codeWindowOpen ? "Start with client code" : "Code available 24h before"}
+            {!codeWindowOpen ? "Code available 24h before" : startWindowOpen ? "Verify code & start" : "Start available 30 min before"}
           </button>
           <button
             onClick={() => onCancel(booking.id)}
@@ -298,21 +301,26 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           >
             Cancel
           </button>
+          </div>
         </div>
       )}
       {booking.status === "in_progress" && (
-        <div className="flex gap-2 mt-3">
+        <div className="mt-3 space-y-2">
+          <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2"><p className="text-xs font-semibold text-violet-800">Appointment in progress</p><p className="mt-0.5 text-xs text-violet-700">Complete this only after the service is finished. Valisse will charge the client’s approved total and begin the 24-hour payout review window.</p></div>
+          <div className="flex gap-2">
           <button
             onClick={() => onMarkComplete(booking.id)}
             disabled={isUpdating}
-            className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
           >
-            Complete appointment & charge
+            <CircleCheck size={13} /> Complete & charge client
           </button>
+          </div>
         </div>
       )}
-      {booking.status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">Appointment completed. The client must update their payment method before payout can begin.</div>}
-      {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">Client reported an issue. Payout is on hold for administrator review.</div>}
+      {booking.status === "completed" && booking.payoutStatus === "pending_dispute_window" && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2"><p className="text-xs font-semibold text-primary">Payout review window</p><p className="mt-0.5 text-xs text-muted-foreground">The client’s payment is captured. Your payout releases after the 24-hour issue window unless an issue is reported.</p></div>}
+      {booking.status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2"><p className="text-xs font-semibold text-amber-800">Client payment needed</p><p className="mt-0.5 text-xs text-amber-700">The appointment is completed. The client must update their payment method before payout can begin.</p></div>}
+      {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2"><p className="text-xs font-semibold text-destructive">Client reported an issue</p><p className="mt-0.5 text-xs text-destructive/80">Payout is on hold while an administrator reviews the appointment.</p></div>}
       <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader><DialogTitle>Start verified appointment</DialogTitle></DialogHeader>

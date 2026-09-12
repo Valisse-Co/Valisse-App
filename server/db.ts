@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
@@ -144,6 +144,46 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result[0];
+}
+
+export async function getUsersByPhoneCandidates(phoneCandidates: string[]) {
+  const normalized = Array.from(new Set(phoneCandidates.filter(Boolean)));
+  if (normalized.length === 0) return [];
+  return withManagedDatabaseRetry((database) =>
+    database.select().from(users).where(inArray(users.phone, normalized))
+  );
+}
+
+export async function revokeSmsConsentForPhoneCandidates(phoneCandidates: string[]) {
+  const matchedUsers = await getUsersByPhoneCandidates(phoneCandidates);
+  if (matchedUsers.length === 0) return 0;
+  const ids = matchedUsers.map((user) => user.id);
+  await withManagedDatabaseRetry((database) =>
+    database.update(users).set({ smsConsent: false, smsConsentAt: new Date() }).where(inArray(users.id, ids))
+  );
+  return ids.length;
+}
+
+export async function getBookingsDueForAppointmentCodeSms(now = new Date()) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ id: bookings.id, clientId: bookings.clientId, scheduledAt: bookings.scheduledAt })
+    .from(bookings)
+    .innerJoin(users, eq(users.id, bookings.clientId))
+    .where(and(
+      eq(bookings.status, "confirmed"),
+      lte(bookings.appointmentCodeVisibleAt, now),
+      isNull(bookings.appointmentCodeSmsSentAt),
+      eq(users.smsConsent, true),
+      isNotNull(users.phone),
+    ));
+}
+
+export async function markAppointmentCodeSmsSent(bookingId: number, sentAt = new Date()) {
+  await withManagedDatabaseRetry((database) =>
+    database.update(bookings).set({ appointmentCodeSmsSentAt: sentAt }).where(eq(bookings.id, bookingId))
+  );
 }
 
 export async function hasOutstandingAppointmentPayment(clientId: number) {

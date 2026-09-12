@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "crypto";
 
 export const APPOINTMENT_CODE_VISIBLE_HOURS = 24;
+export const APPOINTMENT_START_EARLY_MINUTES = 30;
 export const PAYOUT_DISPUTE_WINDOW_HOURS = 24;
 export const VALISSE_PLATFORM_FEE_BASIS_POINTS = 500;
 
@@ -17,6 +18,15 @@ export function hashAppointmentCode(bookingId: number, code: string, secret: str
 
 export function appointmentCodeVisibleAt(scheduledAt: Date): Date {
   return new Date(scheduledAt.getTime() - APPOINTMENT_CODE_VISIBLE_HOURS * 60 * 60 * 1000);
+}
+
+/** A technician can verify the client code shortly before the booked start time, not simply when the code becomes visible. */
+export function appointmentStartAvailableAt(scheduledAt: Date): Date {
+  return new Date(scheduledAt.getTime() - APPOINTMENT_START_EARLY_MINUTES * 60 * 1000);
+}
+
+export function canStartVerifiedAppointment(scheduledAt: Date, now = new Date()): boolean {
+  return now >= appointmentStartAvailableAt(scheduledAt);
 }
 
 export function payoutEligibleAt(completedAt: Date): Date {

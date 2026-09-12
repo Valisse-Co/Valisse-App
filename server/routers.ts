@@ -155,8 +155,10 @@ import {
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
 import { getDirectMessageValidationError, isConversationParticipant, isSafeDirectMessageImageReference } from "../shared/directMessaging";
+import { sendValisseTransactionalSms } from "./telnyx";
 import {
   appointmentCodeVisibleAt,
+  canStartVerifiedAppointment,
   deriveAppointmentCode,
   hashAppointmentCode,
   isValidAppointmentCodeInput,
@@ -947,6 +949,9 @@ const appointmentRouter = router({
       if (!booking.appointmentCodeVisibleAt || booking.appointmentCodeVisibleAt > new Date()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The appointment code is not available yet." });
       }
+      if (!canStartVerifiedAppointment(booking.scheduledAt)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "You can verify the client code up to 30 minutes before the appointment starts." });
+      }
       if (booking.appointmentCodeLockedUntil && booking.appointmentCodeLockedUntil > new Date()) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many incorrect code attempts. Try again shortly." });
       }
@@ -960,6 +965,7 @@ const appointmentRouter = router({
       }
       await startVerifiedAppointment(booking.id, new Date());
       await createNotification({ userId: booking.clientId, type: "appointment_started", title: "Appointment started", body: "Your nail appointment is now in progress.", relatedId: booking.id });
+      void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_started", text: "Valisse: your nail appointment is now in progress. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Appointment-start SMS failed", error));
       return { success: true };
     }),
 
@@ -984,10 +990,12 @@ const appointmentRouter = router({
         await markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" });
         await createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id });
         await createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id });
+        void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_complete", text: "Valisse: your appointment is complete and your approved service payment was processed. You can add a tip or report an issue in the app within 24 hours. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Completion SMS failed", error));
         return { success: true, paymentDue: false };
       } catch (error) {
         await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
         await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id });
+        void sendValisseTransactionalSms({ userId: booking.clientId, category: "payment_due", text: "Valisse: payment is needed for your completed appointment. Update your payment method in the app to settle the balance. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Payment-due SMS failed", error));
         return { success: true, paymentDue: true };
       }
     }),
@@ -1002,6 +1010,7 @@ const appointmentRouter = router({
       }
       await reportBookingIssue(booking.id, input.reason, new Date());
       await createNotification({ userId: booking.techId, type: "booking_issue_reported", title: "Client reported an issue", body: "Payout is paused while the issue is reviewed.", relatedId: booking.id });
+      void sendValisseTransactionalSms({ userId: booking.techId, category: "booking_issue", text: "Valisse: a client reported an issue with a completed appointment. Your payout is paused while it is reviewed. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Issue-report SMS failed", error));
       for (const adminId of await getAdminUserIds()) {
         await createNotification({ userId: adminId, type: "booking_issue_reported", title: "Booking issue reported", body: "A client reported an issue and the payout is on hold.", relatedId: booking.id });
       }
