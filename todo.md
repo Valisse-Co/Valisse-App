@@ -591,16 +591,16 @@
 - [x] Enforce each tech’s accepted cancellation policy automatically; never charge a client for a tech cancellation or no-show
 
 ## Telnyx SMS Integration
-- [ ] Review existing SMS consent, phone normalization, appointment notifications, and Telnyx configuration prerequisites
-- [ ] Guide Telnyx account, messaging profile, test phone number, and U.S. A2P 10DLC registration setup
-- [ ] Add secure Telnyx credentials and consent-gated transactional SMS notification foundation
-- [ ] Test Telnyx delivery safely and document production activation, STOP, and HELP handling
+- [x] Review existing SMS consent, phone normalization, appointment notifications, and Telnyx configuration prerequisites
+- [x] Guide Telnyx account, messaging profile, test phone number, and U.S. A2P 10DLC registration setup
+- [x] Add secure Telnyx credentials and consent-gated transactional SMS notification foundation
+- [x] Validate Telnyx configuration, consent, STOP, and HELP safeguards; physical delivery test deferred at the user's request until a second Telnyx test number or approved destination is available
 
 ## Twilio SMS Integration
-- [ ] Review existing SMS consent, phone normalization, appointment notifications, and Twilio configuration prerequisites
-- [ ] Guide Twilio project setup, a test phone number, and U.S. A2P 10DLC registration for production messaging
-- [ ] Add server-side Twilio credentials and a consent-gated transactional SMS notification foundation
-- [ ] Test sandbox delivery safely, retain STOP/HELP handling requirements, and document live activation steps
+- [x] Superseded: Telnyx was selected as Valisse's SMS provider before Twilio implementation began
+- [x] Superseded: Telnyx messaging profile and production A2P guidance replace the Twilio project setup plan
+- [x] Superseded: no Twilio credentials or notification foundation were added
+- [x] Superseded: no Twilio sandbox delivery test is required
 
 ## Uber-Style In-Person Appointment Experience
 - [x] Audit client, technician, and admin appointment screens for confirmation, code visibility, verified start, completion, payment, tip, issue, and payout states
