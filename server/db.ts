@@ -2,6 +2,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } f
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
+  availabilityServiceSelections,
   bookingMatchAssessments,
   bookingRules,
   bookingRevisions,
@@ -41,6 +42,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -910,7 +912,24 @@ export async function getTechPastBookings(techId: number) {
 export async function getWeeklySchedule(techId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(availability).where(eq(availability.techId, techId)).orderBy(availability.dayOfWeek);
+  const schedule = await db.select().from(availability).where(eq(availability.techId, techId)).orderBy(availability.dayOfWeek);
+  if (schedule.length === 0) return [];
+
+  const selectionRows = await db
+    .select({ availabilityId: availabilityServiceSelections.availabilityId, techServiceId: availabilityServiceSelections.techServiceId })
+    .from(availabilityServiceSelections)
+    .where(inArray(availabilityServiceSelections.availabilityId, schedule.map((day) => day.id)));
+  const serviceIdsByAvailabilityId = new Map<number, number[]>();
+  for (const selection of selectionRows) {
+    const selectedIds = serviceIdsByAvailabilityId.get(selection.availabilityId) ?? [];
+    selectedIds.push(selection.techServiceId);
+    serviceIdsByAvailabilityId.set(selection.availabilityId, selectedIds);
+  }
+
+  return schedule.map((day) => ({
+    ...day,
+    serviceIds: serviceIdsByAvailabilityId.get(day.id) ?? [],
+  }));
 }
 
 export async function setWeeklySchedule(
@@ -923,24 +942,57 @@ export async function setWeeklySchedule(
     breakStart?: string | null;
     breakEnd?: string | null;
     bufferMinutes?: number | null;
+    clientTier?: "open" | "returning_only";
+    serviceIds?: number[];
   }>
 ) {
   const db = await getDb();
   if (!db) return;
+
+  const selectedServiceIds = schedule.flatMap((day) => day.serviceIds ?? []);
+  for (const day of schedule) {
+    const serviceIds = day.serviceIds ?? [];
+    if (new Set(serviceIds).size !== serviceIds.length) {
+      throw new Error("Each service can only be selected once per day.");
+    }
+  }
+  if (selectedServiceIds.length > 0) {
+    const ownedActiveServices = await db
+      .select({ id: techServices.id })
+      .from(techServices)
+      .where(and(eq(techServices.techId, techId), eq(techServices.isActive, true)));
+    const invalidServiceIds = getInvalidServiceSelectionIds(selectedServiceIds, ownedActiveServices.map((service) => service.id));
+    if (invalidServiceIds.length > 0) {
+      throw new Error("Only your active services can be assigned to a schedule day.");
+    }
+  }
+
+  const existingRows = await db.select({ id: availability.id }).from(availability).where(eq(availability.techId, techId));
+  if (existingRows.length > 0) {
+    await db.delete(availabilityServiceSelections).where(inArray(availabilityServiceSelections.availabilityId, existingRows.map((row) => row.id)));
+  }
   await db.delete(availability).where(eq(availability.techId, techId));
-  if (schedule.length > 0) {
-    await db.insert(availability).values(
-      schedule.map(s => ({
-        techId,
-        dayOfWeek: s.dayOfWeek,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        isActive: s.isActive,
-        breakStart: s.breakStart ?? null,
-        breakEnd: s.breakEnd ?? null,
-        bufferMinutes: s.bufferMinutes ?? 0,
-      }))
-    );
+
+  for (const day of schedule) {
+    const [result] = await db.insert(availability).values({
+      techId,
+      dayOfWeek: day.dayOfWeek,
+      startTime: day.startTime,
+      endTime: day.endTime,
+      isActive: day.isActive,
+      breakStart: day.breakStart ?? null,
+      breakEnd: day.breakEnd ?? null,
+      bufferMinutes: day.bufferMinutes ?? 0,
+      clientTier: day.clientTier ?? "open",
+      clientTierUpdatedAt: new Date(),
+    });
+    const availabilityId = Number((result as { insertId: number }).insertId);
+    const serviceIds = day.serviceIds ?? [];
+    if (serviceIds.length > 0) {
+      await db.insert(availabilityServiceSelections).values(
+        serviceIds.map((techServiceId) => ({ availabilityId, techServiceId }))
+      );
+    }
   }
 }
 
@@ -1122,6 +1174,10 @@ export async function setTechAvailability(
 ) {
   const db = await getDb();
   if (!db) return;
+  const existingRows = await db.select({ id: availability.id }).from(availability).where(eq(availability.techId, techId));
+  if (existingRows.length > 0) {
+    await db.delete(availabilityServiceSelections).where(inArray(availabilityServiceSelections.availabilityId, existingRows.map((row) => row.id)));
+  }
   await db.delete(availability).where(eq(availability.techId, techId));
   if (slots.length > 0) {
     await db.insert(availability).values(slots.map(s => ({ ...s, techId })));
@@ -1461,7 +1517,8 @@ export async function getAvailableSlots(
   techId: number,
   dateStr: string,   // "YYYY-MM-DD" in local time
   durationMinutes: number,
-  clientId?: number  // optional — used to check returning-client status
+  clientId?: number, // optional — used to check returning-client status
+  requestedServiceIds: number[] = [],
 ): Promise<Array<{ time: string; available: boolean; reason: string | undefined }>> {
   const db = await getDb();
   if (!db) return [];
@@ -1482,6 +1539,14 @@ export async function getAvailableSlots(
 
   const av = avRows[0];
   const bufferMins = av.bufferMinutes ?? 0;
+  const selectedServiceRows = await db
+    .select({ techServiceId: availabilityServiceSelections.techServiceId })
+    .from(availabilityServiceSelections)
+    .where(eq(availabilityServiceSelections.availabilityId, av.id));
+  const isServiceEligible = areServicesAvailableForDay(
+    selectedServiceRows.map((selection) => selection.techServiceId),
+    requestedServiceIds,
+  );
 
   // Helper: "HH:MM" → minutes since midnight
   const toMins = (t: string) => {
@@ -1597,10 +1662,11 @@ export async function getAvailableSlots(
       }
     }
 
-    const finalReason = reason ?? tierReason;
+    const serviceReason = isServiceEligible ? undefined : "service_unavailable";
+    const finalReason = reason ?? tierReason ?? serviceReason;
     slots.push({
       time: toTime(t),
-      available: !doesntFit && !isBlocked && !isPast && !tierReason,
+      available: !doesntFit && !isBlocked && !isPast && !tierReason && !serviceReason,
       reason: finalReason,
     });
   }
@@ -1618,7 +1684,8 @@ export async function getMonthBookableStatus(
   techId: number,
   year: number,
   month: number, // 1-indexed
-  durationMinutes: number
+  durationMinutes: number,
+  requestedServiceIds: number[] = [],
 ): Promise<Record<string, boolean>> {
   const db = await getDb();
   if (!db) return {};
@@ -1630,6 +1697,17 @@ export async function getMonthBookableStatus(
     .where(and(eq(availability.techId, techId), eq(availability.isActive, true)));
 
   if (avRows.length === 0) return {};
+
+  const selectionRows = await db
+    .select({ availabilityId: availabilityServiceSelections.availabilityId, techServiceId: availabilityServiceSelections.techServiceId })
+    .from(availabilityServiceSelections)
+    .where(inArray(availabilityServiceSelections.availabilityId, avRows.map((day) => day.id)));
+  const selectedServiceIdsByAvailabilityId = new Map<number, number[]>();
+  for (const selection of selectionRows) {
+    const selectedIds = selectedServiceIdsByAvailabilityId.get(selection.availabilityId) ?? [];
+    selectedIds.push(selection.techServiceId);
+    selectedServiceIdsByAvailabilityId.set(selection.availabilityId, selectedIds);
+  }
 
   const workingDowSet = new Set(avRows.map(a => a.dayOfWeek));
 
@@ -1685,6 +1763,10 @@ export async function getMonthBookableStatus(
     const dow = new Date(y, mo - 1, day).getDay();
     const av = avRows.find(a => a.dayOfWeek === dow);
     if (!av) { result[dateStr] = false; continue; }
+    if (!areServicesAvailableForDay(selectedServiceIdsByAvailabilityId.get(av.id) ?? [], requestedServiceIds)) {
+      result[dateStr] = false;
+      continue;
+    }
 
     const bufferMins = av.bufferMinutes ?? 0;
     const workStart = toMins(av.startTime);
@@ -1738,7 +1820,10 @@ export async function getMonthBookableStatus(
  * Create a booking only if the slot is still free (prevents double-booking).
  * Throws if the slot is already taken.
  */
-export async function createBookingWithConflictCheck(data: InsertBooking): Promise<number> {
+export async function createBookingWithConflictCheck(
+  data: InsertBooking,
+  requestedServiceIds: number[] = [],
+): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
 
@@ -1753,10 +1838,20 @@ export async function createBookingWithConflictCheck(data: InsertBooking): Promi
   // Get buffer for this tech on this day
   const dayOfWeek = scheduledAt.getDay();
   const avRows = await db
-    .select({ bufferMinutes: availability.bufferMinutes })
+    .select({ id: availability.id, bufferMinutes: availability.bufferMinutes })
     .from(availability)
-    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek)))
+    .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek), eq(availability.isActive, true)))
     .limit(1);
+  if (avRows.length === 0) {
+    throw new Error("This nail tech is not available on the selected day.");
+  }
+  const selectedServiceRows = await db
+    .select({ techServiceId: availabilityServiceSelections.techServiceId })
+    .from(availabilityServiceSelections)
+    .where(eq(availabilityServiceSelections.availabilityId, avRows[0].id));
+  if (!areServicesAvailableForDay(selectedServiceRows.map((selection) => selection.techServiceId), requestedServiceIds)) {
+    throw new Error("One or more selected services are not available on this day.");
+  }
   const bufferMins = avRows[0]?.bufferMinutes ?? 0;
 
   // Window to check: from (slotStart - maxBuffer) to slotEnd

@@ -126,6 +126,10 @@ export default function BookingFlow() {
     const all = [...initialSelectedServices, ...smSelectedAddOnServices];
     return all.filter((service, index) => all.findIndex((candidate) => candidate.id === service.id) === index);
   }, [initialSelectedServices, smSelectedAddOnServices]);
+  const bookingServiceIds = useMemo(
+    () => bookingServices.map((service) => Number(service.id)).filter((serviceId) => Number.isInteger(serviceId) && serviceId > 0),
+    [bookingServices],
+  );
   const bookingDuration = bookingServices.reduce((sum, service) => sum + service.duration, 0) || 60;
   const bookingTotal = bookingServices.reduce((sum, service) => sum + (service.price ?? 0), 0);
   const hasCompletePricing = bookingServices.every((service) => service.price != null);
@@ -185,6 +189,7 @@ export default function BookingFlow() {
       techId,
       date: selectedDate ?? "",
       duration: bookingDuration,
+      serviceIds: bookingServiceIds,
     },
     { enabled: !!selectedDate && !!selectedService && techId > 0, staleTime: 0 }
   );
@@ -197,6 +202,7 @@ export default function BookingFlow() {
       year: calMonth.year,
       month: calMonth.month + 1, // convert 0-indexed
       duration: bookingDuration,
+      serviceIds: bookingServiceIds,
     },
     { enabled: techId > 0 && !!selectedService, staleTime: 60_000 }
   );
@@ -844,7 +850,7 @@ export default function BookingFlow() {
                     ? "Loading schedule…"
                     : workingDays.size === 0
                     ? "This nail tech hasn't set their schedule yet."
-                    : <>Available days are highlighted · <span className="text-foreground font-medium">{selectedService?.label}</span></>}
+                    : <>Available days are highlighted · <span className="text-foreground font-medium">Every selected service must be offered that day.</span></>}
                 </p>
               </div>
               <Card className="p-4 rounded-2xl border-border">
@@ -961,22 +967,24 @@ export default function BookingFlow() {
                 </p>
               </div>
 
-              {/* Service summary banner — shown when auto-selected from a post */}
-              {selectedService && (
+              {/* Combined-service summary */}
+              {bookingServices.length > 0 && (
                 <div className="flex items-center gap-3 rounded-2xl bg-primary/5 border border-primary/15 px-4 py-3">
-                  {selectedService.photoUrl ? (
-                    <img src={selectedService.photoUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  {bookingServices[0]?.photoUrl ? (
+                    <img src={bookingServices[0].photoUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
                   ) : (
                     <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                       <Scissors className="w-5 h-5 text-primary" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">{selectedService.label}</p>
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {bookingServices.length === 1 ? bookingServices[0]?.label : `${bookingServices.length} selected services`}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {selectedService.duration} min
-                      {selectedService.price != null && (
-                        <span className="ml-2 text-primary font-medium">${selectedService.price.toFixed(2)}</span>
+                      {bookingDuration} min total
+                      {hasCompletePricing && (
+                        <span className="ml-2 text-primary font-medium">${bookingTotal.toFixed(2)}</span>
                       )}
                     </p>
                   </div>
@@ -1022,12 +1030,14 @@ export default function BookingFlow() {
                   <div className="grid grid-cols-3 gap-2">
                     {slotsQuery.data.map(slot => {
                       const isReturningOnly = slot.reason === "returning_only";
+                      const isServiceUnavailable = slot.reason === "service_unavailable";
                       const reasonLabel =
                         slot.reason === "booked" ? "Booked" :
                         slot.reason === "break" ? "Break" :
                         slot.reason === "blocked" ? "Blocked" :
                         slot.reason === "outside_hours" ? "End of shift" :
                         slot.reason === "past" ? "Past" :
+                        isServiceUnavailable ? "Not offered this day" :
                         isReturningOnly ? "Returning clients" : undefined;
                       return (
                         <button
@@ -1040,6 +1050,8 @@ export default function BookingFlow() {
                             ${!slot.available
                               ? isReturningOnly
                                 ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600/60 dark:text-amber-400/60 cursor-not-allowed border border-amber-200 dark:border-amber-800/40"
+                                : isServiceUnavailable
+                                ? "bg-muted/50 text-muted-foreground/60 cursor-not-allowed border border-border/60"
                                 : "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
                               : selectedTime === slot.time
                               ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
@@ -1048,7 +1060,7 @@ export default function BookingFlow() {
                         >
                           {to12Hour(slot.time)}
                           {!slot.available && reasonLabel && (
-                            <span className={`block text-[9px] mt-0.5 leading-none truncate ${isReturningOnly ? "text-amber-500/70 dark:text-amber-400/60" : "text-muted-foreground/40"}`}>
+                            <span className={`block text-[9px] mt-0.5 leading-none truncate ${isReturningOnly ? "text-amber-500/70 dark:text-amber-400/60" : isServiceUnavailable ? "text-muted-foreground/70" : "text-muted-foreground/40"}`}>
                               {reasonLabel}
                             </span>
                           )}
@@ -1069,12 +1081,23 @@ export default function BookingFlow() {
                       <span className="w-3 h-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 inline-block" />
                       Returning clients only
                     </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded bg-muted/50 border border-border/60 inline-block" />
+                      Service not offered
+                    </span>
                   </div>
                   {slotsQuery.data.every(s => !s.available) && (
                     <div className="text-center py-4">
                       <p className="text-sm text-muted-foreground">
-                        All slots are booked for this day.
+                        {slotsQuery.data.every((slot) => slot.reason === "service_unavailable")
+                          ? "This tech does not offer every selected service on this day."
+                          : "All slots are booked for this day."}
                       </p>
+                      {slotsQuery.data.every((slot) => slot.reason === "service_unavailable") && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Choose another day where all selected services are available.
+                        </p>
+                      )}
                       <Button variant="outline" size="sm" className="mt-2" onClick={() => setStep(1)}>
                         Choose a different date
                       </Button>

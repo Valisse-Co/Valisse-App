@@ -606,3 +606,12 @@
 - [x] Audit client, technician, and admin appointment screens for confirmation, code visibility, verified start, completion, payment, tip, issue, and payout states
 - [x] Improve lifecycle status hierarchy and in-person handoff controls across booking cards
 - [x] Add lifecycle transition regression coverage and validate mobile appointment UX
+
+## Day-Level Service Availability
+- [x] Audit weekly schedule persistence, booking availability lookup, and final booking creation contracts for safe service-selection integration
+- [x] Add a normalized availability-to-active-tech-service selection model and apply the reviewed database migration
+- [x] Expose selected service IDs in weekly schedule reads and writes, validating technician ownership and active-service status; an empty selection must represent all active services
+- [x] Require every service in a combined appointment to be offered on the selected schedule day during slot lookup and final booking creation, without changing time-block client-tier behavior
+- [x] Add a mobile-friendly multi-select beneath each day’s client-access controls, with active-service labels, selection count, explicit “All active services” default, and reset-to-all action
+- [x] Communicate day-level service conflicts in the client booking flow for Book This Look and unlimited multi-service appointments
+- [x] Add focused regression tests; run TypeScript, the full Vitest suite, and mobile visual checks before checkpointing

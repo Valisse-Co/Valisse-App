@@ -738,10 +738,11 @@ const bookingsRouter = router({
         techId: z.number(),
         date: z.string(), // "YYYY-MM-DD"
         duration: z.number().default(60),
+        serviceIds: z.array(z.number().int().positive()).max(100).optional(),
       })
     )
     .query(async ({ ctx, input }) =>
-      getAvailableSlots(input.techId, input.date, input.duration, ctx.user?.id)
+      getAvailableSlots(input.techId, input.date, input.duration, ctx.user?.id, input.serviceIds ?? [])
     ),
 
   // Returns { "YYYY-MM-DD": true/false } for all working days in the given month.
@@ -753,10 +754,11 @@ const bookingsRouter = router({
         year: z.number(),
         month: z.number(), // 1-indexed
         duration: z.number().default(60),
+        serviceIds: z.array(z.number().int().positive()).max(100).optional(),
       })
     )
     .query(async ({ input }) =>
-      getMonthBookableStatus(input.techId, input.year, input.month, input.duration)
+      getMonthBookableStatus(input.techId, input.year, input.month, input.duration, input.serviceIds ?? [])
     ),
 
   createWithServiceLines: protectedProcedure
@@ -815,7 +817,7 @@ const bookingsRouter = router({
         scheduledAt: new Date(input.scheduledAt),
         duration: totalDuration,
         notes: input.notes ?? null,
-      } as any);
+      } as any, lines.map((line) => line.techServiceId));
       await replaceBookingServiceLines(bookingId, lines);
       if (input.smartServiceMatches?.length) {
         await Promise.all(input.smartServiceMatches.map((assessment) => saveBookingMatchAssessment({ bookingId, ...assessment })));
@@ -1109,6 +1111,8 @@ const availabilityRouter = router({
             breakStart: z.string().nullable().optional(),
             breakEnd: z.string().nullable().optional(),
             bufferMinutes: z.number().min(0).max(120).nullable().optional(),
+            clientTier: z.enum(["open", "returning_only"]).optional(),
+            serviceIds: z.array(z.number().int().positive()).max(100).optional(),
           })
         ),
       })

@@ -207,6 +207,20 @@ export const availability = mysqlTable("availability", {
 
 export type Availability = typeof availability.$inferSelect;
 
+// ─── Availability Service Selections ─────────────────────────────────────────
+// An empty set of selections for an availability row intentionally means every
+// active service offered by the technician remains bookable that day.
+export const availabilityServiceSelections = mysqlTable("availability_service_selections", {
+  id: int("id").autoincrement().primaryKey(),
+  availabilityId: int("availabilityId").notNull(),
+  techServiceId: int("techServiceId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueAvailabilityService: unique("availability_service_selections_availability_service_unique").on(t.availabilityId, t.techServiceId),
+}));
+
+export type AvailabilityServiceSelection = typeof availabilityServiceSelections.$inferSelect;
+
 // ─── Booking Rules (client-tier restrictions on time blocks) ─────────────────
 // These override the day-level clientTier on the availability row.
 // Specificity + recency: the most recently created rule for a given time window wins.

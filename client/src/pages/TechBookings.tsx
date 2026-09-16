@@ -721,6 +721,13 @@ type DaySchedule = {
   hasBreak: boolean;
   bufferMinutes: number;
   clientTier: ClientTier;
+  serviceIds: number[];
+};
+
+type ScheduleService = {
+  id: number;
+  label: string;
+  durationMinutes: number;
 };
 
 const TIER_LABELS: Record<ClientTier, string> = {
@@ -748,6 +755,7 @@ function DayRow({
   day,
   onChange,
   rules,
+  services,
   onAddRule,
   onRemoveRule,
   onUpdateRule,
@@ -755,6 +763,7 @@ function DayRow({
   day: DaySchedule;
   onChange: (u: DaySchedule) => void;
   rules: BookingRule[];
+  services: ScheduleService[];
   onAddRule: (rule: { dayOfWeek: number | null; specificDate: number | null; startTime: string; endTime: string; clientTier: ClientTier }) => void;
   onRemoveRule: (id: number) => void;
   onUpdateRule: (id: number, data: { startTime?: string; endTime?: string; clientTier?: ClientTier; dayOfWeek?: number | null; specificDate?: number | null }) => void;
@@ -772,6 +781,14 @@ function DayRow({
   const [editTier, setEditTier] = useState<ClientTier>("open");
   const [editRuleType, setEditRuleType] = useState<"recurring" | "oneoff">("recurring");
   const [editRuleDate, setEditRuleDate] = useState("");
+  const [showServices, setShowServices] = useState(false);
+  const selectedServiceCount = day.serviceIds.length;
+  const toggleService = (serviceId: number) => {
+    const serviceIds = day.serviceIds.includes(serviceId)
+      ? day.serviceIds.filter((id) => id !== serviceId)
+      : [...day.serviceIds, serviceId];
+    onChange({ ...day, serviceIds });
+  };
 
   return (
     <div className={cn(
@@ -920,6 +937,107 @@ function DayRow({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* ── Whole-day service availability ── */}
+              <div className="pt-3 border-t border-border/50">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">Services available this day</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {selectedServiceCount === 0
+                        ? "All active services"
+                        : `${selectedServiceCount} service${selectedServiceCount === 1 ? "" : "s"} selected`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowServices((visible) => !visible)}
+                    disabled={services.length === 0}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:text-muted-foreground"
+                    aria-expanded={showServices}
+                  >
+                    {showServices ? "Done" : "Choose"}
+                    {showServices ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                </div>
+                {services.length === 0 ? (
+                  <p className="mt-2 rounded-xl bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                    Add active services in Settings before limiting this day.
+                  </p>
+                ) : (
+                  <AnimatePresence initial={false}>
+                    {showServices && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-2 space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onChange({ ...day, serviceIds: [] })}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors",
+                              selectedServiceCount === 0
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-border bg-background text-muted-foreground hover:border-primary/50"
+                            )}
+                            role="radio"
+                            aria-checked={selectedServiceCount === 0}
+                          >
+                            <span className={cn(
+                              "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                              selectedServiceCount === 0 ? "border-primary bg-primary text-white" : "border-muted-foreground/40"
+                            )}>
+                              {selectedServiceCount === 0 && <Check size={10} strokeWidth={3} />}
+                            </span>
+                            <span className="min-w-0 flex-1 text-xs font-semibold">All active services</span>
+                            <span className="text-[10px] opacity-70">Default</span>
+                          </button>
+                          <div className="space-y-1 rounded-xl border border-border/60 bg-muted/20 p-1.5" role="group" aria-label="Select services available this day">
+                            {services.map((service) => {
+                              const selected = day.serviceIds.includes(service.id);
+                              return (
+                                <button
+                                  key={service.id}
+                                  type="button"
+                                  onClick={() => toggleService(service.id)}
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors",
+                                    selected ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70"
+                                  )}
+                                  role="checkbox"
+                                  aria-checked={selected}
+                                >
+                                  <span className={cn(
+                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                    selected ? "border-primary bg-primary text-white" : "border-muted-foreground/40 bg-background"
+                                  )}>
+                                    {selected && <Check size={11} strokeWidth={3} />}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{service.label}</span>
+                                  <span className="text-[10px] text-muted-foreground">{service.durationMinutes} min</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selectedServiceCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => onChange({ ...day, serviceIds: [] })}
+                              className="w-full py-1 text-center text-[11px] font-medium text-primary hover:underline"
+                            >
+                              Reset to all active services
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                )}
               </div>
 
               {/* ── Time-block rules ── */}
@@ -1341,6 +1459,7 @@ const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
   hasBreak: false,
   bufferMinutes: 15,
   clientTier: "open" as ClientTier,
+  serviceIds: [],
 }));
 
 export function ScheduleTab() {
@@ -1354,6 +1473,16 @@ export function ScheduleTab() {
   const { data: bookingRulesData } = trpc.availability.bookingRules.useQuery(
     undefined, { enabled: isAuthenticated }
   );
+  const { data: activeServicesData = [] } = trpc.settings.getServices.useQuery(
+    undefined, { enabled: isAuthenticated }
+  );
+  const activeServices = useMemo<ScheduleService[]>(() =>
+    (activeServicesData as any[]).map((service) => ({
+      id: service.id,
+      label: service.customName || service.category,
+      durationMinutes: service.durationMinutes,
+    })),
+  [activeServicesData]);
   const utils = trpc.useUtils();
 
   const [schedule, setSchedule] = useState<DaySchedule[]>(DEFAULT_SCHEDULE);
@@ -1384,6 +1513,7 @@ export function ScheduleTab() {
           hasBreak,
           bufferMinutes: saved.bufferMinutes ?? 15,
           clientTier: (saved.clientTier ?? "open") as ClientTier,
+          serviceIds: saved.serviceIds ?? [],
         };
       });
       // Use the buffer from the first active saved day as the global value
@@ -1467,6 +1597,8 @@ export function ScheduleTab() {
         breakStart: d.hasBreak ? d.breakStart : null,
         breakEnd: d.hasBreak ? d.breakEnd : null,
         bufferMinutes: globalBuffer,
+        clientTier: d.clientTier,
+        serviceIds: d.serviceIds,
       })),
     });
   };
@@ -1539,6 +1671,7 @@ export function ScheduleTab() {
               day={day}
               onChange={updated => handleChange(day.dayOfWeek, updated)}
               rules={dayRules}
+              services={activeServices}
               onAddRule={rule => addBookingRule.mutate(rule)}
               onRemoveRule={id => removeBookingRule.mutate({ ruleId: id })}
               onUpdateRule={(id, data) => updateBookingRule.mutate({ ruleId: id, ...data })}
