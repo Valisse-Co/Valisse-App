@@ -543,11 +543,6 @@ export default function TechDashboard() {
             )}
 
             <div className="pt-2 border-t border-border/70">
-              <div className="mb-3 px-1">
-                <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Weekly Schedule</p>
-                <h2 className="text-lg font-display font-light text-foreground">Availability</h2>
-                <p className="text-sm text-muted-foreground mt-1">Manage your weekly hours, blocked time, and booking rules below.</p>
-              </div>
               <div className="-mx-4 -mb-4">
                 <ScheduleTab />
               </div>

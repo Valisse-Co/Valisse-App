@@ -615,3 +615,7 @@
 - [x] Add a mobile-friendly multi-select beneath each day’s client-access controls, with active-service labels, selection count, explicit “All active services” default, and reset-to-all action
 - [x] Communicate day-level service conflicts in the client booking flow for Book This Look and unlimited multi-service appointments
 - [x] Add focused regression tests; run TypeScript, the full Vitest suite, and mobile visual checks before checkpointing
+
+## Schedule Header Cleanup
+- [x] Remove the repeated Weekly Schedule / Availability heading while retaining one clear schedule introduction
+- [x] Verify the revised Schedule tab layout, TypeScript, and regression suite before checkpointing
