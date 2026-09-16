@@ -656,7 +656,6 @@ export default function BookingFlow() {
                     {hasCompletePricing && <p className="text-sm font-semibold text-primary">${bookingTotal.toFixed(2)}</p>}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">{initialSelectedServices.map((service) => <span key={service.id} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-foreground border border-primary/15">{service.label}<button type="button" aria-label={`Remove ${service.label}`} onClick={() => setInitialSelectedServices((current) => current.filter((item) => item.id !== service.id))}><X className="h-3 w-3 text-muted-foreground" /></button></span>)}</div>
-                  <Button className="mt-4 w-full" onClick={advance}>Continue to Smart Match</Button>
                 </Card>
               )}
             </div>

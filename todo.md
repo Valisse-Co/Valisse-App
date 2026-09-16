@@ -619,3 +619,7 @@
 ## Schedule Header Cleanup
 - [x] Remove the repeated Weekly Schedule / Availability heading while retaining one clear schedule introduction
 - [x] Verify the revised Schedule tab layout, TypeScript, and regression suite before checkpointing
+
+## Booking Service Selection Action Cleanup
+- [x] Remove the duplicate Continue to Smart Match action while preserving selected services and the main Continue flow
+- [x] Verify the selected-service summary and primary Continue action on mobile, then run TypeScript and regression tests before checkpointing
