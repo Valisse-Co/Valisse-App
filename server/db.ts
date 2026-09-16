@@ -43,6 +43,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
+import { fitsWithinAvailabilityWindows, mergeAvailabilityWindows, timeToMinutes } from "../shared/lastMinuteBooking";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1245,6 +1246,17 @@ export async function getActiveSlotsForTech(techId: number) {
     .orderBy(lastMinuteSlots.slotDate, lastMinuteSlots.startTime);
 }
 
+export async function getActiveLastMinuteSlotById(slotId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(lastMinuteSlots)
+    .where(and(eq(lastMinuteSlots.id, slotId), gt(lastMinuteSlots.expiresAt, Date.now())))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function deleteLastMinuteSlot(id: number, techId: number) {
   const db = await getDb();
   if (!db) return;
@@ -1528,41 +1540,52 @@ export async function getAvailableSlots(
   const requestedDate = new Date(year, month - 1, day);
   const dayOfWeek = requestedDate.getDay(); // 0=Sun…6=Sat
 
-  // 1. Get the tech's availability rule for this day
+  // 1. Get the tech's regular availability rule and any active last-minute
+  // opening on this exact local calendar date. A last-minute opening extends
+  // the normal working window; it does not replace the normal schedule.
   const avRows = await db
     .select()
     .from(availability)
     .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek), eq(availability.isActive, true)))
     .limit(1);
-
-  if (avRows.length === 0) return []; // tech doesn't work this day
+  const lastMinuteRows = await db
+    .select({ startTime: lastMinuteSlots.startTime, endTime: lastMinuteSlots.endTime })
+    .from(lastMinuteSlots)
+    .where(and(
+      eq(lastMinuteSlots.techId, techId),
+      eq(lastMinuteSlots.slotDate, dateStr),
+      gt(lastMinuteSlots.expiresAt, Date.now()),
+    ));
 
   const av = avRows[0];
-  const bufferMins = av.bufferMinutes ?? 0;
-  const selectedServiceRows = await db
-    .select({ techServiceId: availabilityServiceSelections.techServiceId })
-    .from(availabilityServiceSelections)
-    .where(eq(availabilityServiceSelections.availabilityId, av.id));
-  const isServiceEligible = areServicesAvailableForDay(
+  if (!av && lastMinuteRows.length === 0) return [];
+
+  const bufferMins = av?.bufferMinutes ?? 0;
+  const selectedServiceRows = av
+    ? await db
+      .select({ techServiceId: availabilityServiceSelections.techServiceId })
+      .from(availabilityServiceSelections)
+      .where(eq(availabilityServiceSelections.availabilityId, av.id))
+    : [];
+  const isServiceEligible = !av || areServicesAvailableForDay(
     selectedServiceRows.map((selection) => selection.techServiceId),
     requestedServiceIds,
   );
 
-  // Helper: "HH:MM" → minutes since midnight
-  const toMins = (t: string) => {
-    const [h, m] = t.split(":").map(Number);
-    return h * 60 + m;
-  };
   const toTime = (mins: number) => {
     const h = Math.floor(mins / 60).toString().padStart(2, "0");
     const m = (mins % 60).toString().padStart(2, "0");
     return `${h}:${m}`;
   };
 
-  const workStart = toMins(av.startTime);
-  const workEnd = toMins(av.endTime);
-  const breakStart = av.breakStart ? toMins(av.breakStart) : null;
-  const breakEnd = av.breakEnd ? toMins(av.breakEnd) : null;
+  const availabilityWindows = mergeAvailabilityWindows([
+    ...(av ? [{ start: timeToMinutes(av.startTime), end: timeToMinutes(av.endTime) }] : []),
+    ...lastMinuteRows.map((slot) => ({ start: timeToMinutes(slot.startTime), end: timeToMinutes(slot.endTime) })),
+  ]);
+  const workStart = Math.min(...availabilityWindows.map((window) => window.start));
+  const workEnd = Math.max(...availabilityWindows.map((window) => window.end));
+  const breakStart = av?.breakStart ? timeToMinutes(av.breakStart) : null;
+  const breakEnd = av?.breakEnd ? timeToMinutes(av.breakEnd) : null;
 
   // 2. Build "blocked intervals" from existing bookings on this date
   const dayStart = new Date(year, month - 1, day, 0, 0, 0);
@@ -1603,7 +1626,7 @@ export async function getAvailableSlots(
   }
 
   for (const bl of blocks) {
-    blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime), reason: "blocked" });
+    blocked.push({ start: timeToMinutes(bl.startTime), end: timeToMinutes(bl.endTime), reason: "blocked" });
   }
 
   // Add break as a blocked interval
@@ -1630,8 +1653,9 @@ export async function getAvailableSlots(
   for (let t = workStart; t < workEnd; t += slotInterval) {
     const slotEnd = t + durationMinutes;
 
-    // Slot doesn't fit before end of shift
-    const doesntFit = slotEnd > workEnd;
+    // A service may occupy the normal schedule, a published last-minute
+    // opening, or one continuous union of both.
+    const doesntFit = !fitsWithinAvailabilityWindows(t, durationMinutes, availabilityWindows);
 
     // Slot overlaps a blocked interval (booking, schedule block, or break)
     const isBlocked = blocked.some(
@@ -1696,7 +1720,20 @@ export async function getMonthBookableStatus(
     .from(availability)
     .where(and(eq(availability.techId, techId), eq(availability.isActive, true)));
 
-  if (avRows.length === 0) return {};
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const monthStartDateStr = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEndDateStr = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+  const activeLastMinuteRows = await db
+    .select({ slotDate: lastMinuteSlots.slotDate, startTime: lastMinuteSlots.startTime, endTime: lastMinuteSlots.endTime })
+    .from(lastMinuteSlots)
+    .where(and(
+      eq(lastMinuteSlots.techId, techId),
+      gt(lastMinuteSlots.expiresAt, Date.now()),
+      sql`${lastMinuteSlots.slotDate} >= ${monthStartDateStr}`,
+      sql`${lastMinuteSlots.slotDate} <= ${monthEndDateStr}`,
+    ));
+
+  if (avRows.length === 0 && activeLastMinuteRows.length === 0) return {};
 
   const selectionRows = await db
     .select({ availabilityId: availabilityServiceSelections.availabilityId, techServiceId: availabilityServiceSelections.techServiceId })
@@ -1712,7 +1749,6 @@ export async function getMonthBookableStatus(
   const workingDowSet = new Set(avRows.map(a => a.dayOfWeek));
 
   // Build date range for the month
-  const daysInMonth = new Date(year, month, 0).getDate();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -1725,7 +1761,16 @@ export async function getMonthBookableStatus(
     if (workingDowSet.has(date.getDay())) workingDates.push(dateStr);
   }
 
-  if (workingDates.length === 0) return {};
+  const lastMinuteWindowsByDate = new Map<string, Array<{ start: number; end: number }>>();
+  for (const slot of activeLastMinuteRows) {
+    if (slot.slotDate < todayStr) continue;
+    const windows = lastMinuteWindowsByDate.get(slot.slotDate) ?? [];
+    windows.push({ start: timeToMinutes(slot.startTime), end: timeToMinutes(slot.endTime) });
+    lastMinuteWindowsByDate.set(slot.slotDate, windows);
+  }
+  const candidateDates = Array.from(new Set([...workingDates, ...Array.from(lastMinuteWindowsByDate.keys())])).sort();
+
+  if (candidateDates.length === 0) return {};
 
   // Fetch all bookings in this month for this tech
   const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
@@ -1758,21 +1803,24 @@ export async function getMonthBookableStatus(
 
   const result: Record<string, boolean> = {};
 
-  for (const dateStr of workingDates) {
+  for (const dateStr of candidateDates) {
     const [y, mo, day] = dateStr.split("-").map(Number);
     const dow = new Date(y, mo - 1, day).getDay();
     const av = avRows.find(a => a.dayOfWeek === dow);
-    if (!av) { result[dateStr] = false; continue; }
-    if (!areServicesAvailableForDay(selectedServiceIdsByAvailabilityId.get(av.id) ?? [], requestedServiceIds)) {
+    if (av && !areServicesAvailableForDay(selectedServiceIdsByAvailabilityId.get(av.id) ?? [], requestedServiceIds)) {
       result[dateStr] = false;
       continue;
     }
 
-    const bufferMins = av.bufferMinutes ?? 0;
-    const workStart = toMins(av.startTime);
-    const workEnd = toMins(av.endTime);
-    const breakStart = av.breakStart ? toMins(av.breakStart) : null;
-    const breakEnd = av.breakEnd ? toMins(av.breakEnd) : null;
+    const bufferMins = av?.bufferMinutes ?? 0;
+    const availabilityWindows = mergeAvailabilityWindows([
+      ...(av ? [{ start: timeToMinutes(av.startTime), end: timeToMinutes(av.endTime) }] : []),
+      ...(lastMinuteWindowsByDate.get(dateStr) ?? []),
+    ]);
+    const workStart = Math.min(...availabilityWindows.map((window) => window.start));
+    const workEnd = Math.max(...availabilityWindows.map((window) => window.end));
+    const breakStart = av?.breakStart ? toMins(av.breakStart) : null;
+    const breakEnd = av?.breakEnd ? toMins(av.breakEnd) : null;
 
     type Interval = { start: number; end: number };
     const blocked: Interval[] = [];
@@ -1803,7 +1851,7 @@ export async function getMonthBookableStatus(
     let hasOpen = false;
     for (let t = workStart; t < workEnd; t += 15) {
       const slotEnd = t + durationMinutes;
-      if (slotEnd > workEnd) continue;
+      if (!fitsWithinAvailabilityWindows(t, durationMinutes, availabilityWindows)) continue;
       if (isToday && t <= nowMins) continue;
       if (blocked.some(iv => t < iv.end && slotEnd > iv.start)) continue;
       hasOpen = true;
@@ -1831,6 +1879,19 @@ export async function createBookingWithConflictCheck(
   const durationMins = data.duration ?? 60;
   const techId = data.techId;
 
+  const dateStr = `${scheduledAt.getFullYear()}-${String(scheduledAt.getMonth() + 1).padStart(2, "0")}-${String(scheduledAt.getDate()).padStart(2, "0")}`;
+  const timeStr = `${String(scheduledAt.getHours()).padStart(2, "0")}:${String(scheduledAt.getMinutes()).padStart(2, "0")}`;
+  const computedSlots = await getAvailableSlots(techId, dateStr, durationMins, data.clientId, requestedServiceIds);
+  const selectedSlot = computedSlots.find((slot) => slot.time === timeStr);
+  if (!selectedSlot?.available) {
+    const message = selectedSlot?.reason === "service_unavailable"
+      ? "One or more selected services are not available on this day."
+      : selectedSlot?.reason === "returning_only"
+      ? "This appointment time is reserved for returning clients."
+      : "This time slot is no longer available. Please choose another.";
+    throw new Error(message);
+  }
+
   // Check for overlapping bookings
   const slotStart = scheduledAt;
   const slotEnd = new Date(scheduledAt.getTime() + durationMins * 60 * 1000);
@@ -1842,16 +1903,6 @@ export async function createBookingWithConflictCheck(
     .from(availability)
     .where(and(eq(availability.techId, techId), eq(availability.dayOfWeek, dayOfWeek), eq(availability.isActive, true)))
     .limit(1);
-  if (avRows.length === 0) {
-    throw new Error("This nail tech is not available on the selected day.");
-  }
-  const selectedServiceRows = await db
-    .select({ techServiceId: availabilityServiceSelections.techServiceId })
-    .from(availabilityServiceSelections)
-    .where(eq(availabilityServiceSelections.availabilityId, avRows[0].id));
-  if (!areServicesAvailableForDay(selectedServiceRows.map((selection) => selection.techServiceId), requestedServiceIds)) {
-    throw new Error("One or more selected services are not available on this day.");
-  }
   const bufferMins = avRows[0]?.bufferMinutes ?? 0;
 
   // Window to check: from (slotStart - maxBuffer) to slotEnd

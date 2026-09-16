@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { getUnansweredQuestions } from "../../../shared/bookingComposition";
+import { timeToMinutes } from "../../../shared/lastMinuteBooking";
 import { MediaCarousel } from "@/components/MediaCarousel";
 import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 import {
@@ -21,6 +22,7 @@ import {
   Shield,
   Sparkles,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -99,6 +101,16 @@ export default function BookingFlow() {
   const postId = new URLSearchParams(search).get("postId");
   const preselectedServiceId = new URLSearchParams(search).get("serviceId");
   const requestedInspirationImage = new URLSearchParams(search).get("inspirationImage");
+  const lastMinuteSlotId = new URLSearchParams(search).get("lastMinuteSlotId");
+  const lastMinuteDate = new URLSearchParams(search).get("lastMinuteDate");
+  const lastMinuteStart = new URLSearchParams(search).get("lastMinuteStart");
+  const lastMinuteEnd = new URLSearchParams(search).get("lastMinuteEnd");
+  const preferredLastMinuteOpening = useMemo(() => {
+    const id = Number(lastMinuteSlotId);
+    if (!Number.isInteger(id) || id <= 0 || !lastMinuteDate || !lastMinuteStart || !lastMinuteEnd) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(lastMinuteDate) || !/^\d{2}:\d{2}$/.test(lastMinuteStart) || !/^\d{2}:\d{2}$/.test(lastMinuteEnd)) return null;
+    return { id, date: lastMinuteDate, startTime: lastMinuteStart, endTime: lastMinuteEnd };
+  }, [lastMinuteDate, lastMinuteEnd, lastMinuteSlotId, lastMinuteStart]);
   const { isAuthenticated } = useAuth();
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -135,16 +147,24 @@ export default function BookingFlow() {
   const hasCompletePricing = bookingServices.every((service) => service.price != null);
   const activeMatchService = initialSelectedServices[smServiceIndex] ?? selectedService;
   const [calMonth, setCalMonth]           = useState(() => {
-    const n = new Date();
+    const n = preferredLastMinuteOpening ? new Date(`${preferredLastMinuteOpening.date}T12:00:00`) : new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
   });
-  const [selectedDate, setSelectedDate]   = useState<string | null>(null);
+  const [selectedDate, setSelectedDate]   = useState<string | null>(() => preferredLastMinuteOpening?.date ?? null);
   const [selectedTime, setSelectedTime]   = useState<string | null>(null);
   const [notes, setNotes]                 = useState("");
   const [appointmentInspirationImage, setAppointmentInspirationImage] = useState<string | null>(requestedInspirationImage);
   const [booked, setBooked]               = useState(false);
   const [pendingPaymentBookingId, setPendingPaymentBookingId] = useState<number | null>(null);
   const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!preferredLastMinuteOpening) return;
+    const date = new Date(`${preferredLastMinuteOpening.date}T12:00:00`);
+    setCalMonth({ year: date.getFullYear(), month: date.getMonth() });
+    setSelectedDate(preferredLastMinuteOpening.date);
+    setSelectedTime(null);
+  }, [preferredLastMinuteOpening?.id]);
 
   // ── Smart Match queries ───────────────────────────────────────────────────
   const smEnabledQuery = trpc.smartService.isEnabled.useQuery(
@@ -326,10 +346,9 @@ export default function BookingFlow() {
     const str = toDateStr(calMonth.year, calMonth.month, day);
     if (str < todayStr) return false;
     const dow = new Date(calMonth.year, calMonth.month, day).getDay();
-    if (!workingDays.has(dow)) return false;
     // If monthStatus has loaded, only allow days with open slots
     if (Object.keys(monthStatus).length > 0) return monthStatus[str] === true;
-    return true; // optimistic until loaded
+    return workingDays.has(dow); // optimistic regular-schedule fallback until loaded
   }
 
   function isFullyBooked(day: number) {
@@ -852,6 +871,12 @@ export default function BookingFlow() {
                     : <>Available days are highlighted · <span className="text-foreground font-medium">Every selected service must be offered that day.</span></>}
                 </p>
               </div>
+              {preferredLastMinuteOpening && (
+                <div className="flex items-start gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p><span className="font-semibold">Last-minute opening:</span> {formatDateStr(preferredLastMinuteOpening.date)} · {to12Hour(preferredLastMinuteOpening.startTime)}–{to12Hour(preferredLastMinuteOpening.endTime)}. It is highlighted below, but you can choose any other available date or time.</p>
+                </div>
+              )}
               <Card className="p-4 rounded-2xl border-border">
                 {/* Month nav */}
                 <div className="flex items-center justify-between mb-4">
@@ -965,6 +990,12 @@ export default function BookingFlow() {
                   {selectedDate ? formatDateStr(selectedDate) : ""}
                 </p>
               </div>
+              {preferredLastMinuteOpening && selectedDate === preferredLastMinuteOpening.date && (
+                <div className="flex items-start gap-2 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-primary">
+                  <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <p><span className="font-semibold">Preferred opening:</span> {to12Hour(preferredLastMinuteOpening.startTime)}–{to12Hour(preferredLastMinuteOpening.endTime)}. Select a start time that lets your full appointment finish within the opening, or choose another available time.</p>
+                </div>
+              )}
 
               {/* Combined-service summary */}
               {bookingServices.length > 0 && (
@@ -1030,6 +1061,12 @@ export default function BookingFlow() {
                     {slotsQuery.data.map(slot => {
                       const isReturningOnly = slot.reason === "returning_only";
                       const isServiceUnavailable = slot.reason === "service_unavailable";
+                      const isPreferredOpeningTime = Boolean(
+                        preferredLastMinuteOpening &&
+                        selectedDate === preferredLastMinuteOpening.date &&
+                        timeToMinutes(slot.time) >= timeToMinutes(preferredLastMinuteOpening.startTime) &&
+                        timeToMinutes(slot.time) + bookingDuration <= timeToMinutes(preferredLastMinuteOpening.endTime),
+                      );
                       const reasonLabel =
                         slot.reason === "booked" ? "Booked" :
                         slot.reason === "break" ? "Break" :
@@ -1054,10 +1091,15 @@ export default function BookingFlow() {
                                 : "bg-muted/30 text-muted-foreground/40 cursor-not-allowed"
                               : selectedTime === slot.time
                               ? "bg-primary text-white shadow-sm ring-2 ring-primary/30"
+                              : isPreferredOpeningTime
+                              ? "bg-primary/10 border border-primary/50 text-primary hover:bg-primary/15 cursor-pointer"
                               : "bg-card border border-border text-foreground hover:border-primary/50 hover:bg-primary/5 cursor-pointer"}
                           `}
                         >
                           {to12Hour(slot.time)}
+                          {slot.available && isPreferredOpeningTime && (
+                            <span className="block text-[9px] mt-0.5 leading-none text-primary/80">Opening</span>
+                          )}
                           {!slot.available && reasonLabel && (
                             <span className={`block text-[9px] mt-0.5 leading-none truncate ${isReturningOnly ? "text-amber-500/70 dark:text-amber-400/60" : isServiceUnavailable ? "text-muted-foreground/70" : "text-muted-foreground/40"}`}>
                               {reasonLabel}

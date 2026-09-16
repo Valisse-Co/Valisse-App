@@ -207,8 +207,7 @@ export default function Notifications() {
   const handleNotifClick = (n: any) => {
     if (!n.isRead) markOne.mutate({ notificationId: n.id });
     if (n.type === "last_minute_slot" && n.relatedId) {
-      // relatedId is the slot id; navigate to discover to find and book
-      navigate(`/discover`);
+      navigate(`/book-last-minute/${n.relatedId}`);
     } else if (n.type === "new_post" && n.relatedId) {
       navigate(`/post/${n.relatedId}?from=/notifications`);
     } else if (n.type === "booking_cancelled_by_tech" && n.relatedId) {

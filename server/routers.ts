@@ -25,6 +25,7 @@ import {
   getDiscoverFeed,
   getFollowerCount,
   getOpenLastMinuteSlots,
+  getActiveLastMinuteSlotById,
   getOrCreateConversation,
   getOrCreateSubscription,
   getPostById,
@@ -1225,6 +1226,10 @@ const lastMinuteRouter = router({
   mySlots: protectedProcedure.query(async ({ ctx }) => getTechLastMinuteSlots(ctx.user.id)),
 
   openSlots: publicProcedure.query(async () => getOpenLastMinuteSlots()),
+
+  activeSlot: publicProcedure
+    .input(z.object({ slotId: z.number().int().positive() }))
+    .query(async ({ input }) => getActiveLastMinuteSlotById(input.slotId)),
 
   forTech: publicProcedure
     .input(z.object({ techId: z.number() }))

@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { STYLE_TAG_GROUPS, NAIL_COLORS, MULTI_COLOR_TAG } from "@shared/const";
 import { MediaCarousel } from "@/components/MediaCarousel";
 import { ReportSheet } from "@/components/ReportSheet";
+import { buildLastMinuteBookingPath, type LastMinuteBookingSlot } from "@shared/lastMinuteBooking";
 
 const SHAPES = ["All", "Square", "Round", "Oval", "Almond", "Stiletto", "Coffin"];
 
@@ -599,7 +600,7 @@ export default function Discover() {
                 <div className="flex-1 flex flex-col gap-3">
                   {exactCols.left.map((item: any) =>
                     item._slotCard
-                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
+                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(slot) => navigate(buildLastMinuteBookingPath(slot, "/discover"))} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
                           saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
                           clientLat={userLat} clientLng={userLng}
@@ -609,7 +610,7 @@ export default function Discover() {
                 <div className="flex-1 flex flex-col gap-3 mt-6">
                   {exactCols.right.map((item: any) =>
                     item._slotCard
-                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(techId) => navigate(`/booking?techId=${techId}&from=/discover`)} />
+                      ? <LastMinuteSlotCard key={`slot-${item.slot.id}`} slot={item.slot} onBook={(slot) => navigate(buildLastMinuteBookingPath(slot, "/discover"))} />
                       : <PostCard key={item.post.id} post={item.post} tech={item.tech} analytics={item.analytics}
                           saved={localSavedOverrides.has(item.post.id) ? localSavedOverrides.get(item.post.id)! : savedSet.has(item.post.id)} onSave={handleSave}
                           clientLat={userLat} clientLng={userLng}
@@ -675,7 +676,7 @@ export default function Discover() {
   );
 }
 
-function LastMinuteSlotCard({ slot, onBook }: { slot: any; onBook: (techId: number) => void }) {
+function LastMinuteSlotCard({ slot, onBook }: { slot: LastMinuteBookingSlot & { tech?: any; note?: string }; onBook: (slot: LastMinuteBookingSlot) => void }) {
   const fmt12 = (t: string) => { const [h, m] = t.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; };
   const dateLabel = new Date(`${slot.slotDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   const tech = slot.tech;
@@ -683,7 +684,7 @@ function LastMinuteSlotCard({ slot, onBook }: { slot: any; onBook: (techId: numb
     <motion.div
       whileTap={{ scale: 0.97 }}
       className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-4 cursor-pointer shadow-sm"
-      onClick={() => onBook(slot.techId)}
+      onClick={() => onBook(slot)}
     >
       <div className="flex items-center gap-1.5 mb-3">
         <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
@@ -709,7 +710,7 @@ function LastMinuteSlotCard({ slot, onBook }: { slot: any; onBook: (techId: numb
       </div>
       {slot.note && <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{slot.note}</p>}
       <button
-        onClick={(e) => { e.stopPropagation(); onBook(slot.techId); }}
+        onClick={(e) => { e.stopPropagation(); onBook(slot); }}
         className="w-full py-2 rounded-xl bg-primary text-white text-xs font-semibold"
       >
         Book Now

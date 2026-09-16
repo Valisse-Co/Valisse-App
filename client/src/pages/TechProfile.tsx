@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { Bell, BellOff } from "lucide-react";
+import { buildLastMinuteBookingPath } from "@shared/lastMinuteBooking";
 
 interface Props { techId: number }
 
@@ -334,7 +335,7 @@ export default function TechProfile({ techId }: Props) {
                         {slot.note && <p className="text-xs text-muted-foreground mt-0.5">{slot.note}</p>}
                       </div>
                       <button
-                        onClick={() => navigate(`/booking?techId=${techId}&from=/tech/${techId}`)}
+                        onClick={() => navigate(buildLastMinuteBookingPath(slot, `/tech/${techId}`))}
                         className="text-xs bg-primary text-white px-3 py-1.5 rounded-lg font-medium"
                       >
                         Book

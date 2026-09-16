@@ -627,3 +627,9 @@
 ## Nails by Jane Last-Minute Slot Investigation
 - [x] Inspect tonight’s last-minute-slot publishing rules, account data, schedule, and relevant logs to identify the blocker
 - [x] Repair the UTC date-bound defect in both last-minute-slot entry points, add local-date regression coverage, and validate tonight’s publishing path
+
+## Last-Minute Slot Booking Flow
+- [x] Audit the last-minute-slot booking CTA, notification route, BookingFlow initialization, and availability contracts
+- [x] Route a last-minute booking into the normal BookingFlow with the published date and time window as a preferred opening
+- [x] Ensure service selection and combined duration fit the preferred slot or another normally available opening; preserve Smart Match, client flexibility, and normal technician approval
+- [x] Add focused regression coverage, validate the mobile journey, and run TypeScript plus the full test suite before checkpointing
