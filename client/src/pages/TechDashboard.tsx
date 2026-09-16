@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DialogFooter } from "@/components/ui/dialog";
 import { useRef } from "react";
 import { ScheduleTab } from "./TechBookings";
+import { getLocalDateInputRange } from "../../../shared/localDateInput";
 
 // ─── Service helpers (mirrored from SettingsProfile) ─────────────────────────
 type ServiceForm = {
@@ -184,6 +185,7 @@ export default function TechDashboard() {
   const [slotStartTime, setSlotStartTime] = useState("09:00");
   const [slotEndTime, setSlotEndTime] = useState("10:00");
   const [slotNote, setSlotNote] = useState("");
+  const slotDateRange = getLocalDateInputRange(7);
   const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots">("overview");
 
   const { data: analytics } = trpc.analytics.techAnalytics.useQuery(undefined, { enabled: isAuthenticated });
@@ -244,6 +246,7 @@ export default function TechDashboard() {
       refetchSlots();
       toast.success("Last-minute slot published!");
     },
+    onError: (error) => toast.error(error.message || "Could not publish the last-minute slot."),
   });
 
   const deleteSlot = trpc.lastMinute.delete.useMutation({
@@ -565,8 +568,8 @@ export default function TechDashboard() {
               <Input
                 type="date"
                 value={slotDate}
-                min={new Date().toISOString().split("T")[0]}
-                max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                min={slotDateRange.min}
+                max={slotDateRange.max}
                 onChange={e => setSlotDate(e.target.value)}
                 className="rounded-xl h-11"
               />

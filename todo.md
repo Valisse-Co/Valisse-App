@@ -623,3 +623,7 @@
 ## Booking Service Selection Action Cleanup
 - [x] Remove the duplicate Continue to Smart Match action while preserving selected services and the main Continue flow
 - [x] Verify the selected-service summary and primary Continue action on mobile, then run TypeScript and regression tests before checkpointing
+
+## Nails by Jane Last-Minute Slot Investigation
+- [x] Inspect tonight’s last-minute-slot publishing rules, account data, schedule, and relevant logs to identify the blocker
+- [x] Repair the UTC date-bound defect in both last-minute-slot entry points, add local-date regression coverage, and validate tonight’s publishing path

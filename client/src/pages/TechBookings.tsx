@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { getLocalDateInputRange } from "../../../shared/localDateInput";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1864,6 +1865,7 @@ export default function TechBookings() {
   const [slotStartTime, setSlotStartTime] = useState("09:00");
   const [slotEndTime, setSlotEndTime] = useState("10:00");
   const [slotNote, setSlotNote] = useState("");
+  const slotDateRange = getLocalDateInputRange(7);
   const utils = trpc.useUtils();
 
   const createSlot = trpc.lastMinute.create.useMutation({
@@ -1873,7 +1875,7 @@ export default function TechBookings() {
       utils.lastMinute.mySlots.invalidate();
       toast.success("Last-minute slot published!");
     },
-    onError: () => toast.error("Failed to publish slot."),
+    onError: (error) => toast.error(error.message || "Could not publish the last-minute slot."),
   });
 
   const handleCreateSlot = () => {
@@ -1940,8 +1942,8 @@ export default function TechBookings() {
               <Input
                 type="date"
                 value={slotDate}
-                min={new Date().toISOString().split("T")[0]}
-                max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]}
+                min={slotDateRange.min}
+                max={slotDateRange.max}
                 onChange={e => setSlotDate(e.target.value)}
                 className="rounded-xl h-11"
               />
