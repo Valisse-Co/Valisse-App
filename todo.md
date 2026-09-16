@@ -633,3 +633,7 @@
 - [x] Route a last-minute booking into the normal BookingFlow with the published date and time window as a preferred opening
 - [x] Ensure service selection and combined duration fit the preferred slot or another normally available opening; preserve Smart Match, client flexibility, and normal technician approval
 - [x] Add focused regression coverage, validate the mobile journey, and run TypeScript plus the full test suite before checkpointing
+
+## Secure Booking Card Setup Loading Issue
+- [x] Inspect the Stripe setup-intent client component, payment completion mutation, and current browser/network logs for the persistent loading state
+- [x] Repair unhandled or unresponsive Stripe confirmation states, add regression coverage, and validate the test-mode card-save path without charging the card
