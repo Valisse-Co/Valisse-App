@@ -10,6 +10,7 @@ import { useState, useMemo } from "react";
 import { Bell, BellOff } from "lucide-react";
 import { buildLastMinuteBookingPath } from "@shared/lastMinuteBooking";
 import { ResilientImage } from "@/components/ResilientImage";
+import { formatUsdCents } from "@shared/money";
 
 interface Props { techId: number }
 
@@ -199,7 +200,7 @@ export default function TechProfile({ techId }: Props) {
             <div className="flex flex-col gap-2">
               {techServices.map((svc) => {
                 const displayName = svc.customName || svc.category;
-                const price = svc.priceInCents > 0 ? `$${(svc.priceInCents / 100).toFixed(0)}` : "Free";
+                const price = svc.priceInCents > 0 ? formatUsdCents(svc.priceInCents) : "Free";
                 const h = Math.floor(svc.durationMinutes / 60);
                 const m = svc.durationMinutes % 60;
                 const dur = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;

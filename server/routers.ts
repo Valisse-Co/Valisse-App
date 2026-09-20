@@ -65,6 +65,7 @@ import {
   getTodayBookings,
   getTechBookingsTimeline,
   getTechPastBookings,
+  getTechPayoutHistory,
   getWeeklySchedule,
   setWeeklySchedule,
   getScheduleBlocks,
@@ -1557,6 +1558,11 @@ const appointmentRouter = router({
     const { ready, transferStatus } = await getConnectedAccountReadiness(ctx.user.stripeConnectedAccountId);
     await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountReady: ready });
     return { connected: true, ready, transferStatus };
+  }),
+
+  payoutHistory: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+    return getTechPayoutHistory(ctx.user.id);
   }),
 });
 

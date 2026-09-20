@@ -18,6 +18,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { useRef } from "react";
 import { ScheduleTab } from "./TechBookings";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
+import { formatDollarsInputFromCents, formatUsdCents } from "@shared/money";
 
 // ─── Service helpers (mirrored from SettingsProfile) ─────────────────────────
 type ServiceForm = {
@@ -69,7 +70,7 @@ function fileToBase64(file: File): Promise<string> {
 
 function DashServiceCard({ service, onEdit, onDelete }: { service: ServiceForm; onEdit: () => void; onDelete: () => void }) {
   const displayName = service.customName || service.category;
-  const price = service.priceInCents > 0 ? `$${(service.priceInCents / 100).toFixed(0)}` : "Free";
+  const price = service.priceInCents > 0 ? formatUsdCents(service.priceInCents) : "Free";
   const dur = DURATION_OPTIONS.find((d) => d.value === service.durationMinutes)?.label ?? `${service.durationMinutes}m`;
   return (
     <div className="flex items-center gap-3 bg-background border border-border rounded-xl p-3">
@@ -126,7 +127,7 @@ function DashServiceDialog({ open, initial, onSave, onClose, isLoading }: {
     }
     onSave({ ...finalForm, _pendingPhotoBase64: pendingPhotoBase64 } as any);
   };
-  const priceDisplay = form.priceInCents > 0 ? (form.priceInCents / 100).toFixed(0) : "";
+  const priceDisplay = form.priceInCents > 0 ? formatDollarsInputFromCents(form.priceInCents) : "";
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-sm mx-4 rounded-2xl">

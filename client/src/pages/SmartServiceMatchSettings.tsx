@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatUsdCents } from "@shared/money";
 
 export default function SmartServiceMatchSettings() {
   const [, navigate] = useLocation();
@@ -76,7 +77,7 @@ export default function SmartServiceMatchSettings() {
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={() => { setSelectedServiceId(service.id); setShowPreview(true); }} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                       <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center", isSelected ? "bg-primary text-white" : "bg-primary/10 text-primary")}><ShieldCheck size={17} /></div>
-                      <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground truncate">{service.customName || service.category}</p><p className="text-xs text-muted-foreground">${(service.priceInCents / 100).toFixed(2)} · {service.durationMinutes} min{hasConfig ? " · View matching logic" : " · No matching questions"}</p></div>
+                      <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground truncate">{service.customName || service.category}</p><p className="text-xs text-muted-foreground">{formatUsdCents(service.priceInCents)} · {service.durationMinutes} min{hasConfig ? " · View matching logic" : " · No matching questions"}</p></div>
                     </button>
                     {hasConfig ? <button type="button" role="switch" aria-label={`Enable Smart Match for ${service.customName || service.category}`} aria-checked={service.smartMatchEnabled && settings?.globalEnabled} onClick={() => update.mutate({ serviceId: service.id, serviceEnabled: !service.smartMatchEnabled })} disabled={update.isPending || !settings?.globalEnabled} className={cn("relative h-6 w-11 shrink-0 rounded-full p-[3px] ring-1 ring-inset transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-50", service.smartMatchEnabled && settings?.globalEnabled ? "bg-primary ring-primary" : "bg-[#E4E1DA] ring-[#D8D4CA]")}><span className={cn("block h-4 w-4 rounded-full bg-white shadow-[0_1px_3px_rgba(20,47,41,0.24)] transition-transform duration-200", service.smartMatchEnabled && settings?.globalEnabled ? "translate-x-[22px]" : "translate-x-0")} /></button> : <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">Not available</span>}
                   </div>

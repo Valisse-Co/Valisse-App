@@ -658,3 +658,9 @@
 - [x] Generate Stripe Accounts v2 hosted onboarding links and verify recipient payout readiness
 - [x] Preserve existing payout, webhook, and v1-connected-account compatibility paths
 - [x] Test the recovered test-mode onboarding launch and save a checkpoint
+
+## Currency Formatting and Technician Payout History
+- [x] Standardize displayed dollar amounts to two decimal places throughout client payment, booking, service, and payout views
+- [x] Add server-authoritative technician payout history from completed appointment records
+- [x] Add a mobile-first payout history section to Settings → Payouts
+- [x] Add regression coverage, validate the user interface, and save a checkpoint

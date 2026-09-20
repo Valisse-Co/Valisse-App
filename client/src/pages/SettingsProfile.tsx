@@ -33,6 +33,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { formatDollarsInputFromCents, formatUsdCents } from "@shared/money";
 import {
   Select,
   SelectContent,
@@ -100,7 +101,7 @@ function ServiceCard({
   onDelete: () => void;
 }) {
   const displayName = service.customName || service.category;
-  const price = service.priceInCents > 0 ? `$${(service.priceInCents / 100).toFixed(0)}` : "Free";
+  const price = service.priceInCents > 0 ? formatUsdCents(service.priceInCents) : "Free";
   const dur = DURATION_OPTIONS.find((d) => d.value === service.durationMinutes)?.label ?? `${service.durationMinutes}m`;
 
   return (
@@ -194,7 +195,7 @@ function ServiceDialog({
     onSave({ ...finalForm, _pendingPhotoBase64: pendingPhotoBase64 } as any);
   };
 
-  const priceDisplay = form.priceInCents > 0 ? (form.priceInCents / 100).toFixed(0) : "";
+  const priceDisplay = form.priceInCents > 0 ? formatDollarsInputFromCents(form.priceInCents) : "";
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

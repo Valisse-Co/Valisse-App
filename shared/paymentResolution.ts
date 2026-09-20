@@ -1,3 +1,5 @@
+import { formatUsdCents } from "./money";
+
 export const STANDARD_TIP_PERCENTAGES = [5, 10, 15, 20, 25] as const;
 
 export type IssueResolutionAction = "release_payout" | "refund_client";
@@ -43,5 +45,5 @@ export function getIssueResolutionAmounts(params: {
 }
 
 export function formatCents(amountInCents: number): string {
-  return `$${(amountInCents / 100).toFixed(2)}`;
+  return formatUsdCents(amountInCents);
 }
