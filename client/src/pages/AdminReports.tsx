@@ -3,9 +3,12 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { Flag, EyeOff, Trash2, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Flag, EyeOff, Trash2, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Landmark, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const REASON_LABELS: Record<string, string> = {
@@ -26,11 +29,44 @@ const REASON_COLORS: Record<string, string> = {
   other: "bg-muted text-muted-foreground",
 };
 
+function IssueResolutionDialog({ booking, onClose, onResolved }: { booking: any; onClose: () => void; onResolved: () => void }) {
+  const total = booking.serviceTotalInCents ?? 0;
+  const hasTip = booking.tipStatus === "paid" && booking.tipAmountInCents > 0;
+  const [action, setAction] = useState<"release_payout" | "refund_client">("release_payout");
+  const [refundAmount, setRefundAmount] = useState((total / 100).toFixed(2));
+  const [refundTip, setRefundTip] = useState(hasTip);
+  const [note, setNote] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const resolve = trpc.appointment.resolveIssue.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.resolution === "payout_released" ? "Payout released after administrator review." : result.resolution === "full_refund" ? "Full client refund issued and the payout hold was resolved." : "Partial client refund issued and the remaining payout was released.");
+      onResolved();
+      onClose();
+    },
+    onError: (error) => toast.error(error.message || "Could not resolve this appointment issue."),
+  });
+  const refundAmountInCents = Math.round(Number(refundAmount) * 100);
+  const validRefund = Number.isFinite(refundAmountInCents) && refundAmountInCents >= 1 && refundAmountInCents <= total;
+  const fullRefund = validRefund && refundAmountInCents === total;
+  const willRefundTip = hasTip && (refundTip || fullRefund);
+
+  const submit = () => resolve.mutate({
+    bookingId: booking.id,
+    action,
+    ...(action === "refund_client" ? { refundAmountInCents } : {}),
+    refundTip: action === "refund_client" && willRefundTip,
+    resolutionNote: note.trim(),
+  });
+
+  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="max-w-md rounded-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Resolve appointment issue</DialogTitle></DialogHeader>{!reviewing ? <div className="space-y-4"><div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3"><p className="text-xs font-semibold text-foreground">Booking #{booking.id} · ${((total ?? 0) / 100).toFixed(2)} service total</p><p className="mt-1 text-xs text-muted-foreground">Record this decision only after speaking with the client and nail tech. The current payout remains on hold until you confirm a resolution.</p></div><div className="grid grid-cols-2 gap-2"><button onClick={() => { setAction("release_payout"); setReviewing(false); }} className={`rounded-xl border p-3 text-left ${action === "release_payout" ? "border-primary bg-primary/5" : "border-border"}`}><Landmark className="text-primary" size={18} /><p className="mt-2 text-xs font-semibold text-foreground">Release payout</p><p className="mt-1 text-[11px] text-muted-foreground">No client refund. Send the service payout and any paid tip to the tech.</p></button><button onClick={() => { setAction("refund_client"); setReviewing(false); }} className={`rounded-xl border p-3 text-left ${action === "refund_client" ? "border-destructive bg-destructive/5" : "border-border"}`}><RotateCcw className="text-destructive" size={18} /><p className="mt-2 text-xs font-semibold text-foreground">Refund client</p><p className="mt-1 text-[11px] text-muted-foreground">Issue a full or partial service refund, then release any remaining payout.</p></button></div>{action === "refund_client" && <div className="space-y-3 rounded-xl border border-border p-3"><div><label className="text-xs font-semibold text-foreground">Service refund amount</label><div className="relative mt-1"><span className="absolute left-3 top-2.5 text-sm text-muted-foreground">$</span><Input className="pl-7" type="number" inputMode="decimal" min="0.01" max={(total / 100).toFixed(2)} step="0.01" value={refundAmount} onChange={(event) => { setRefundAmount(event.target.value); setReviewing(false); }} /></div><p className="mt-1 text-[11px] text-muted-foreground">Maximum available service refund: ${(total / 100).toFixed(2)}. A full refund prevents a service payout.</p></div>{hasTip && <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-muted/50 p-2.5 text-xs"><input type="checkbox" checked={refundTip || fullRefund} disabled={fullRefund} onChange={(event) => { setRefundTip(event.target.checked); setReviewing(false); }} className="mt-0.5" /><span><span className="font-semibold text-foreground">Refund the ${((booking.tipAmountInCents ?? 0) / 100).toFixed(2)} tip</span><span className="mt-0.5 block text-muted-foreground">A full service refund always returns the tip to the client.</span></span></label>}</div>}<div><label className="text-xs font-semibold text-foreground">Administrator resolution note</label><Textarea className="mt-1 min-h-24" value={note} onChange={(event) => { setNote(event.target.value); setReviewing(false); }} placeholder="Summarize the contact with both parties and the decision." /><p className="mt-1 text-[11px] text-muted-foreground">At least 10 characters. This stays with the booking’s internal resolution record.</p></div><Button className="w-full" disabled={note.trim().length < 10 || (action === "refund_client" && !validRefund)} onClick={() => setReviewing(true)}>Review resolution</Button></div> : <div className="space-y-4"><div className="rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-900">Confirm financial resolution</p>{action === "release_payout" ? <p className="mt-1 text-xs leading-relaxed text-amber-800">This sends the nail tech’s service payout of ${(total * 0.95 / 100).toFixed(2)} after the 5% Valisse fee{hasTip ? `, plus the $${((booking.tipAmountInCents ?? 0) / 100).toFixed(2)} tip` : ""}. No money is refunded to the client.</p> : <p className="mt-1 text-xs leading-relaxed text-amber-800">This refunds ${((refundAmountInCents ?? 0) / 100).toFixed(2)} to the client{willRefundTip ? ` and returns their $${((booking.tipAmountInCents ?? 0) / 100).toFixed(2)} tip` : ""}.{!fullRefund && ` The remaining service payout is calculated from $${((total - refundAmountInCents) / 100).toFixed(2)}.`}</p>}<p className="mt-2 text-[11px] text-amber-800">Resolution note: {note}</p></div><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setReviewing(false)}>Back</Button><Button variant={action === "refund_client" ? "destructive" : "default"} disabled={resolve.isPending} onClick={submit}>{resolve.isPending ? "Processing…" : action === "release_payout" ? "Confirm & release payout" : "Confirm & issue refund"}</Button></div></div>}</DialogContent></Dialog>;
+}
+
 export default function AdminReports() {
   const { user, isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [filter, setFilter] = useState<"all" | "pending" | "dismissed">("pending");
+  const [resolvingBooking, setResolvingBooking] = useState<any | null>(null);
 
   const { data: reports = [], isLoading, refetch } = trpc.reports.list.useQuery(undefined, {
     enabled: isAuthenticated && user?.role === "admin",
@@ -118,7 +154,7 @@ export default function AdminReports() {
 
       {/* Content */}
       <div className="px-4 py-4 flex flex-col gap-3">
-        {(disputedBookings as any[]).length > 0 && <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4"><div className="flex items-center gap-2"><AlertTriangle size={18} className="text-destructive" /><h2 className="font-semibold text-sm text-foreground">Appointment issues holding payout</h2></div><p className="mt-1 text-xs text-muted-foreground">These client reports pause connected-account payout until your review.</p><div className="mt-3 space-y-2">{(disputedBookings as any[]).map((booking) => <div key={booking.id} className="rounded-xl bg-background/80 p-3 text-xs"><div className="flex justify-between gap-3"><span className="font-semibold text-foreground">Booking #{booking.id}</span><span className="text-destructive">Payout on hold</span></div><p className="mt-1 text-muted-foreground">{booking.issueReason}</p><p className="mt-1 text-[10px] text-muted-foreground">Reported {booking.issueReportedAt ? new Date(booking.issueReportedAt).toLocaleString() : "recently"}</p></div>)}</div></section>}
+        {(disputedBookings as any[]).length > 0 && <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4"><div className="flex items-center gap-2"><AlertTriangle size={18} className="text-destructive" /><h2 className="font-semibold text-sm text-foreground">Appointment issues holding payout</h2></div><p className="mt-1 text-xs text-muted-foreground">Review client reports after speaking with both parties. You can release the payout or issue a full or partial service refund.</p><div className="mt-3 space-y-2">{(disputedBookings as any[]).map((booking) => <div key={booking.id} className="rounded-xl bg-background/80 p-3 text-xs"><div className="flex justify-between gap-3"><span className="font-semibold text-foreground">Booking #{booking.id}</span><span className="text-destructive">Payout on hold</span></div><p className="mt-1 text-muted-foreground">Service total: ${((booking.serviceTotalInCents ?? 0) / 100).toFixed(2)}{booking.tipStatus === "paid" ? ` · Tip: $${((booking.tipAmountInCents ?? 0) / 100).toFixed(2)}` : ""}</p><p className="mt-1 text-muted-foreground">{booking.issueReason}</p><p className="mt-1 text-[10px] text-muted-foreground">Reported {booking.issueReportedAt ? new Date(booking.issueReportedAt).toLocaleString() : "recently"}</p><Button size="sm" className="mt-3 w-full" onClick={() => setResolvingBooking(booking)}>Review & resolve</Button></div>)}</div></section>}
         {isLoading ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -270,6 +306,7 @@ export default function AdminReports() {
           })
         )}
       </div>
+      {resolvingBooking && <IssueResolutionDialog booking={resolvingBooking} onClose={() => setResolvingBooking(null)} onResolved={() => { setResolvingBooking(null); refetch(); }} />}
     </div>
   );
 }

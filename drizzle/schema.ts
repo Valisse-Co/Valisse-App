@@ -310,13 +310,22 @@ export const bookings = mysqlTable("bookings", {
   stripeCancellationPaymentIntentId: varchar("stripeCancellationPaymentIntentId", { length: 255 }),
   stripeTipPaymentIntentId: varchar("stripeTipPaymentIntentId", { length: 255 }),
   stripeTransferId: varchar("stripeTransferId", { length: 255 }),
+  stripeRefundId: varchar("stripeRefundId", { length: 255 }),
+  stripeTipRefundId: varchar("stripeTipRefundId", { length: 255 }),
   paymentMethodStatus: mysqlEnum("paymentMethodStatus", ["none", "required", "saved", "failed"]).default("none").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["unpaid", "payment_due", "paid", "failed", "refunded"]).default("unpaid").notNull(),
   payoutStatus: mysqlEnum("payoutStatus", ["not_ready", "pending_dispute_window", "on_hold", "released", "failed"]).default("not_ready").notNull(),
+  tipStatus: mysqlEnum("tipStatus", ["none", "declined", "paid", "refunded"]).default("none").notNull(),
+  tipAmountInCents: int("tipAmountInCents").default(0).notNull(),
   payoutEligibleAt: timestamp("payoutEligibleAt"),
   paymentCapturedAt: timestamp("paymentCapturedAt"),
   issueReportedAt: timestamp("issueReportedAt"),
   issueReason: text("issueReason"),
+  issueResolution: mysqlEnum("issueResolution", ["none", "payout_released", "full_refund", "partial_refund"]).default("none").notNull(),
+  issueResolutionNote: text("issueResolutionNote"),
+  issueResolvedAt: timestamp("issueResolvedAt"),
+  issueResolvedBy: int("issueResolvedBy"),
+  refundAmountInCents: int("refundAmountInCents").default(0).notNull(),
   // A run created by the preview-only administrator QA Appointment Lab. This
   // marker suppresses customer messaging while keeping the normal lifecycle
   // and Stripe test-mode calls intact.

@@ -644,3 +644,11 @@
 - [x] Provide a guided real Stripe test-mode card-save, confirmation, code, start, completion, tip, issue, and payout test flow
 - [x] Suppress external customer notifications/SMS for QA appointments and provide cleanup/reset
 - [x] Add regression coverage, validate the manual workflow, and save a checkpoint
+
+## Tipping, Connected Payouts, and Issue Resolution
+- [x] Add standard percentage, custom amount, and no-tip client choices with one completed tip per booking
+- [x] Verify successful Stripe tip intents server-side before recording a tip
+- [x] Strengthen the technician Stripe connected-account onboarding and readiness experience
+- [x] Add administrator actions to release a held payout or issue a full/partial client refund after review
+- [x] Record issue resolution outcomes and Stripe refund identifiers for review history
+- [x] Add focused regression coverage, validate responsive UI, and save a checkpoint

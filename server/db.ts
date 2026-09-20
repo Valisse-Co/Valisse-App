@@ -1213,10 +1213,20 @@ export async function markBookingPaymentResult(
   await db.update(bookings).set(values).where(eq(bookings.id, bookingId));
 }
 
-export async function setBookingTipPaymentIntent(bookingId: number, stripeTipPaymentIntentId: string) {
+export async function setBookingTipPaymentIntent(bookingId: number, params: { stripeTipPaymentIntentId: string; amountInCents: number }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(bookings).set({ stripeTipPaymentIntentId }).where(eq(bookings.id, bookingId));
+  await db.update(bookings).set({
+    stripeTipPaymentIntentId: params.stripeTipPaymentIntentId,
+    tipAmountInCents: params.amountInCents,
+    tipStatus: "paid",
+  }).where(eq(bookings.id, bookingId));
+}
+
+export async function declineBookingTip(bookingId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ tipStatus: "declined", tipAmountInCents: 0 }).where(eq(bookings.id, bookingId));
 }
 
 export async function reportBookingIssue(bookingId: number, reason: string, reportedAt: Date) {
@@ -1252,6 +1262,37 @@ export async function markBookingPayoutResult(
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(bookings).set({ payoutStatus: status, stripeTransferId: stripeTransferId ?? null }).where(eq(bookings.id, bookingId));
+}
+
+export async function resolveBookingIssue(params: {
+  bookingId: number;
+  adminId: number;
+  resolution: "payout_released" | "full_refund" | "partial_refund";
+  resolutionNote: string;
+  refundAmountInCents: number;
+  paymentStatus: "paid" | "refunded";
+  payoutStatus: "not_ready" | "pending_dispute_window" | "released" | "failed";
+  stripeRefundId?: string | null;
+  stripeTipRefundId?: string | null;
+  stripeTransferId?: string | null;
+  tipStatus?: "paid" | "refunded";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({
+    status: "completed",
+    paymentStatus: params.paymentStatus,
+    payoutStatus: params.payoutStatus,
+    issueResolution: params.resolution,
+    issueResolutionNote: params.resolutionNote,
+    issueResolvedAt: new Date(),
+    issueResolvedBy: params.adminId,
+    refundAmountInCents: params.refundAmountInCents,
+    stripeRefundId: params.stripeRefundId ?? null,
+    stripeTipRefundId: params.stripeTipRefundId ?? null,
+    stripeTransferId: params.stripeTransferId ?? null,
+    ...(params.tipStatus ? { tipStatus: params.tipStatus } : {}),
+  }).where(eq(bookings.id, params.bookingId));
 }
 
 // ─── Availability ─────────────────────────────────────────────────────────────

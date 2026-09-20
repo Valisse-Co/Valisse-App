@@ -83,6 +83,44 @@ export async function createTipPaymentIntent(params: { bookingId: number; custom
   });
 }
 
+export async function verifyTipPaymentIntent(params: {
+  paymentIntentId: string;
+  bookingId: number;
+  customerId: string;
+  amountInCents: number;
+}) {
+  const stripe = getStripe();
+  const intent = await stripe.paymentIntents.retrieve(params.paymentIntentId);
+  const customerId = typeof intent.customer === "string" ? intent.customer : intent.customer?.id;
+  if (
+    intent.status !== "succeeded" ||
+    customerId !== params.customerId ||
+    intent.amount !== params.amountInCents ||
+    intent.metadata?.booking_id !== String(params.bookingId) ||
+    intent.metadata?.kind !== "tip"
+  ) {
+    throw new Error("The tip payment could not be verified for this appointment.");
+  }
+  return intent;
+}
+
+/** Refunds a captured appointment or tip payment. The caller supplies a unique,
+ * business-meaningful idempotency key so a retried administrator action cannot
+ * issue the same refund twice. */
+export async function refundPaymentIntent(params: {
+  paymentIntentId: string;
+  amountInCents: number;
+  bookingId: number;
+  kind: "service_issue_refund" | "tip_issue_refund";
+}) {
+  const stripe = getStripe();
+  return stripe.refunds.create({
+    payment_intent: params.paymentIntentId,
+    amount: params.amountInCents,
+    metadata: { booking_id: String(params.bookingId), kind: params.kind },
+  }, { idempotencyKey: `valisse_booking_${params.bookingId}_${params.kind}_${params.amountInCents}` });
+}
+
 export async function createExpressConnectedAccount(params: { techId: number; email?: string | null }) {
   const stripe = getStripe();
   return stripe.accounts.create({

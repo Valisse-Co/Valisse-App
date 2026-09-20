@@ -158,6 +158,8 @@ import {
   getPayoutEligibleBookings,
   markBookingPayoutResult,
   setBookingTipPaymentIntent,
+  declineBookingTip,
+  resolveBookingIssue,
 } from "./db";
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
@@ -171,6 +173,11 @@ import {
   isValidAppointmentCodeInput,
   payoutEligibleAt,
 } from "../shared/appointmentLifecycle";
+import {
+  getIssueResolutionAmounts,
+  getStandardTipOptions,
+  isTipFinal,
+} from "../shared/paymentResolution";
 import {
   QA_APPOINTMENT_DURATION_MINUTES,
   QA_APPOINTMENT_LABEL,
@@ -187,7 +194,9 @@ import {
   createStripeCustomer,
   getConnectedAccountReadiness,
   releaseBookingPayout,
+  refundPaymentIntent,
   verifyBookingSetupIntent,
+  verifyTipPaymentIntent,
 } from "./stripe";
 import {
   evaluateSmartServiceMatch,
@@ -1197,6 +1206,21 @@ const appointmentRouter = router({
       return { success: true };
     }),
 
+  tipSummary: protectedProcedure
+    .input(z.object({ bookingId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      const serviceTotalInCents = await getBookingServiceTotalInCents(booking.id);
+      return {
+        serviceTotalInCents,
+        standardOptions: getStandardTipOptions(serviceTotalInCents).filter((option) => option.amountInCents >= 50),
+        tipStatus: booking.tipStatus,
+        tipAmountInCents: booking.tipAmountInCents,
+        canChooseTip: booking.paymentStatus === "paid" && booking.payoutStatus === "pending_dispute_window" && !isTipFinal(booking.tipStatus),
+      };
+    }),
+
   createTip: protectedProcedure
     .input(z.object({ bookingId: z.number(), amountInCents: z.number().int().min(50).max(100_000) }))
     .mutation(async ({ ctx, input }) => {
@@ -1205,32 +1229,186 @@ const appointmentRouter = router({
       if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Tips can be added only after a paid, completed appointment during the issue window." });
       }
+      if (isTipFinal(booking.tipStatus)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A final tip choice has already been recorded for this appointment." });
+      }
       if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
       const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents });
-      return { clientSecret: intent.client_secret, paymentIntentId: intent.id };
+      return { clientSecret: intent.client_secret, paymentIntentId: intent.id, amountInCents: input.amountInCents };
     }),
 
   tipComplete: protectedProcedure
-    .input(z.object({ bookingId: z.number(), paymentIntentId: z.string().min(1) }))
+    .input(z.object({ bookingId: z.number(), paymentIntentId: z.string().min(1), amountInCents: z.number().int().min(50).max(100_000) }))
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      await setBookingTipPaymentIntent(booking.id, input.paymentIntentId);
+      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip." });
+      }
+      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      try {
+        await verifyTipPaymentIntent({
+          paymentIntentId: input.paymentIntentId,
+          bookingId: booking.id,
+          customerId: ctx.user.stripeCustomerId,
+          amountInCents: input.amountInCents,
+        });
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The tip payment could not be verified." });
+      }
+      await setBookingTipPaymentIntent(booking.id, { stripeTipPaymentIntentId: input.paymentIntentId, amountInCents: input.amountInCents });
       if (!booking.isQaTest) {
         await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id });
       }
       return { success: true };
     }),
 
+  declineTip: protectedProcedure
+    .input(z.object({ bookingId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip choice." });
+      }
+      await declineBookingTip(booking.id);
+      return { success: true };
+    }),
+
   disputedBookings: protectedProcedure.query(async ({ ctx }) => {
     if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-    return getDisputedBookingsForAdmin();
+    const disputed = await getDisputedBookingsForAdmin();
+    return Promise.all(disputed.map(async (booking) => ({
+      ...booking,
+      serviceTotalInCents: await getBookingServiceTotalInCents(booking.id),
+    })));
   }),
+
+  resolveIssue: protectedProcedure
+    .input(z.object({
+      bookingId: z.number().int().positive(),
+      action: z.enum(["release_payout", "refund_client"]),
+      refundAmountInCents: z.number().int().positive().optional(),
+      refundTip: z.boolean().default(false),
+      resolutionNote: z.string().trim().min(10).max(1500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.status !== "disputed" || booking.payoutStatus !== "on_hold" || booking.paymentStatus !== "paid" || !booking.stripePaymentIntentId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only a paid appointment with an active payout hold can be resolved." });
+      }
+      const serviceTotalInCents = await getBookingServiceTotalInCents(booking.id);
+      let resolution: ReturnType<typeof getIssueResolutionAmounts>;
+      try {
+        resolution = getIssueResolutionAmounts({
+          serviceTotalInCents,
+          action: input.action,
+          refundAmountInCents: input.refundAmountInCents,
+        });
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The issue resolution details are invalid." });
+      }
+
+      if (input.action === "release_payout") {
+        const tech = await getUserById(booking.techId);
+        if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before this held payout can be released." });
+        }
+        const transfer = await releaseBookingPayout({
+          bookingId: booking.id,
+          techAccountId: tech.stripeConnectedAccountId,
+          servicePaymentIntentId: booking.stripePaymentIntentId,
+          serviceTotalInCents,
+          tipPaymentIntentId: booking.tipStatus === "paid" ? booking.stripeTipPaymentIntentId : null,
+        });
+        await resolveBookingIssue({
+          bookingId: booking.id,
+          adminId: ctx.user.id,
+          resolution: "payout_released",
+          resolutionNote: input.resolutionNote,
+          refundAmountInCents: 0,
+          paymentStatus: "paid",
+          payoutStatus: "released",
+          stripeTransferId: transfer.id,
+        });
+        if (!booking.isQaTest) await createNotification({ userId: booking.techId, type: "payout_released", title: "Payout released after review", body: "An administrator resolved the client issue and released your appointment payout.", relatedId: booking.id });
+        return { success: true, resolution: "payout_released" as const };
+      }
+
+      const payoutTech = resolution.payoutableServiceTotalInCents > 0 ? await getUserById(booking.techId) : null;
+      if (resolution.payoutableServiceTotalInCents > 0 && (!payoutTech?.stripeConnectedAccountId || !payoutTech.stripeConnectedAccountReady)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before you can issue a partial refund and release the remaining payout." });
+      }
+
+      const serviceRefund = await refundPaymentIntent({
+        paymentIntentId: booking.stripePaymentIntentId,
+        amountInCents: resolution.refundAmountInCents,
+        bookingId: booking.id,
+        kind: "service_issue_refund",
+      });
+      if (serviceRefund.status !== "succeeded") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe has not completed the client refund. Try again after confirming the refund status in Stripe." });
+      }
+
+      const mustRefundTip = booking.tipStatus === "paid" && Boolean(booking.stripeTipPaymentIntentId) && (input.refundTip || resolution.isFullRefund);
+      let tipRefundId: string | null = null;
+      if (mustRefundTip && booking.stripeTipPaymentIntentId && booking.tipAmountInCents > 0) {
+        const tipRefund = await refundPaymentIntent({
+          paymentIntentId: booking.stripeTipPaymentIntentId,
+          amountInCents: booking.tipAmountInCents,
+          bookingId: booking.id,
+          kind: "tip_issue_refund",
+        });
+        if (tipRefund.status !== "succeeded") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The service refund succeeded, but Stripe has not completed the tip refund. Confirm its status in Stripe before retrying." });
+        }
+        tipRefundId = tipRefund.id;
+      }
+
+      let transferId: string | null = null;
+      let payoutStatus: "not_ready" | "released" = "not_ready";
+      if (resolution.payoutableServiceTotalInCents > 0) {
+        const transfer = await releaseBookingPayout({
+          bookingId: booking.id,
+          techAccountId: payoutTech!.stripeConnectedAccountId!,
+          servicePaymentIntentId: booking.stripePaymentIntentId,
+          serviceTotalInCents: resolution.payoutableServiceTotalInCents,
+          tipPaymentIntentId: mustRefundTip ? null : booking.tipStatus === "paid" ? booking.stripeTipPaymentIntentId : null,
+        });
+        transferId = transfer.id;
+        payoutStatus = "released";
+      }
+
+      await resolveBookingIssue({
+        bookingId: booking.id,
+        adminId: ctx.user.id,
+        resolution: resolution.isFullRefund ? "full_refund" : "partial_refund",
+        resolutionNote: input.resolutionNote,
+        refundAmountInCents: resolution.refundAmountInCents,
+        paymentStatus: resolution.isFullRefund ? "refunded" : "paid",
+        payoutStatus,
+        stripeRefundId: serviceRefund.id,
+        stripeTipRefundId: tipRefundId,
+        stripeTransferId: transferId,
+        ...(mustRefundTip ? { tipStatus: "refunded" as const } : {}),
+      });
+      if (!booking.isQaTest) {
+        await createNotification({ userId: booking.clientId, type: "issue_resolved", title: "Appointment issue resolved", body: resolution.isFullRefund ? "Your service payment was refunded after administrator review." : "An administrator issued a partial service refund after reviewing your report.", relatedId: booking.id });
+        await createNotification({ userId: booking.techId, type: "issue_resolved", title: "Appointment issue resolved", body: resolution.isFullRefund ? "The client received a full service refund after administrator review." : "An administrator issued a partial client refund and released the remaining payout.", relatedId: booking.id });
+      }
+      return { success: true, resolution: resolution.isFullRefund ? "full_refund" as const : "partial_refund" as const };
+    }),
 
   connectTech: protectedProcedure
     .input(z.object({ origin: z.string().url() }))
     .mutation(async ({ ctx, input }) => {
       if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const requestedOrigin = new URL(input.origin).origin;
+      const browserOrigin = typeof ctx.req.headers.origin === "string" ? ctx.req.headers.origin : null;
+      if (browserOrigin && requestedOrigin !== browserOrigin) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe onboarding must return to the Valisse session that started it." });
+      }
       let accountId = ctx.user.stripeConnectedAccountId;
       if (!accountId) {
         const account = await createExpressConnectedAccount({ techId: ctx.user.id, email: ctx.user.email });
@@ -1239,8 +1417,8 @@ const appointmentRouter = router({
       }
       const link = await createConnectedAccountLink({
         accountId,
-        refreshUrl: `${input.origin}/settings/payouts?refresh=1`,
-        returnUrl: `${input.origin}/settings/payouts?return=1`,
+        refreshUrl: `${requestedOrigin}/settings/payouts?refresh=1`,
+        returnUrl: `${requestedOrigin}/settings/payouts?return=1`,
       });
       return { onboardingUrl: link.url };
     }),
