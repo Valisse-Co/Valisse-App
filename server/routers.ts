@@ -23,6 +23,7 @@ import {
   hardDeletePost,
   restorePost,
   getClientBookings,
+  getAllUserBookings,
   getActiveQaAppointmentRunForAdmin,
   getConversationForParticipant,
   getConversationMessages,
@@ -42,6 +43,7 @@ import {
   getTechPosts,
   getTechRatingStats,
   getTechReviews,
+  getReviewByBookingId,
   getUserById,
   hasOutstandingAppointmentPayment,
   getUserCollections,
@@ -138,7 +140,9 @@ import {
   unblockUser,
   getBlockedUsers,
   getInteractedUsers,
+  hasAppointmentRelationship,
   isDirectMessageBlocked,
+  searchMarketplaceUsers,
   getTechSubscriptionStatus,
   initTechSubscription,
   getTechFollowerIds,
@@ -164,6 +168,8 @@ import {
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
 import { getDirectMessageValidationError, isConversationParticipant, isSafeDirectMessageImageReference } from "../shared/directMessaging";
+import { getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
+import { getReviewEligibility } from "../shared/reviewEligibility";
 import { sendValisseTransactionalSms } from "./telnyx";
 import {
   appointmentCodeVisibleAt,
@@ -307,20 +313,52 @@ const authRouter = router({
 const usersRouter = router({
   getProfile: publicProcedure
     .input(z.object({ userId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
-      const ratingStats = user.userType === "nail_tech" ? await getTechRatingStats(user.id) : null;
+      const techCapable = isTechCapable(user);
+      if (!techCapable && ctx.user?.id !== user.id) {
+        if (!ctx.user || !isTechCapable(ctx.user) || !(await hasAppointmentRelationship(ctx.user.id, user.id))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Client profiles are private to their appointment nail techs." });
+        }
+      }
+      const ratingStats = techCapable ? await getTechRatingStats(user.id) : null;
       const followerCount = await getFollowerCount(user.id);
-      return { user, ratingStats, followerCount };
+      return {
+        user: {
+          id: user.id,
+          name: user.name,
+          userType: user.userType,
+          hasDualRole: user.hasDualRole,
+          avatarUrl: user.avatarUrl,
+          businessName: user.businessName,
+          bio: user.bio,
+          services: user.services,
+          priceRange: user.priceRange,
+          instagramHandle: user.instagramHandle,
+          yearsExperience: user.yearsExperience,
+          location: techCapable
+            ? [user.addressCity, user.addressState].filter(Boolean).join(", ") || null
+            : null,
+          addressCity: techCapable ? user.addressCity : null,
+          addressState: techCapable ? user.addressState : null,
+          fuzzedLat: techCapable ? user.fuzzedLat : null,
+          fuzzedLng: techCapable ? user.fuzzedLng : null,
+        },
+        ratingStats,
+        followerCount,
+      };
     }),
+
+  search: protectedProcedure
+    .input(z.object({ query: z.string().trim().min(2).max(100) }))
+    .query(async ({ ctx, input }) => searchMarketplaceUsers(ctx.user.id, input.query)),
 
   updateProfile: protectedProcedure
     .input(
       z.object({
         name: z.string().optional(),
         bio: z.string().optional(),
-        location: z.string().optional(),
         phone: z.string().optional(),
         businessName: z.string().optional(),
         services: z.array(z.string()).optional(),
@@ -331,8 +369,6 @@ const usersRouter = router({
         userType: z.enum(["client", "nail_tech"]).optional(),
         onboardingCompleted: z.boolean().optional(),
         avatarUrl: z.string().optional(),
-        lat: z.number().optional(),
-        lng: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -349,7 +385,7 @@ const usersRouter = router({
           (value) => value.replace(/\D/g, "").length >= 10,
           "Please enter a valid mobile number."
         ),
-        location: z.string().trim().min(2, "Please enter your location."),
+        locationPlaceId: z.string().trim().min(1, "Choose a verified location from the suggestions."),
         // client fields
         stylePreferences: z.array(z.string()).optional(),
         colorPreferences: z.array(z.string()).optional(),
@@ -358,15 +394,49 @@ const usersRouter = router({
         bio: z.string().optional(),
         services: z.array(z.string()).optional(),
         priceRange: z.string().optional(),
-        lat: z.number().optional(),
-        lng: z.number().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       if (!ctx.user.email) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "An email address is required before completing onboarding." });
       }
-      await updateUserProfile(ctx.user.id, { ...input, onboardingCompleted: true } as any);
+      const { geocodePlaceId, generateFuzzedCoords, isVerifiedStreetAddress } = await import("./geocoding");
+      const geo = await geocodePlaceId(input.locationPlaceId);
+      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a verified location from the suggestions." });
+      const { locationPlaceId: _locationPlaceId, ...profileInput } = input;
+      const now = new Date();
+      const locationData = input.userType === "nail_tech"
+        ? (() => {
+            if (!isVerifiedStreetAddress(geo)) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a complete business street address, including postal code." });
+            }
+            const { fuzzedLat, fuzzedLng } = generateFuzzedCoords(geo.lat, geo.lng);
+            return {
+              fullAddress: geo.fullAddress,
+              addressLine1: geo.addressLine1,
+              addressCity: geo.city,
+              addressState: geo.state,
+              addressPostalCode: geo.postalCode,
+              addressCountry: geo.country,
+              addressVerifiedAt: now,
+              lat: geo.lat,
+              lng: geo.lng,
+              fuzzedLat,
+              fuzzedLng,
+              location: `${geo.city}, ${geo.state}`,
+            };
+          })()
+        : {
+            clientCity: geo.city,
+            clientState: geo.state,
+            clientPostalCode: geo.postalCode || null,
+            clientCountry: geo.country,
+            clientLat: geo.lat,
+            clientLng: geo.lng,
+            clientLocationVerifiedAt: now,
+            location: `${geo.city}, ${geo.state}`,
+          };
+      await updateUserProfile(ctx.user.id, { ...profileInput, ...locationData, onboardingCompleted: true } as any);
       if (input.userType === "nail_tech") {
         await getOrCreateSubscription(ctx.user.id);
       }
@@ -375,18 +445,23 @@ const usersRouter = router({
 
   /** Geocode and store a tech's full address; returns city+state for confirmation */
   updateTechAddress: protectedProcedure
-    .input(z.object({ address: z.string().min(5) }))
+    .input(z.object({ placeId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const { geocodeAddress, generateFuzzedCoords } = await import("./geocoding");
-      const geo = await geocodeAddress(input.address);
-      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "Address could not be verified. Please enter a valid US address." });
+      if (!isTechCapable(ctx.user)) throw new TRPCError({ code: "FORBIDDEN" });
+      const { geocodePlaceId, generateFuzzedCoords, isVerifiedStreetAddress } = await import("./geocoding");
+      const geo = await geocodePlaceId(input.placeId);
+      if (!geo || !isVerifiedStreetAddress(geo)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a complete business street address, including postal code." });
       const { fuzzedLat, fuzzedLng } = generateFuzzedCoords(geo.lat, geo.lng);
       await updateUserProfile(ctx.user.id, {
         fullAddress: geo.fullAddress,
+        addressLine1: geo.addressLine1,
         lat: geo.lat,
         lng: geo.lng,
         addressCity: geo.city,
         addressState: geo.state,
+        addressPostalCode: geo.postalCode,
+        addressCountry: geo.country,
+        addressVerifiedAt: new Date(),
         fuzzedLat,
         fuzzedLng,
         location: `${geo.city}, ${geo.state}`,
@@ -394,14 +469,54 @@ const usersRouter = router({
       return { city: geo.city, state: geo.state, formattedAddress: geo.fullAddress };
     }),
 
+  updateClientLocation: protectedProcedure
+    .input(z.object({ placeId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const { geocodePlaceId } = await import("./geocoding");
+      const geo = await geocodePlaceId(input.placeId);
+      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a verified city from the suggestions." });
+      await updateUserProfile(ctx.user.id, {
+        clientCity: geo.city,
+        clientState: geo.state,
+        clientPostalCode: geo.postalCode || null,
+        clientCountry: geo.country,
+        clientLat: geo.lat,
+        clientLng: geo.lng,
+        clientLocationVerifiedAt: new Date(),
+        location: `${geo.city}, ${geo.state}`,
+      } as any);
+      return { city: geo.city, state: geo.state, formattedLocation: `${geo.city}, ${geo.state}` };
+    }),
+
+  updateClientLocationFromQuery: publicProcedure
+    .input(z.object({ query: z.string().trim().min(2).max(160) }))
+    .mutation(async ({ ctx, input }) => {
+      const { geocodeAddress } = await import("./geocoding");
+      const geo = await geocodeAddress(input.query);
+      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "We could not verify that city or ZIP code." });
+      if (ctx.user) {
+        await updateUserProfile(ctx.user.id, {
+          clientCity: geo.city,
+          clientState: geo.state,
+          clientPostalCode: geo.postalCode || null,
+          clientCountry: geo.country,
+          clientLat: geo.lat,
+          clientLng: geo.lng,
+          clientLocationVerifiedAt: new Date(),
+          location: `${geo.city}, ${geo.state}`,
+        } as any);
+      }
+      return { city: geo.city, state: geo.state, lat: geo.lat, lng: geo.lng };
+    }),
+
   /** Autocomplete address suggestions using Google Places */
   addressSuggestions: protectedProcedure
-    .input(z.object({ input: z.string().min(3) }))
+    .input(z.object({ input: z.string().min(3), kind: z.enum(["city", "address"]).default("address") }))
     .query(async ({ input }) => {
       const { makeRequest } = await import("./_core/map");
       const data = await makeRequest("/maps/api/place/autocomplete/json", {
         input: input.input,
-        types: "address",
+        types: input.kind === "city" ? "(cities)" : "address",
         components: "country:us",
       }) as any;
       if (!data || data.status !== "OK") return [];
@@ -693,10 +808,18 @@ const postsRouter = router({
     .query(async ({ ctx, input }) => getUserLikes(ctx.user.id, input.postIds)),
 
   uploadImage: protectedProcedure
-    .input(z.object({ base64: z.string(), mimeType: z.string(), filename: z.string() }))
+    .input(z.object({
+      base64: z.string().min(1).max(9_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      filename: z.string().max(255),
+    }))
     .mutation(async ({ ctx, input }) => {
       const buffer = Buffer.from(input.base64, "base64");
-      const key = `posts/${ctx.user.id}/${Date.now()}-${input.filename}`;
+      if (!buffer.length || buffer.length > 6 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Post images must be 6 MB or smaller." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const key = `posts/${ctx.user.id}/${Date.now()}.${extension}`;
       const { url } = await storagePut(key, buffer, input.mimeType);
       return { url };
     }),
@@ -859,6 +982,8 @@ const bookingsRouter = router({
     if (ctx.user.userType === "nail_tech") return getTechBookings(ctx.user.id);
     return getClientBookings(ctx.user.id);
   }),
+
+  allBookings: protectedProcedure.query(async ({ ctx }) => getAllUserBookings(ctx.user.id)),
 
   clientBookings: protectedProcedure.query(async ({ ctx }) => getClientBookings(ctx.user.id)),
   techBookings: protectedProcedure.query(async ({ ctx }) => getTechBookings(ctx.user.id)),
@@ -1638,19 +1763,41 @@ const lastMinuteRouter = router({
 // ─── Messaging ────────────────────────────────────────────────────────────────
 const messagingRouter = router({
   getOrCreateConversation: protectedProcedure
-    .input(z.object({ techId: z.number() }))
+    .input(z.object({ targetUserId: z.number().optional(), techId: z.number().optional() }).refine(
+      (input) => Boolean(input.targetUserId ?? input.techId),
+      "Choose someone to message.",
+    ))
     .mutation(async ({ ctx, input }) => {
-      const isClientMode = ctx.user.userType === "client" || ctx.user.activeMode === "client";
-      if (!isClientMode) throw new TRPCError({ code: "FORBIDDEN", message: "Switch to client mode to start a new conversation." });
-      if (input.techId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot message yourself." });
-      const tech = await getUserById(input.techId);
-      if (!tech || tech.userType !== "nail_tech") {
-        throw new TRPCError({ code: "NOT_FOUND", message: "That nail tech is unavailable." });
-      }
-      if (await isDirectMessageBlocked(ctx.user.id, tech.id)) {
+      const targetUserId = input.targetUserId ?? input.techId!;
+      if (targetUserId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot message yourself." });
+      const target = await getUserById(targetUserId);
+      if (!target || target.deactivatedAt) throw new TRPCError({ code: "NOT_FOUND", message: "That account is unavailable." });
+      if (await isDirectMessageBlocked(ctx.user.id, target.id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Messaging is unavailable for this account." });
       }
-      return getOrCreateConversation(ctx.user.id, tech.id);
+
+      const viewerIsTech = isTechCapable(ctx.user);
+      const targetIsTech = isTechCapable(target);
+      let conversationInput: {
+        clientId: number;
+        techId: number;
+        clientRole: "client" | "nail_tech";
+        techRole: "client" | "nail_tech";
+      };
+
+      if (!targetIsTech) {
+        if (!viewerIsTech || !(await hasAppointmentRelationship(ctx.user.id, target.id))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Client profiles are available only to their appointment nail techs." });
+        }
+        conversationInput = { clientId: target.id, techId: ctx.user.id, clientRole: "client", techRole: "nail_tech" };
+      } else if (viewerIsTech && ctx.user.activeMode === "nail_tech") {
+        const [firstId, secondId] = [ctx.user.id, target.id].sort((a, b) => a - b);
+        conversationInput = { clientId: firstId, techId: secondId, clientRole: "nail_tech", techRole: "nail_tech" };
+      } else {
+        conversationInput = { clientId: ctx.user.id, techId: target.id, clientRole: "client", techRole: "nail_tech" };
+      }
+
+      return getOrCreateConversation(conversationInput);
     }),
 
   conversations: protectedProcedure.query(async ({ ctx }) => getUserConversations(ctx.user.id)),
@@ -1703,6 +1850,7 @@ const messagingRouter = router({
       const id = await sendMessage({
         conversationId: input.conversationId,
         senderId: ctx.user.id,
+        senderRole: getConversationRole(conversation, ctx.user.id) ?? "client",
         content: input.content ?? null,
         imageUrl: input.imageUrl ?? null,
         bookingId: input.bookingId ?? null,
@@ -1739,20 +1887,47 @@ const reviewsRouter = router({
         bookingId: z.number(),
         techId: z.number(),
         rating: z.number().min(1).max(5),
-        text: z.string().optional(),
-        photoUrl: z.string().optional(),
+        text: z.string().trim().max(2000).optional(),
+        photoUrls: z.array(z.string().startsWith("/manus-storage/reviews/")).max(5).default([]),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      const existingReview = await getReviewByBookingId(input.bookingId);
+      const eligibility = getReviewEligibility({
+        booking,
+        reviewerId: ctx.user.id,
+        techId: input.techId,
+        alreadyReviewed: Boolean(existingReview),
+      });
+      if (!eligibility.eligible) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: eligibility.reason });
+      }
       const id = await createReview({
         bookingId: input.bookingId,
         clientId: ctx.user.id,
         techId: input.techId,
         rating: input.rating,
         text: input.text ?? null,
-        photoUrl: input.photoUrl ?? null,
+        photoUrl: input.photoUrls[0] ?? null,
+        photoUrls: input.photoUrls,
       } as any);
       return { id };
+    }),
+
+  uploadPhoto: protectedProcedure
+    .input(z.object({
+      base64: z.string().min(1).max(7_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const buffer = Buffer.from(input.base64, "base64");
+      if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Review photos must be 5 MB or smaller." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const { url } = await storagePut(`reviews/${ctx.user.id}/${Date.now()}.${extension}`, buffer, input.mimeType);
+      return { url };
     }),
 });
 
@@ -2113,12 +2288,10 @@ const settingsRouter = router({
       phone: z.string().max(32).optional(),
       email: z.string().email().optional(),
       bio: z.string().max(500).optional(),
-      location: z.string().max(128).optional(),
       avatarUrl: z.string().optional(),
       avatarKey: z.string().optional(),
       // Tech-specific
       businessName: z.string().max(128).optional(),
-      businessAddress: z.string().max(256).optional(),
       licenseNumber: z.string().max(64).optional(),
       yearsExperience: z.number().int().min(0).max(50).optional(),
       instagramHandle: z.string().max(64).optional(),

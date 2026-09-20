@@ -45,6 +45,7 @@ import {
 import { ENV } from "./_core/env";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
 import { fitsWithinAvailabilityWindows, mergeAvailabilityWindows, timeToMinutes } from "../shared/lastMinuteBooking";
+import { canDiscoverAccount, getConversationPartner, getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -257,6 +258,85 @@ export async function updateUserProfile(
   const db = await getDb();
   if (!db) return;
   await db.update(users).set(data).where(eq(users.id, userId));
+}
+
+export async function hasAppointmentRelationship(userId: number, otherUserId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(or(
+      and(eq(bookings.clientId, userId), eq(bookings.techId, otherUserId)),
+      and(eq(bookings.clientId, otherUserId), eq(bookings.techId, userId)),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
+export async function searchMarketplaceUsers(viewerId: number, query: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const viewer = await getUserById(viewerId);
+  if (!viewer) return [];
+
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length < 2) return [];
+  const pattern = `%${normalized}%`;
+  const candidates = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      userType: users.userType,
+      hasDualRole: users.hasDualRole,
+      businessName: users.businessName,
+      bio: users.bio,
+      addressCity: users.addressCity,
+      addressState: users.addressState,
+      clientCity: users.clientCity,
+      clientState: users.clientState,
+    })
+    .from(users)
+    .where(and(
+      isNull(users.deactivatedAt),
+      or(
+        sql`LOWER(COALESCE(${users.name}, '')) LIKE ${pattern}`,
+        sql`LOWER(COALESCE(${users.businessName}, '')) LIKE ${pattern}`,
+      ),
+    ))
+    .limit(80);
+
+  const relationshipRows = await db
+    .select({ clientId: bookings.clientId, techId: bookings.techId })
+    .from(bookings)
+    .where(or(eq(bookings.clientId, viewerId), eq(bookings.techId, viewerId)));
+  const relatedIds = new Set(
+    relationshipRows.map((row) => row.clientId === viewerId ? row.techId : row.clientId),
+  );
+
+  return candidates
+    .filter((target) => canDiscoverAccount({
+      viewer,
+      target,
+      hasAppointmentRelationship: relatedIds.has(target.id),
+    }))
+    .map((target) => ({
+      ...target,
+      resultType: isTechCapable(target) ? "nail_tech" as const : "client" as const,
+      location: isTechCapable(target)
+        ? [target.addressCity, target.addressState].filter(Boolean).join(", ") || null
+        : null,
+      hasAppointmentRelationship: relatedIds.has(target.id),
+    }))
+    .sort((a, b) => {
+      const aName = (a.businessName || a.name || "").toLowerCase();
+      const bName = (b.businessName || b.name || "").toLowerCase();
+      const aStarts = aName.startsWith(normalized) ? 0 : 1;
+      const bStarts = bName.startsWith(normalized) ? 0 : 1;
+      return aStarts - bStarts || aName.localeCompare(bName);
+    })
+    .slice(0, 30);
 }
 
 // ─── Posts ────────────────────────────────────────────────────────────────────
@@ -935,6 +1015,45 @@ export async function getTechBookings(techId: number) {
     .orderBy(desc(bookings.scheduledAt));
 }
 
+export async function getAllUserBookings(userId: number) {
+  const [asClient, asTech] = await Promise.all([
+    getClientBookings(userId),
+    getTechBookings(userId),
+  ]);
+  const bookingIds = [...asClient, ...asTech].map((row) => row.booking.id);
+  const existingReviews = bookingIds.length
+    ? await (await getDb())!.select().from(reviews).where(inArray(reviews.bookingId, bookingIds))
+    : [];
+  const reviewsByBookingId = new Map(existingReviews.map((review) => [review.bookingId, review]));
+  return [
+    ...asClient.map(({ booking, tech }) => ({
+      booking,
+      counterpart: tech ? {
+        id: tech.id,
+        name: tech.name,
+        businessName: tech.businessName,
+        avatarUrl: tech.avatarUrl,
+        fullAddress: booking.status === "confirmed" ? tech.fullAddress : null,
+      } : null,
+      myRole: "client" as const,
+      review: reviewsByBookingId.get(booking.id) ?? null,
+    })),
+    ...asTech.map(({ booking, client, addonService }) => ({
+      booking,
+      counterpart: client ? {
+        id: client.id,
+        name: client.name,
+        businessName: null,
+        avatarUrl: client.avatarUrl,
+        fullAddress: null,
+      } : null,
+      addonService,
+      myRole: "nail_tech" as const,
+      review: reviewsByBookingId.get(booking.id) ?? null,
+    })),
+  ].sort((a, b) => b.booking.scheduledAt.getTime() - a.booking.scheduledAt.getTime());
+}
+
 export async function getTodayBookings(techId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -1397,17 +1516,27 @@ export async function deleteLastMinuteSlot(id: number, techId: number) {
 }
 
 // ─── Conversations & Messages ─────────────────────────────────────────────────
-export async function getOrCreateConversation(clientId: number, techId: number) {
+export async function getOrCreateConversation(params: {
+  clientId: number;
+  techId: number;
+  clientRole: "client" | "nail_tech";
+  techRole: "client" | "nail_tech";
+}) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  const { clientId, techId, clientRole, techRole } = params;
   const existing = await db
     .select()
     .from(conversations)
-    .where(and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)))
+    .where(or(
+      and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)),
+      and(eq(conversations.clientId, techId), eq(conversations.techId, clientId)),
+    ))
+    .orderBy(desc(conversations.lastMessageAt))
     .limit(1);
   if (existing.length > 0) return existing[0];
   try {
-    const [result] = await db.insert(conversations).values({ clientId, techId });
+    const [result] = await db.insert(conversations).values({ clientId, techId, clientRole, techRole });
     const id = (result as any).insertId as number;
     const created = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
     return created[0];
@@ -1416,7 +1545,11 @@ export async function getOrCreateConversation(clientId: number, techId: number) 
     const [concurrentConversation] = await db
       .select()
       .from(conversations)
-      .where(and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)))
+      .where(or(
+        and(eq(conversations.clientId, clientId), eq(conversations.techId, techId)),
+        and(eq(conversations.clientId, techId), eq(conversations.techId, clientId)),
+      ))
+      .orderBy(desc(conversations.lastMessageAt))
       .limit(1);
     if (concurrentConversation) return concurrentConversation;
     throw new Error("Unable to create conversation");
@@ -1463,8 +1596,20 @@ export async function getUserConversations(userId: number) {
     .orderBy(desc(conversations.lastMessageAt));
 
   const conversationSummaries = await Promise.all(userConversations.map(async ({ conversation }) => {
-    const otherUserId = conversation.clientId === userId ? conversation.techId : conversation.clientId;
-    if (await isDirectMessageBlocked(userId, otherUserId)) return null;
+    const partner = getConversationPartner(conversation, userId);
+    if (!partner || await isDirectMessageBlocked(userId, partner.userId)) return null;
+    const [otherUser] = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        businessName: users.businessName,
+        avatarUrl: users.avatarUrl,
+        userType: users.userType,
+        hasDualRole: users.hasDualRole,
+      })
+      .from(users)
+      .where(eq(users.id, partner.userId))
+      .limit(1);
     const [lastMessage] = await db
       .select()
       .from(messages)
@@ -1481,6 +1626,9 @@ export async function getUserConversations(userId: number) {
       ));
     return {
       conversation,
+      currentRole: getConversationRole(conversation, userId),
+      otherRole: partner.role,
+      otherUser: otherUser ?? null,
       lastMessage: lastMessage ?? null,
       unreadCount: Number(unread?.count ?? 0),
     };
@@ -1526,6 +1674,13 @@ export async function createReview(data: InsertReview) {
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(reviews).values(data);
   return (result as any).insertId as number;
+}
+
+export async function getReviewByBookingId(bookingId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [review] = await db.select().from(reviews).where(eq(reviews.bookingId, bookingId)).limit(1);
+  return review ?? null;
 }
 
 export async function getTechReviews(techId: number) {
@@ -3417,13 +3572,16 @@ export async function getTechsNearMe(userLat: number, userLng: number, radiusMil
       fuzzedLng: users.fuzzedLng,
       addressCity: users.addressCity,
       addressState: users.addressState,
+      hideFromNearMe: privacySettings.hideFromNearMe,
       hideApproxLocation: privacySettings.hideApproxLocation,
+      discoverVisible: privacySettings.discoverVisible,
     })
     .from(users)
     .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
     .where(
       and(
-        sql`${users.role} = 'tech'`,
+        or(eq(users.userType, "nail_tech"), eq(users.hasDualRole, true)),
+        isNull(users.deactivatedAt),
         isNotNull(users.fuzzedLat),
         isNotNull(users.fuzzedLng),
       )
@@ -3432,7 +3590,7 @@ export async function getTechsNearMe(userLat: number, userLng: number, radiusMil
   // Filter by radius and hideApproxLocation in JS (avoid complex SQL)
   return rows
     .filter(r => {
-      if (r.hideApproxLocation) return false;
+      if (r.hideFromNearMe || r.hideApproxLocation || r.discoverVisible === false) return false;
       if (r.fuzzedLat == null || r.fuzzedLng == null) return false;
       return distMilesFn(r.fuzzedLat, r.fuzzedLng, userLat, userLng) <= radiusMiles;
     })

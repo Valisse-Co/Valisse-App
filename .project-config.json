@@ -2,8 +2,7 @@
   "build_command": "pnpm run build",
   "capabilities": [
     "db",
-    "server",
-    "user"
+    "server"
   ],
   "dev_command": "pnpm run dev",
   "env_vars": {
@@ -16,10 +15,10 @@
   ],
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663596449434/f5fDK6NnMqbHPKTgeCgLZS",
-    "access_key_id": "ASIAZV3A2ECZIAHKPNPT",
-    "secret_access_key": "J64IDb+bCi6YfgPjHDMKPJebzdMer37106MNNGAM",
-    "session_token": "IQoJb3JpZ2luX2VjEOD//////////wEaCXVzLWVhc3QtMSJHMEUCIQDgeSKoO9OjUqeI/apPQiyTnAlsiizow9o30iWmFkWmuAIgFJt7+Ym4zPsDPPP6G3ZVYIHDwLOfasaFSQlrz3Lk0eMq/wMIqf//////////ARAEGgw2NjUzODYwOTg4NjYiDGfKGHn1c1C3X0ZOySrTAzkTJVXZUU5itM92WK+5Uk+nbWB8VLL6/pKlnxswlaTYsjLbWa+i0HAa6exmXR0D70zA1a+Dt87ipjGYIJaHKHvNUcXy2kzU4xNU5wlyVoENG0xxh44HzpvUoGW4RoQzSTUrQlqGpg+pICU34eZ9C6oJB42NcK2SjL1YU6I8G+M0VvU1yGJ28MDI724H4F501ELM1MJApAl/o6eaPOl5LZFGLz5+4hqb7sxmUB3PtugBmQKv7/2wDiJPfxsq4B70U9+Fbdw+vDs1HxyK6eRZ8/fSou43DPhsqrPMsssX6kHK2kKwSyUUq5O9nHTT5jBHy93LuDAyUsL/nFjL+gXfcf5EZPMeuINdXKVGChcQGDS35EnpvEFAK6ZsyAfNqRdF7cLzdsYfKFoILextqXoN+nFuEzMzmsqEnfCtUNNbJUyLi/U40GT6oBI5AEPzbviuIbqIbuvcVtFsBonN/inLTULGTeqjBo4vdfJAW1weKc3IBc0igUhjd9ssR5S7nt/WWcyDKLEsIWNeLVep0ehnhWwERjqznbxS5JBtYF2WxKbpjR1IvFNNfWknUMSPPmEAJJlqyUf8oTs+fojU6Jpdp3zdFYQqrHmqD1mz91VU5NU4olF0MMOnktUGOp0BLF2ncacZqwCorCU54f7UV6adJjWc06CCimqpmRwsCwg1kJ5p9msxRUZxU9DZDfA2EBc4ChNeCi6wzaYAQwa754JZbqyoTP6Y/1igzuyB8D8/9FwrCBwpOGd4key3AlgVTHpgEb18uoiebgJL8ac7CcfU9PPHyWcG0avpzk8/fSWlgEoXoc/NMbImVMT+ha24PtUS/qGvdDT5ZorJug==",
-    "expiration": "2026-09-12T11:50:27.000Z",
+    "access_key_id": "ASIAZV3A2ECZCT4VNKR6",
+    "secret_access_key": "hz6LkEYgL2YjwA/NkHngCCZ/xXZpXu5Liu88j6AD",
+    "session_token": "IQoJb3JpZ2luX2VjEKX//////////wEaCXVzLWVhc3QtMSJHMEUCIQDNXZfDv4oNxXCmEYiZuQ98ZTvlarZyBKwKANGM+19AGQIgUuJJZw+eXWHxa4Vgqls0eN7rDoRSyBMezkLYj0Kc2oYq9gMIbRAEGgw2NjUzODYwOTg4NjYiDEIpJFPHKG4Cc919eirTA/ZZwR4BitvMWwRu8C86QeX48mMoEqPfuTQ8Qi2iNbKcgpwdcG4jk26cZiMk6/scRgOxPyt/izawQTOJgeNeVdaGb32v5YLySH25TWGzRZcjeYQszQ1uymtcw4fTb2TZjDeOwrONGrHo4HeM2L5ru3LVlEyYNTZotb206p2OyxZqM2afET6tMfPH44z6ocbG5QRbO3vqIN5bsuYzyYdJ1mLiFIIXzJBrfaczmB6XaFJAm9KNzonPYJGptoDM7WAk2T/aYfip6lFySvhBiS3xeZ8Pj+jqX0awkqpdx2Vr4+r6r/afEeSiDmj8tClXD/KnGy9zVP1Gz4z+bJ1bDTyCBpsEyRyqOYvkXhynSzFFMqL/3aRhF6kUcCHt5pxgCCzl4gp8/rAqQgOEfU+NQma0y/9kdFWeTpefR8rK/apDi9MQmxHDSR+VWdoMDTiH9WiYD8UjaLPegjB0pg3/OTC051fDUL/eJktAW08VK0c2v2kQtamiVszH8DAI8ditnUw9gMUqKpPo2ga8iU5i4alNWhjEvZ9gy+/z2urLtbgHu/Tmj8oNGx5nIwFuA7hyIPxyfjMH9fXw6KruWvfcOtpAoq2J5uqI7muGk1DxDEz12ZQ099+hMMi/vdUGOp0B2zN1Wi5bVvZwRxMf0PiSC+bsp5+q+e22EAEtksp+DQXczd7098fpjcbeMGW3FsSj4DlTzaL7rbV6XQTv1b/ugF07o9eYqCq//I2VIPvTpnoe25f6PzSUuHwX7CFrN7Y5lP7Kas+dOxcJM5jCIWlSxLw0QQGArv0DPu03yoKaoQWcqgiPIinUPMqV8TAUXbPiBI89ISpkFapwXAYgMg==",
+    "expiration": "2026-09-20T16:23:36.000Z",
     "backend": "GIT_BACKEND_S3"
   },
   "name": "valisse",

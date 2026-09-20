@@ -56,15 +56,6 @@ export default function Discover() {
   const [manualZip, setManualZip] = useState("");
   const [showManualEntry, setShowManualEntry] = useState(false);
 
-  // On first Discover visit, prompt for location if not already set
-  useEffect(() => {
-    const seen = localStorage.getItem("valisse_locationPromptSeen");
-    if (!seen && !userLat) {
-      setShowLocationPrompt(true);
-      localStorage.setItem("valisse_locationPromptSeen", "1");
-    }
-  }, []);
-
   const toggleStyleTag = (tag: string) => {
     if (tag === "All") { setActiveStyles([]); return; }
     setActiveStyles(prev =>
@@ -99,6 +90,17 @@ export default function Discover() {
     );
   };
 
+  // Ask once on the first Discover visit. If permission is denied, the visible
+  // prompt remains available with a verified city/ZIP fallback.
+  useEffect(() => {
+    const seen = localStorage.getItem("valisse_locationPromptSeen");
+    if (!seen && !userLat) {
+      setShowLocationPrompt(true);
+      localStorage.setItem("valisse_locationPromptSeen", "1");
+      requestLocation();
+    }
+  }, []);
+
   const handleDistanceSelect = (miles: number) => {
     setDistanceMiles(miles);
     if (!userLat || !userLng) requestLocation();
@@ -118,6 +120,19 @@ export default function Discover() {
   }), [activeStyles, activeShape, activeColors, multiColorOnly, distanceMiles, userLat, userLng, soonestAvailable, subscriptionsOnly, nearestFirst]);
 
   const { data: rawFeed, isLoading } = trpc.posts.feed.useQuery({ limit: 40, offset: 0, ...filters });
+  const updateClientLocationFromQuery = trpc.users.updateClientLocationFromQuery.useMutation({
+    onSuccess: (location) => {
+      setUserLat(location.lat);
+      setUserLng(location.lng);
+      localStorage.setItem("valisse_userLat", String(location.lat));
+      localStorage.setItem("valisse_userLng", String(location.lng));
+      localStorage.setItem("valisse_manualLocation", `${location.city}, ${location.state}`);
+      setManualZip(`${location.city}, ${location.state}`);
+      setShowLocationPrompt(false);
+      toast.success(`Location set to ${location.city}, ${location.state}`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const { data: openSlots = [] } = trpc.lastMinute.openSlots.useQuery();
   const { data: nearMeTechs = [], isLoading: nearMeLoading } = trpc.posts.techsNearMe.useQuery(
     { userLat: userLat!, userLng: userLng!, radiusMiles: distanceMiles >= 9999 ? 100 : distanceMiles },
@@ -539,15 +554,12 @@ export default function Discover() {
                     />
                     <button
                       onClick={() => {
-                        if (manualZip.trim()) {
-                          localStorage.setItem("valisse_manualLocation", manualZip.trim());
-                          setShowLocationPrompt(false);
-                          toast.success(`Location set to ${manualZip.trim()}`);
-                        }
+                        if (manualZip.trim()) updateClientLocationFromQuery.mutate({ query: manualZip.trim() });
                       }}
+                      disabled={!manualZip.trim() || updateClientLocationFromQuery.isPending}
                       className="py-2 px-3 rounded-xl bg-primary text-white text-xs font-semibold"
                     >
-                      Set
+                      {updateClientLocationFromQuery.isPending ? "Checking…" : "Set"}
                     </button>
                   </div>
                 )}

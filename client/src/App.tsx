@@ -43,6 +43,7 @@ import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ConsentStep from "./pages/ConsentStep";
 import { trpc } from "./lib/trpc";
+import SearchPeople from "./pages/SearchPeople";
 
 // Routes that are always accessible — even during re-consent flow
 const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/404"];
@@ -184,6 +185,9 @@ function Router() {
         </Route>
         <Route path="/messages">
           <AppLayout><Messages /></AppLayout>
+        </Route>
+        <Route path="/search">
+          <AppLayout><SearchPeople /></AppLayout>
         </Route>
         <Route path="/chat/:conversationId">
           {(params) => <AppLayout><Chat conversationId={Number(params.conversationId)} /></AppLayout>}

@@ -136,6 +136,14 @@ export default function CreatePost({ postId }: Props) {
     const files = Array.from(e.target.files ?? []);
     if (files.length + images.length > 5) { toast.error("Max 5 images per post"); return; }
     for (const file of files) {
+      if (!(file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/webp")) {
+        toast.error(`${file.name} is not a supported JPG, PNG, or WebP image.`);
+        continue;
+      }
+      if (file.size > 6 * 1024 * 1024) {
+        toast.error(`${file.name} is larger than 6 MB.`);
+        continue;
+      }
       const preview = URL.createObjectURL(file);
       setImages(prev => [...prev, { file, preview }]);
     }
@@ -180,7 +188,11 @@ export default function CreatePost({ postId }: Props) {
         if (img.url && !img.file) { uploadedUrls.push(img.url); continue; }
         if (!img.file) continue;
         const base64 = await fileToBase64(img.file);
-        const result = await uploadImage.mutateAsync({ base64, mimeType: img.file.type, filename: img.file.name });
+        const result = await uploadImage.mutateAsync({
+          base64,
+          mimeType: img.file.type as "image/jpeg" | "image/png" | "image/webp",
+          filename: img.file.name,
+        });
         uploadedUrls.push(result.url);
       }
       if (isEditing && postId) {
@@ -263,7 +275,7 @@ export default function CreatePost({ postId }: Props) {
               </button>
             )}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleFileChange} />
         </div>
 
         {/* Service Link — required */}

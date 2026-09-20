@@ -9,6 +9,7 @@ import {
   PlusSquare,
   Settings,
   UserRound,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReactNode, useEffect, useRef } from "react";
@@ -84,7 +85,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const techNav: NavItem[] = [
     { label: "Dashboard", icon: <LayoutDashboard size={22} />, href: "/dashboard" },
     { label: "Messages", icon: <MessageCircle size={22} />, href: "/messages" },
-    { label: "Bookings", icon: <Calendar size={22} />, href: "/tech-bookings" },
+    { label: "Bookings", icon: <Calendar size={22} />, href: "/bookings" },
     { label: "Post", icon: <PlusSquare size={22} />, href: "/create-post" },
     { label: "Settings", icon: <Settings size={22} />, href: "/settings" },
   ];
@@ -108,6 +109,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
         {/* Right side: mode label + switcher for dual-role users */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate("/search")}
+            aria-label="Search people"
+            className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+              location === "/search" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Search size={15} />
+          </button>
           {hasDual && (
             <span className="text-xs text-muted-foreground font-medium">
               {activeMode === "nail_tech" ? "Nail Tech Mode" : "Client Mode"}

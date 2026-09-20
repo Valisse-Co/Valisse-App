@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 const projectRoot = resolve(__dirname, "..");
 
 describe("required onboarding contact details", () => {
-  it("requires name, mobile number, location, and an existing email identity before onboarding completes", () => {
+  it("requires name, mobile number, a verified place selection, and an existing email identity before onboarding completes", () => {
     const routerSource = readFileSync(resolve(projectRoot, "server/routers.ts"), "utf8");
 
     expect(routerSource).toContain('name: z.string().trim().min(2, "Please enter your full name.")');
     expect(routerSource).toContain('"Please enter a valid mobile number."');
-    expect(routerSource).toContain('location: z.string().trim().min(2, "Please enter your location.")');
+    expect(routerSource).toContain('locationPlaceId: z.string().trim().min(1, "Choose a verified location from the suggestions.")');
+    expect(routerSource).toContain('isVerifiedStreetAddress(geo)');
+    expect(routerSource).toContain('clientLocationVerifiedAt: now');
     expect(routerSource).toContain('"An email address is required before completing onboarding."');
   });
 

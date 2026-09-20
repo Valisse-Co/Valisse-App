@@ -69,10 +69,24 @@ export const users = mysqlTable("users", {
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),
+  // Verified client city. Kept separate from the technician business address so
+  // a dual-role identity can hold both locations without duplicating the user.
+  clientCity: varchar("clientCity", { length: 128 }),
+  clientState: varchar("clientState", { length: 64 }),
+  clientPostalCode: varchar("clientPostalCode", { length: 32 }),
+  clientCountry: varchar("clientCountry", { length: 64 }),
+  clientLat: float("clientLat"),
+  clientLng: float("clientLng"),
+  clientLocationVerifiedAt: timestamp("clientLocationVerifiedAt"),
   // Full validated address (tech only, never exposed to clients)
   fullAddress: text("fullAddress"),
+  addressLine1: varchar("addressLine1", { length: 256 }),
+  addressLine2: varchar("addressLine2", { length: 128 }),
   addressCity: varchar("addressCity", { length: 128 }),
   addressState: varchar("addressState", { length: 64 }),
+  addressPostalCode: varchar("addressPostalCode", { length: 32 }),
+  addressCountry: varchar("addressCountry", { length: 64 }),
+  addressVerifiedAt: timestamp("addressVerifiedAt"),
   // Fuzzed coords for public display (offset 0.5–1 mi from real)
   fuzzedLat: float("fuzzedLat"),
   fuzzedLng: float("fuzzedLng"),
@@ -423,6 +437,11 @@ export const conversations = mysqlTable("conversations", {
   id: int("id").autoincrement().primaryKey(),
   clientId: int("clientId").notNull(),
   techId: int("techId").notNull(),
+  // These fields describe how each participant entered this thread. The legacy
+  // column names remain for compatibility, while the role metadata supports
+  // dual-role users and technician-to-technician conversations.
+  clientRole: mysqlEnum("clientRole", ["client", "nail_tech"]).default("client").notNull(),
+  techRole: mysqlEnum("techRole", ["client", "nail_tech"]).default("nail_tech").notNull(),
   lastMessageAt: timestamp("lastMessageAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
@@ -436,6 +455,7 @@ export const messages = mysqlTable("messages", {
   id: int("id").autoincrement().primaryKey(),
   conversationId: int("conversationId").notNull(),
   senderId: int("senderId").notNull(),
+  senderRole: mysqlEnum("senderRole", ["client", "nail_tech"]).default("client").notNull(),
   content: text("content"),
   imageUrl: text("imageUrl"),
   bookingId: int("bookingId"),
@@ -456,6 +476,7 @@ export const reviews = mysqlTable("reviews", {
   rating: int("rating").notNull(), // 1-5
   text: text("text"),
   photoUrl: text("photoUrl"),
+  photoUrls: json("photoUrls").$type<string[]>().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

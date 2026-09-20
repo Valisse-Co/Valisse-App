@@ -61,14 +61,13 @@ export default function Messages() {
             )}
           </div>
         ) : (
-          conversations.map(({ conversation, lastMessage, unreadCount }) => {
-            const isClientMode = user?.userType === "client" || user?.activeMode === "client";
-            const otherId = isClientMode ? conversation.techId : conversation.clientId;
+          conversations.map(({ conversation, lastMessage, unreadCount, otherUser, otherRole }) => {
             return (
               <ConversationItem
                 key={conversation.id}
                 conversationId={conversation.id}
-                otherId={otherId}
+                other={otherUser}
+                otherRole={otherRole}
                 lastMessageAt={new Date(conversation.lastMessageAt as any)}
                 lastMessage={lastMessage}
                 unreadCount={unreadCount}
@@ -82,17 +81,15 @@ export default function Messages() {
   );
 }
 
-function ConversationItem({ conversationId, otherId, lastMessageAt, lastMessage, unreadCount, onClick }: {
+function ConversationItem({ conversationId, other, otherRole, lastMessageAt, lastMessage, unreadCount, onClick }: {
   conversationId: number;
-  otherId: number;
+  other: { id: number; name: string | null; businessName: string | null; avatarUrl: string | null } | null;
+  otherRole: "client" | "nail_tech";
   lastMessageAt: Date;
   lastMessage: { content: string | null; imageUrl: string | null; senderId: number; type: string } | null;
   unreadCount: number;
   onClick: () => void;
 }) {
-  const { data: profileData } = trpc.users.getProfile.useQuery({ userId: otherId });
-  const other = profileData?.user;
-
   return (
     <motion.button
       whileTap={{ scale: 0.98 }}
@@ -110,6 +107,7 @@ function ConversationItem({ conversationId, otherId, lastMessageAt, lastMessage,
           <p className="font-semibold text-sm text-foreground truncate">
             {other?.businessName || other?.name || "Loading..."}
           </p>
+          <p className="text-[10px] text-muted-foreground">{otherRole === "nail_tech" ? "Nail Tech" : "Client"}</p>
           <span className={cn("text-xs flex-shrink-0 ml-2", unreadCount > 0 ? "text-primary font-semibold" : "text-muted-foreground")}>
             {lastMessageAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </span>

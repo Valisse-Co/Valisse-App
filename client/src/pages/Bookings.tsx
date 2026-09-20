@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight, MapPin, RotateCcw } from "lucide-react";
+import { Calendar, Clock, AlertTriangle, Shield, X, ChevronRight, MapPin, RotateCcw, Briefcase, Sparkles, MessageCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { BookingTipDialog } from "@/components/BookingTipDialog";
 import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 import { QaAppointmentBanner } from "@/components/QaAppointmentBanner";
+import { ReviewDialog } from "@/components/ReviewDialog";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-accent text-accent-foreground border border-border",
@@ -211,17 +212,22 @@ export default function Bookings() {
   const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
   const [cancellingBookingId, setCancellingBookingId] = useState<number | null>(null);
   const [cancellingTechId, setCancellingTechId] = useState<number | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<{ bookingId: number; techId: number; techName: string } | null>(null);
 
-  const { data: bookingsData, isLoading, refetch } = trpc.bookings.clientBookings.useQuery(
+  const { data: bookingsData, isLoading, refetch } = trpc.bookings.allBookings.useQuery(
     undefined,
     { enabled: isAuthenticated }
   );
   const utils = trpc.useUtils();
+  const startConversation = trpc.messaging.getOrCreateConversation.useMutation({
+    onSuccess: (conversation) => navigate(`/chat/${conversation.id}`),
+    onError: (error) => toast.error(error.message),
+  });
 
   const handleCancelConfirmed = () => {
     setCancellingBookingId(null);
     setCancellingTechId(null);
-    utils.bookings.clientBookings.invalidate();
+    utils.bookings.allBookings.invalidate();
   };
 
   if (!isAuthenticated) {
@@ -286,8 +292,10 @@ export default function Bookings() {
             )}
           </div>
         ) : (
-          displayed.map(({ booking, tech }) => {
+          displayed.map(({ booking, counterpart, myRole, review }) => {
             const scheduledDate = new Date(booking.scheduledAt as any);
+            const isClientAppointment = myRole === "client";
+            const counterpartName = counterpart?.businessName || counterpart?.name || (isClientAppointment ? "Nail tech" : "Client");
             const isPendingFee =
               (booking as any).cancellationFeeStatus === "pending" &&
               (booking as any).cancellationFeeAmount > 0;
@@ -301,14 +309,14 @@ export default function Bookings() {
               >
                 <div className="flex items-start gap-3">
                   <Avatar className="w-12 h-12 border border-border">
-                    <AvatarImage src={tech?.avatarUrl ?? undefined} />
+                    <AvatarImage src={counterpart?.avatarUrl ?? undefined} />
                     <AvatarFallback className="bg-accent text-primary font-semibold">
-                      {(tech?.name ?? "N").charAt(0).toUpperCase()}
+                      {counterpartName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between">
-                      <p className="font-semibold text-foreground text-sm">{tech?.businessName || tech?.name}</p>
+                      <p className="font-semibold text-foreground text-sm">{counterpartName}</p>
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium capitalize", STATUS_COLORS[booking.status])}>
                         {booking.status}
                       </span>
@@ -316,6 +324,10 @@ export default function Bookings() {
                     {booking.serviceType && (
                       <p className="text-xs text-muted-foreground mt-0.5">{booking.serviceType}</p>
                     )}
+                    <span className="inline-flex items-center gap-1 mt-1 rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      {isClientAppointment ? <Sparkles size={10} /> : <Briefcase size={10} />}
+                      {isClientAppointment ? "You booked as a client" : "You’re the nail tech"}
+                    </span>
                     <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Calendar size={11} />
@@ -336,17 +348,17 @@ export default function Bookings() {
                   </div>
                 )}
 
-                {(booking as any).revisionStatus === "pending" && <RevisionApprovalCard bookingId={booking.id} onResolved={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />}
-                <ClientAppointmentTools bookingId={booking.id} status={booking.status} scheduledAt={booking.scheduledAt} paymentStatus={(booking as any).paymentStatus} payoutStatus={(booking as any).payoutStatus} tipStatus={(booking as any).tipStatus} tipAmountInCents={(booking as any).tipAmountInCents} onChanged={() => { utils.bookings.clientBookings.invalidate(); refetch(); }} />
+                {isClientAppointment && (booking as any).revisionStatus === "pending" && <RevisionApprovalCard bookingId={booking.id} onResolved={() => { utils.bookings.allBookings.invalidate(); refetch(); }} />}
+                {isClientAppointment && <ClientAppointmentTools bookingId={booking.id} status={booking.status} scheduledAt={booking.scheduledAt} paymentStatus={(booking as any).paymentStatus} payoutStatus={(booking as any).payoutStatus} tipStatus={(booking as any).tipStatus} tipAmountInCents={(booking as any).tipAmountInCents} onChanged={() => { utils.bookings.allBookings.invalidate(); refetch(); }} />}
 
                 {/* Address reveal — only for confirmed bookings */}
-                {booking.status === "confirmed" && (tech as any)?.fullAddress && (
+                {isClientAppointment && booking.status === "confirmed" && counterpart?.fullAddress && (
                   <div className="mt-3 pt-3 border-t border-border">
                     <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
                       <MapPin size={13} className="text-emerald-600 mt-0.5 flex-shrink-0" />
                       <div>
                         <p className="text-xs font-semibold text-emerald-700 mb-0.5">Studio Address</p>
-                        <p className="text-xs text-emerald-800">{(tech as any).fullAddress}</p>
+                        <p className="text-xs text-emerald-800">{counterpart.fullAddress}</p>
                       </div>
                     </div>
                   </div>
@@ -368,43 +380,53 @@ export default function Bookings() {
                     <button
                       onClick={() => {
                         setCancellingBookingId(booking.id);
-                        setCancellingTechId(tech?.id ?? null);
+                        setCancellingTechId(booking.techId);
                       }}
                       className="flex-1 text-xs text-destructive border border-destructive/30 rounded-full py-2 hover:bg-destructive/5 transition-colors"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={() => navigate(`/chat/${tech?.id}`)}
+                      onClick={() => counterpart && startConversation.mutate({ targetUserId: counterpart.id })}
                       className="flex-1 text-xs btn-valisse-outline py-2"
                     >
-                      Message Tech
+                      <MessageCircle size={12} className="inline mr-1" />Message {isClientAppointment ? "Tech" : "Client"}
                     </button>
                   </div>
                 )}
 
-                {tab === "past" && booking.status === "completed" && (
+                {tab === "past" && isClientAppointment && booking.status === "completed" && booking.paymentStatus === "paid" && (
                   <div className="mt-3 pt-3 border-t border-border">
-                    <button
-                      onClick={() => navigate(`/tech/${tech?.id}?from=/bookings`)}
-                      className="w-full text-xs btn-valisse py-2"
-                    >
-                      Leave a Review
-                    </button>
+                    {review ? (
+                      <p className="text-xs text-center text-muted-foreground">Review submitted · {review.rating}/5 stars</p>
+                    ) : (
+                      <button
+                        onClick={() => setReviewTarget({ bookingId: booking.id, techId: booking.techId, techName: counterpartName })}
+                        className="w-full text-xs btn-valisse py-2"
+                      >
+                        Leave a Review
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {!isClientAppointment && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <button onClick={() => navigate("/tech-bookings")} className="w-full text-xs btn-valisse-outline py-2">Manage this appointment</button>
                   </div>
                 )}
 
                 {/* Declined — offer reschedule + message */}
-                {booking.status === "declined" && (
+                {isClientAppointment && booking.status === "declined" && (
                   <div className="flex gap-2 mt-3 pt-3 border-t border-border">
                     <button
-                      onClick={() => navigate(`/book/${tech?.id}`)}
+                      onClick={() => navigate(`/book/${booking.techId}`)}
                       className="flex-1 flex items-center justify-center gap-1.5 text-xs btn-valisse py-2"
                     >
                       <RotateCcw size={12} /> Reschedule
                     </button>
                     <button
-                      onClick={() => navigate(`/chat/${tech?.id}`)}
+                      onClick={() => counterpart && startConversation.mutate({ targetUserId: counterpart.id })}
                       className="flex-1 text-xs btn-valisse-outline py-2"
                     >
                       Message
@@ -428,6 +450,20 @@ export default function Bookings() {
           />
         )}
       </AnimatePresence>
+      {reviewTarget && (
+        <ReviewDialog
+          open
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+          bookingId={reviewTarget.bookingId}
+          techId={reviewTarget.techId}
+          techName={reviewTarget.techName}
+          onSubmitted={() => {
+            setReviewTarget(null);
+            utils.bookings.allBookings.invalidate();
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }

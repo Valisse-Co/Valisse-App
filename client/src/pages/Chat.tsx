@@ -24,14 +24,12 @@ export default function Chat({ conversationId }: Props) {
     { refetchInterval: 3_000 }
   );
   const { data: conversations } = trpc.messaging.conversations.useQuery();
-  const conversation = conversations?.find(c => c.conversation.id === conversationId)?.conversation;
-  const isClientMode = user?.userType === "client" || user?.activeMode === "client";
-  const otherId = conversation ? (isClientMode ? conversation.techId : conversation.clientId) : null;
-  const { data: otherProfile } = trpc.users.getProfile.useQuery(
-    { userId: otherId! },
-    { enabled: !!otherId }
-  );
-  const other = otherProfile?.user;
+  const conversationSummary = conversations?.find(c => c.conversation.id === conversationId);
+  const conversation = conversationSummary?.conversation;
+  const other = conversationSummary?.otherUser;
+  const otherId = other?.id ?? null;
+  const isClientMode = (user?.activeMode ?? user?.userType) === "client";
+  const canBookPartner = isClientMode && conversationSummary?.otherRole === "nail_tech";
 
   const sendMessage = trpc.messaging.send.useMutation({
     onSuccess: () => {
@@ -54,7 +52,7 @@ export default function Chat({ conversationId }: Props) {
   };
 
   const handleSendBookingRequest = () => {
-    if (!other || !isClientMode) return;
+    if (!other || !canBookPartner) return;
     sendMessage.mutate({
       conversationId,
       content: "Hi! I'd love to book an appointment with you.",
@@ -114,9 +112,9 @@ export default function Chat({ conversationId }: Props) {
             </Avatar>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm truncate">{other.businessName || other.name}</p>
-              <p className="text-xs text-muted-foreground">{other.userType === "nail_tech" ? "Nail Tech" : "Client"}</p>
+              <p className="text-xs text-muted-foreground">{conversationSummary?.otherRole === "nail_tech" ? "Nail Tech" : "Client"}</p>
             </div>
-            {isClientMode && (
+            {canBookPartner && (
               <button onClick={() => navigate(`/book/${other.id}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs font-medium">
                 <Calendar size={13} /> Book
               </button>
@@ -130,7 +128,7 @@ export default function Chat({ conversationId }: Props) {
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             <div className="w-14 h-14 rounded-full bg-accent flex items-center justify-center"><span className="text-2xl">💬</span></div>
             <p className="text-muted-foreground text-sm">Start the conversation!<br />Ask about availability or services.</p>
-            {isClientMode && (
+            {canBookPartner && (
               <button onClick={handleSendBookingRequest} className="flex items-center gap-2 btn-valisse-outline px-4 py-2 text-sm mt-2">
                 <Calendar size={14} /> Send Booking Request
               </button>
@@ -149,7 +147,7 @@ export default function Chat({ conversationId }: Props) {
                     <div className="bg-primary/10 px-4 py-2.5 flex items-center gap-2"><Calendar size={15} className="text-primary" /><span className="text-sm font-semibold text-primary">Booking Request</span></div>
                     <div className="px-4 py-3">
                       <p className="text-sm text-foreground">{msg.content}</p>
-                      {!isMe && isClientMode && otherId && (
+                      {!isMe && canBookPartner && otherId && (
                         <button onClick={() => navigate(`/book/${otherId}`)} className="w-full btn-valisse py-2 text-xs mt-3"><CheckCircle size={13} className="inline mr-1" />View Availability</button>
                       )}
                     </div>
@@ -170,7 +168,7 @@ export default function Chat({ conversationId }: Props) {
       </div>
 
       <div className="px-4 pb-24 pt-3 border-t border-border bg-background">
-        {isClientMode && (
+        {canBookPartner && (
           <div className="flex gap-2 mb-2">
             <button onClick={handleSendBookingRequest} disabled={sendMessage.isPending} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent border border-border text-foreground text-xs font-medium hover:border-primary/40 transition-colors disabled:opacity-50"><Calendar size={12} className="text-primary" />Request Booking</button>
           </div>

@@ -18,6 +18,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Play, Volume2, VolumeX } from "lucide-react";
+import { ResilientImage } from "@/components/ResilientImage";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -288,7 +289,7 @@ export function MediaCarousel({
               <VideoFrame url={url} active={i === current} />
             ) : (
               <div ref={i === current ? zoomRef : undefined} className="w-full h-full overflow-hidden">
-                <img
+                <ResilientImage
                   src={url}
                   alt={`media ${i + 1}`}
                   className="w-full h-full object-cover pointer-events-none"

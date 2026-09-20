@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Sparkles, Scissors, LocateFixed, MapPin, CheckCircle2, Phone, UserRound } from "lucide-react";
+import { ChevronRight, Sparkles, Scissors, MapPin, CheckCircle2, Phone, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConsentStep from "./ConsentStep";
 
@@ -57,16 +57,11 @@ export default function Onboarding() {
   const [serviceDetails, setServiceDetails] = useState<Record<string, { price: string; duration: number }>>({});
   const [priceRange, setPriceRange] = useState("");
   const [phone, setPhone] = useState("");
-  const [geoLat, setGeoLat] = useState<number | undefined>();
-  const [geoLng, setGeoLng] = useState<number | undefined>();
-  const [locating, setLocating] = useState(false);
-  // Tech address autocomplete state
+  const [selectedPlaceId, setSelectedPlaceId] = useState("");
+  // Verified location autocomplete state
   const [addressInput, setAddressInput] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<{ placeId: string; description: string }[]>([]);
   const [addressConfirmed, setAddressConfirmed] = useState(""); // formatted address after geocode
-  const [addressCity, setAddressCity] = useState("");
-  const [addressState, setAddressState] = useState("");
-  const [addressLoading, setAddressLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   // After profile is saved, show the consent step
   const [profileSaved, setProfileSaved] = useState(false);
@@ -99,21 +94,6 @@ export default function Onboarding() {
     );
   }
 
-  const detectLocation = () => {
-    if (!navigator.geolocation) return;
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGeoLat(pos.coords.latitude);
-        setGeoLng(pos.coords.longitude);
-        setLocating(false);
-        toast.success("Location detected!");
-      },
-      () => { setLocating(false); toast.error("Could not detect location."); },
-      { timeout: 8000 }
-    );
-  };
-
   // Address autocomplete — debounced query
   const [debouncedAddress, setDebouncedAddress] = useState("");
   useEffect(() => {
@@ -122,7 +102,7 @@ export default function Onboarding() {
   }, [addressInput]);
 
   const { data: suggestions } = trpc.users.addressSuggestions.useQuery(
-    { input: debouncedAddress },
+    { input: debouncedAddress, kind: userType === "client" ? "city" : "address" },
     { enabled: debouncedAddress.length >= 3 && !addressConfirmed }
   );
 
@@ -133,26 +113,12 @@ export default function Onboarding() {
     }
   }, [suggestions]);
 
-  const updateTechAddress = trpc.users.updateTechAddress.useMutation({
-    onSuccess: (data) => {
-      setAddressConfirmed(data.formattedAddress);
-      setAddressCity(data.city);
-      setAddressState(data.state);
-      setLocation(`${data.city}, ${data.state}`);
-      setAddressLoading(false);
-      setShowSuggestions(false);
-    },
-    onError: () => {
-      setAddressLoading(false);
-      toast.error("Address could not be verified. Please try a different address.");
-    },
-  });
-
-  const handleSelectSuggestion = (description: string) => {
-    setAddressInput(description);
+  const handleSelectSuggestion = (suggestion: { placeId: string; description: string }) => {
+    setAddressInput(suggestion.description);
+    setAddressConfirmed(suggestion.description);
+    setSelectedPlaceId(suggestion.placeId);
+    setLocation(suggestion.description);
     setShowSuggestions(false);
-    setAddressLoading(true);
-    updateTechAddress.mutate({ address: description });
   };
 
   const upsertService = trpc.settings.upsertService.useMutation();
@@ -173,7 +139,7 @@ export default function Onboarding() {
     if (!userType) return;
     if (!fullName.trim()) return toast.error("Please enter your full name.");
     if (phone.replace(/\D/g, "").length < 10) return toast.error("Please enter a valid mobile number.");
-    if (!location.trim()) return toast.error("Please enter your location.");
+    if (!selectedPlaceId) return toast.error(userType === "nail_tech" ? "Choose your verified business address." : "Choose your city from the suggestions.");
     if (userType === "nail_tech") {
       if (selectedServices.length === 0) return toast.error("Select at least one service you offer.");
       const hasIncompleteService = selectedServices.some((service) => {
@@ -188,9 +154,7 @@ export default function Onboarding() {
       name: fullName.trim(),
       stylePreferences: selectedStyles,
       colorPreferences: selectedColors,
-      location: location.trim(),
-      lat: geoLat,
-      lng: geoLng,
+      locationPlaceId: selectedPlaceId,
       businessName: businessName || undefined,
       bio: bio || undefined,
       services: selectedServices,
@@ -213,7 +177,7 @@ export default function Onboarding() {
         })
       );
     }
-  }, [userType, fullName, selectedStyles, selectedColors, location, geoLat, geoLng, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
+  }, [userType, fullName, selectedStyles, selectedColors, selectedPlaceId, businessName, bio, selectedServices, priceRange, phone, serviceDetails, completeOnboarding, upsertService]);
 
   const continueSharedContact = () => {
     if (!fullName.trim()) return toast.error("Please enter your full name.");
@@ -222,7 +186,7 @@ export default function Onboarding() {
   };
 
   const continueTechInfo = () => {
-    if (!addressConfirmed || !location.trim()) return toast.error("Please select and verify your studio address.");
+    if (!addressConfirmed || !selectedPlaceId) return toast.error("Please select and verify your studio address.");
     setStep(3);
   };
 
@@ -413,24 +377,29 @@ export default function Onboarding() {
             >
               <div>
                 <h2 className="text-2xl font-display font-light mb-1">Your Location</h2>
-                <p className="text-muted-foreground text-sm">We'll show you nail techs near you</p>
+                <p className="text-muted-foreground text-sm">Choose your city so nearby results stay accurate.</p>
               </div>
-              <Input
-                placeholder="City, State (e.g. Miami, FL)"
-                value={location}
-                onChange={e => setLocation(e.target.value)}
-                className="rounded-xl h-12"
-              />
-              <button
-                type="button"
-                onClick={detectLocation}
-                disabled={locating}
-                className="flex items-center gap-2 text-sm text-primary font-medium"
-              >
-                <LocateFixed size={14} className={locating ? "animate-pulse" : ""} />
-                {locating ? "Detecting location…" : geoLat ? "Location detected ✓" : "Detect my location"}
-              </button>
-              <button onClick={handleFinish} disabled={completeOnboarding.isPending || !location.trim()} className="btn-valisse py-4 w-full mt-auto">
+              <div className="relative">
+                <MapPin size={15} className="absolute left-3 top-4 text-muted-foreground" />
+                <Input
+                  placeholder="Start typing your city…"
+                  value={addressInput}
+                  onChange={event => { setAddressInput(event.target.value); setAddressConfirmed(""); setSelectedPlaceId(""); }}
+                  className="rounded-xl h-12 pl-9"
+                />
+                {addressConfirmed && <CheckCircle2 size={16} className="absolute right-3 top-4 text-emerald-500" />}
+                {showSuggestions && addressSuggestions.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+                    {addressSuggestions.map(suggestion => (
+                      <button key={suggestion.placeId} type="button" onClick={() => handleSelectSuggestion(suggestion)} className="w-full text-left px-4 py-3 text-sm hover:bg-accent border-b border-border last:border-0">
+                        {suggestion.description}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {addressConfirmed && <p className="text-xs text-emerald-600">Verified city selected</p>}
+              <button onClick={handleFinish} disabled={completeOnboarding.isPending || !selectedPlaceId} className="btn-valisse py-4 w-full mt-auto">
                 {completeOnboarding.isPending ? "Setting up..." : "Continue"}
               </button>
             </motion.div>
@@ -459,13 +428,10 @@ export default function Onboarding() {
                     <Input
                       placeholder="Your studio address (e.g. 123 Main St, Miami, FL)"
                       value={addressInput}
-                      onChange={e => { setAddressInput(e.target.value); setAddressConfirmed(""); }}
+                      onChange={e => { setAddressInput(e.target.value); setAddressConfirmed(""); setSelectedPlaceId(""); }}
                       className="rounded-xl h-12 pl-9"
                     />
-                    {addressLoading && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    )}
-                    {addressConfirmed && !addressLoading && (
+                    {addressConfirmed && (
                       <CheckCircle2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500" />
                     )}
                   </div>
@@ -475,7 +441,7 @@ export default function Onboarding() {
                         <button
                           key={s.placeId}
                           type="button"
-                          onClick={() => handleSelectSuggestion(s.description)}
+                          onClick={() => handleSelectSuggestion(s)}
                           className="w-full text-left px-4 py-3 text-sm hover:bg-accent transition-colors border-b border-border last:border-0"
                         >
                           <MapPin size={12} className="inline mr-2 text-muted-foreground" />
@@ -486,7 +452,7 @@ export default function Onboarding() {
                   )}
                   {addressConfirmed && (
                     <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
-                      <CheckCircle2 size={11} /> Address verified: {addressCity}, {addressState}
+                      <CheckCircle2 size={11} /> Address selected: {addressConfirmed}
                       <span className="text-muted-foreground ml-1">(exact address hidden from clients until booking confirmed)</span>
                     </p>
                   )}

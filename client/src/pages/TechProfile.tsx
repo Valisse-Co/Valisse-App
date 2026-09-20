@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import { Bell, BellOff } from "lucide-react";
 import { buildLastMinuteBookingPath } from "@shared/lastMinuteBooking";
+import { ResilientImage } from "@/components/ResilientImage";
 
 interface Props { techId: number }
 
@@ -211,7 +212,7 @@ export default function TechProfile({ techId }: Props) {
                   >
                     <div className="w-12 h-12 rounded-lg bg-muted overflow-hidden flex-shrink-0">
                       {svc.photoUrl ? (
-                        <img src={svc.photoUrl} alt={displayName} className="w-full h-full object-cover" />
+                        <ResilientImage src={svc.photoUrl} alt={displayName} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                           <ImageIcon size={16} />
@@ -297,7 +298,7 @@ export default function TechProfile({ techId }: Props) {
                   className="aspect-square rounded-lg overflow-hidden cursor-pointer bg-muted"
                 >
                   {post.imageUrls?.[0] ? (
-                    <img src={post.imageUrls[0]} alt="" className="w-full h-full object-cover" />
+                    <ResilientImage src={post.imageUrls[0]} alt="Portfolio look" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-[#D0EDE6] to-[#E6F5F1] flex items-center justify-center">
                       <span className="text-2xl">💅</span>
@@ -461,14 +462,25 @@ export default function TechProfile({ techId }: Props) {
                       ))}
                     </div>
                   </div>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {new Date(review.createdAt).toLocaleDateString()}
-                  </span>
+                  <div className="ml-auto text-right">
+                    <span className="block text-xs text-muted-foreground">{new Date(review.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                    <span className="block mt-0.5 text-[10px] font-medium text-primary">Verified appointment</span>
+                  </div>
                 </div>
                 {review.text && <p className="text-sm text-foreground leading-relaxed">{review.text}</p>}
-                {review.photoUrl && (
-                  <img src={review.photoUrl} alt="review" className="mt-3 w-full rounded-xl object-cover max-h-40" />
-                )}
+                {(() => {
+                  const photoUrls = review.photoUrls?.length ? review.photoUrls : review.photoUrl ? [review.photoUrl] : [];
+                  if (!photoUrls.length) return null;
+                  return (
+                    <div className="mt-3 grid grid-cols-3 gap-1.5">
+                      {photoUrls.map((url, index) => (
+                        <div key={`${url}-${index}`} className="aspect-square overflow-hidden rounded-xl bg-muted">
+                          <ResilientImage src={url} alt={`Review photo ${index + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             ))
           )}

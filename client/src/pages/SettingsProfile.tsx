@@ -304,9 +304,14 @@ export default function SettingsProfile() {
   const [phone, setPhone] = useState((user as any)?.phone ?? "");
   const [email, setEmail] = useState((user as any)?.email ?? "");
   const [bio, setBio] = useState((user as any)?.bio ?? "");
-  const [location, setLocation] = useState((user as any)?.location ?? "");
+  const [locationInput, setLocationInput] = useState(
+    (user as any)?.clientCity && (user as any)?.clientState
+      ? `${(user as any).clientCity}, ${(user as any).clientState}`
+      : (user as any)?.location ?? "",
+  );
+  const [locationQuery, setLocationQuery] = useState("");
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [businessName, setBusinessName] = useState((user as any)?.businessName ?? "");
-  const [businessAddress, setBusinessAddress] = useState((user as any)?.businessAddress ?? "");
 
   // Address autocomplete for techs
   const [addressInput, setAddressInput] = useState((user as any)?.fullAddress ?? (user as any)?.businessAddress ?? "");
@@ -315,8 +320,12 @@ export default function SettingsProfile() {
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: addressSuggestions = [] } = trpc.users.addressSuggestions.useQuery(
-    { input: addressQuery },
+    { input: addressQuery, kind: "address" },
     { enabled: addressQuery.length >= 3 }
+  );
+  const { data: locationSuggestions = [] } = trpc.users.addressSuggestions.useQuery(
+    { input: locationQuery, kind: "city" },
+    { enabled: locationQuery.length >= 3 }
   );
 
   const updateTechAddress = trpc.users.updateTechAddress.useMutation({
@@ -339,7 +348,22 @@ export default function SettingsProfile() {
   const handleSelectAddress = (suggestion: { placeId: string; description: string }) => {
     setAddressInput(suggestion.description);
     setShowAddressSuggestions(false);
-    updateTechAddress.mutate({ address: suggestion.description });
+    updateTechAddress.mutate({ placeId: suggestion.placeId });
+  };
+  const updateClientLocation = trpc.users.updateClientLocation.useMutation({
+    onSuccess: (data) => {
+      setLocationInput(data.formattedLocation);
+      setShowLocationSuggestions(false);
+      utils.auth.me.invalidate();
+      toast.success("City updated");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const handleLocationInput = (value: string) => {
+    setLocationInput(value);
+    setLocationQuery(value);
+    setShowLocationSuggestions(true);
   };
   const [licenseNumber, setLicenseNumber] = useState((user as any)?.licenseNumber ?? "");
   const [yearsExperience, setYearsExperience] = useState(String((user as any)?.yearsExperience ?? ""));
@@ -418,9 +442,7 @@ export default function SettingsProfile() {
       phone: phone || undefined,
       email: email || undefined,
       bio: bio || undefined,
-      location: location || undefined,
       businessName: businessName || undefined,
-      businessAddress: businessAddress || undefined,
       licenseNumber: licenseNumber || undefined,
       yearsExperience: yearsExperience ? parseInt(yearsExperience) : undefined,
       instagramHandle: instagramHandle || undefined,
@@ -514,10 +536,33 @@ export default function SettingsProfile() {
               />
               <p className="text-xs text-muted-foreground mt-1 text-right">{bio.length}/500</p>
             </div>
-            <div>
-              <Label className="text-xs mb-1.5 block">Location</Label>
-              <Input placeholder="City, State" value={location} onChange={(e) => setLocation(e.target.value)} />
-            </div>
+            {user?.activeMode !== "nail_tech" && (
+              <div className="relative">
+                <Label className="text-xs mb-1.5 block">Verified City</Label>
+                <Input
+                  placeholder="Start typing your city…"
+                  value={locationInput}
+                  onChange={(event) => handleLocationInput(event.target.value)}
+                  onFocus={() => locationInput.length >= 3 && setShowLocationSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowLocationSuggestions(false), 200)}
+                />
+                {updateClientLocation.isPending && <p className="text-xs text-muted-foreground mt-1">Verifying city…</p>}
+                {showLocationSuggestions && (locationSuggestions as any[]).length > 0 && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
+                    {(locationSuggestions as any[]).map((suggestion: any) => (
+                      <button
+                        key={suggestion.placeId}
+                        type="button"
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-accent border-b border-border/50 last:border-0"
+                        onMouseDown={() => updateClientLocation.mutate({ placeId: suggestion.placeId })}
+                      >
+                        {suggestion.description}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
