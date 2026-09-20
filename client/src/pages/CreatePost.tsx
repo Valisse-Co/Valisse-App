@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { STYLE_TAG_GROUPS, NAIL_COLORS, MAX_STYLE_TAGS } from "@shared/const";
+import { formatUsdCents } from "@shared/money";
 
 const SHAPES = ["Square", "Round", "Oval", "Almond", "Stiletto", "Coffin", "Ballerina"];
 
@@ -285,7 +286,7 @@ export default function CreatePost({ postId }: Props) {
                   {selectedService.customName || selectedService.category}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  ${(selectedService.priceInCents / 100).toFixed(0)} · {selectedService.durationMinutes} min
+                  {formatUsdCents(selectedService.priceInCents)} · {selectedService.durationMinutes} min
                 </p>
               </div>
               <button
@@ -327,7 +328,7 @@ export default function CreatePost({ postId }: Props) {
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{s.customName || s.category}</p>
-                        <p className="text-xs text-muted-foreground">${(s.priceInCents / 100).toFixed(0)} · {s.durationMinutes} min</p>
+                        <p className="text-xs text-muted-foreground">{formatUsdCents(s.priceInCents)} · {s.durationMinutes} min</p>
                       </div>
                     </button>
                   ))}

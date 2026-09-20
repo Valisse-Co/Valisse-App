@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { getUnansweredQuestions } from "../../../shared/bookingComposition";
 import { timeToMinutes } from "../../../shared/lastMinuteBooking";
+import { formatUsdDollars } from "@shared/money";
 import { MediaCarousel } from "@/components/MediaCarousel";
 import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 import {
@@ -1210,7 +1211,7 @@ export default function BookingFlow() {
                     <p className="text-xs text-muted-foreground">Services</p>
                     <p className="text-sm font-medium text-foreground">{bookingServices.length} selected</p>
                   </div>
-                  <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{bookingDuration} min total</Badge>{hasCompletePricing && <p className="text-xs text-primary font-medium mt-1">${bookingTotal.toFixed(2)}</p>}</div>
+                  <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{bookingDuration} min total</Badge>{hasCompletePricing && <p className="text-xs text-primary font-medium mt-1">{formatUsdDollars(bookingTotal)}</p>}</div>
                 </div>
                 {bookingServices.map((service, index) => (
                   <div key={service.id} className="flex items-center gap-3 pl-5">
@@ -1221,11 +1222,11 @@ export default function BookingFlow() {
                       <p className="text-xs text-muted-foreground">{initialSelectedServices.some((item) => item.id === service.id) ? "Selected service" : "Smart Match add-on"}</p>
                       <p className="text-sm font-medium text-foreground">{service.label}</p>
                     </div>
-                    <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{service.duration} min</Badge>{service.price != null && <p className="text-xs text-primary font-medium mt-1">${service.price.toFixed(2)}</p>}</div>
+                    <div className="ml-auto text-right"><Badge variant="secondary" className="text-xs">{service.duration} min</Badge>{service.price != null && <p className="text-xs text-primary font-medium mt-1">{formatUsdDollars(service.price)}</p>}</div>
                   </div>
                 ))}
                 <div className="h-px bg-border" />
-                <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Estimated total</span><span className="font-semibold text-foreground">{hasCompletePricing ? `$${bookingTotal.toFixed(2)}` : "Your tech will confirm pricing"}</span></div>
+                <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Estimated total</span><span className="font-semibold text-foreground">{hasCompletePricing ? formatUsdDollars(bookingTotal) : "Your tech will confirm pricing"}</span></div>
                 <div className="h-px bg-border" />
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1262,7 +1263,7 @@ export default function BookingFlow() {
                       <> or within 1 hour of booking. After that, a{" "}
                         <span className="text-foreground font-medium">
                           {cancellationPolicy.feeType === "flat"
-                            ? `$${cancellationPolicy.feeAmount}`
+                            ? formatUsdDollars(cancellationPolicy.feeAmount)
                             : `${cancellationPolicy.feeAmount}%`}
                         </span>{" "}
                         late cancellation fee applies.

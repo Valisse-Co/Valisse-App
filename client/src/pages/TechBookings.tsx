@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
+import { formatUsdCents, formatUsdDollars } from "@shared/money";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -94,13 +95,13 @@ function RevisionQuoteDialog({ bookingId, open, onClose, onSaved }: { bookingId:
             const selected = selectedIds.includes(service.id);
             return <label key={service.id} className={cn("flex items-center gap-3 rounded-xl border p-3 cursor-pointer", selected ? "border-primary bg-primary/5" : "border-border")}>
               <input type="checkbox" checked={selected} onChange={() => toggle(service.id)} />
-              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-foreground">{service.customName || service.category}</p><p className="text-xs text-muted-foreground">${(service.priceInCents / 100).toFixed(2)} · {service.durationMinutes} min</p></div>
+              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-foreground">{service.customName || service.category}</p><p className="text-xs text-muted-foreground">{formatUsdCents(service.priceInCents)} · {service.durationMinutes} min</p></div>
               {selected && <button type="button" onClick={(event) => { event.preventDefault(); setPrimaryId(service.id); }} className={cn("text-[10px] px-2 py-1 rounded-full border", primaryId === service.id ? "border-primary bg-primary text-white" : "border-border text-muted-foreground")}>{primaryId === service.id ? "Primary" : "Set primary"}</button>}
             </label>;
           })}
         </div>
         <Input value={techNote} onChange={(event) => setTechNote(event.target.value)} placeholder="Optional note to the client" />
-        <div className="rounded-xl bg-muted px-3 py-2.5 flex justify-between text-xs"><span>{duration} min total</span><span className="font-semibold">${(total / 100).toFixed(2)} total</span></div>
+        <div className="rounded-xl bg-muted px-3 py-2.5 flex justify-between text-xs"><span>{duration} min total</span><span className="font-semibold">{formatUsdCents(total)} total</span></div>
         <button disabled={!chosen.length || !primaryId || propose.isPending} onClick={() => propose.mutate({ bookingId, techNote: techNote || undefined, serviceLines: chosen.map((service) => ({ techServiceId: service.id, lineType: service.id === primaryId ? "primary" : "addon" })) })} className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-50">{propose.isPending ? "Sending…" : "Send quote for client approval"}</button>
       </DialogContent>
     </Dialog>
@@ -213,7 +214,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           {serviceLines.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Requested services</p>
-              {serviceLines.map((line: any) => <p key={line.id} className="text-xs text-foreground">{line.serviceName} <span className="text-muted-foreground">· {line.durationMinutes} min · ${(line.priceInCents / 100).toFixed(2)}</span></p>)}
+              {serviceLines.map((line: any) => <p key={line.id} className="text-xs text-foreground">{line.serviceName} <span className="text-muted-foreground">· {line.durationMinutes} min · {formatUsdCents(line.priceInCents)}</span></p>)}
             </div>
           )}
           <button onClick={() => setRevisionDialogOpen(true)} className="w-full py-2 rounded-lg border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/5">Adjust services, time, or price</button>
@@ -1344,7 +1345,7 @@ function CancellationPolicyPanel() {
     setPolicy.mutate({ windowHours, feeType, feeAmount: amount, gracePeriodHours: 1 });
   };
 
-  const feeLabel = feeType === "flat" ? `$${parseFloat(feeAmount) || 0}` : `${parseFloat(feeAmount) || 0}%`;
+  const feeLabel = feeType === "flat" ? formatUsdDollars(parseFloat(feeAmount) || 0) : `${parseFloat(feeAmount) || 0}%`;
   const hasFee = parseFloat(feeAmount) > 0;
 
   return (

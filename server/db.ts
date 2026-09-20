@@ -45,6 +45,7 @@ import {
 import { ENV } from "./_core/env";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
 import { fitsWithinAvailabilityWindows, mergeAvailabilityWindows, timeToMinutes } from "../shared/lastMinuteBooking";
+import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1000,6 +1001,34 @@ export async function getTechPastBookings(techId: number) {
       )
     )
     .orderBy(desc(bookings.scheduledAt));
+}
+
+/** Returns only the authenticated tech's payout-relevant appointments. Amounts
+ * are derived from immutable booking service lines and persisted resolution
+ * fields, never from client-side totals. */
+export async function getTechPayoutHistory(techId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ booking: bookings, clientName: users.name })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.clientId, users.id))
+    .where(and(
+      eq(bookings.techId, techId),
+      eq(bookings.paymentStatus, "paid"),
+      inArray(bookings.payoutStatus, ["pending_dispute_window", "on_hold", "released", "failed"]),
+    ))
+    .orderBy(desc(bookings.completedAt), desc(bookings.scheduledAt));
+
+  return Promise.all(rows.map(async (row) => ({
+    ...row,
+    amounts: calculatePayoutHistoryAmounts({
+      serviceTotalInCents: await getBookingServiceTotalInCents(row.booking.id),
+      refundAmountInCents: row.booking.refundAmountInCents,
+      tipAmountInCents: row.booking.tipAmountInCents,
+      tipStatus: row.booking.tipStatus,
+    }),
+  })));
 }
 
 export async function getWeeklySchedule(techId: number) {
