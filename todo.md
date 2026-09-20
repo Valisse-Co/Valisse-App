@@ -637,3 +637,10 @@
 ## Secure Booking Card Setup Loading Issue
 - [x] Inspect the Stripe setup-intent client component, payment completion mutation, and current browser/network logs for the persistent loading state
 - [x] Repair unhandled or unresponsive Stripe confirmation states, add regression coverage, and validate the test-mode card-save path without charging the card
+
+## Preview-Only QA Appointment Lab
+- [x] Define a secure administrator-only QA lane that is unavailable in production
+- [x] Create an isolated temporary client plus test appointment records tied to the administrator technician
+- [x] Provide a guided real Stripe test-mode card-save, confirmation, code, start, completion, tip, issue, and payout test flow
+- [x] Suppress external customer notifications/SMS for QA appointments and provide cleanup/reset
+- [x] Add regression coverage, validate the manual workflow, and save a checkpoint

@@ -37,6 +37,8 @@ import ClientProfile from "./pages/ClientProfile";
 import { useAuth } from "./_core/hooks/useAuth";
 import Notifications from "./pages/Notifications";
 import AdminReports from "./pages/AdminReports";
+import QaAppointmentLab from "./pages/QaAppointmentLab";
+import QaAppointmentPayment from "./pages/QaAppointmentPayment";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ConsentStep from "./pages/ConsentStep";
@@ -238,6 +240,12 @@ function Router() {
         {/* Admin routes */}
         <Route path="/admin/reports">
           <AppLayout><AdminReports /></AppLayout>
+        </Route>
+        <Route path="/admin/qa-appointments">
+          <AppLayout><QaAppointmentLab /></AppLayout>
+        </Route>
+        <Route path="/qa/appointment-payment">
+          <AppLayout><QaAppointmentPayment /></AppLayout>
         </Route>
         <Route path="/login" component={Login} />
         <Route path="/signup" component={SignUp} />

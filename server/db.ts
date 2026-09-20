@@ -27,6 +27,7 @@ import {
   reviews,
   savedPosts,
   postAlbumMemberships,
+  qaAppointmentRuns,
   scheduleBlocks,
   subscriptions,
   cancellationPolicies,
@@ -807,6 +808,97 @@ export async function createBooking(data: InsertBooking) {
   if (!db) throw new Error("DB unavailable");
   const [result] = await db.insert(bookings).values(data);
   return (result as any).insertId as number;
+}
+
+// ─── Preview QA Appointment Lab ──────────────────────────────────────────────
+
+export async function createQaTestClient() {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+  const openId = `qa_preview_client_${suffix}`.slice(0, 64);
+  const email = `qa-client-${suffix}@qa.valisse.invalid`;
+  const [result] = await db.insert(users).values({
+    openId,
+    email,
+    name: "QA Test Client",
+    loginMethod: "qa_preview",
+    userType: "client",
+    activeMode: "client",
+    onboardingCompleted: true,
+    tosVersion: 1,
+    tosAcceptedAt: new Date(),
+    privacyAcceptedAt: new Date(),
+    smsConsent: false,
+    lastSignedIn: new Date(),
+  });
+  const id = (result as any).insertId as number;
+  return { id, openId, name: "QA Test Client" };
+}
+
+export async function createQaAppointmentRun(data: {
+  adminId: number;
+  clientId: number;
+  techId: number;
+  bookingId: number;
+  expiresAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(qaAppointmentRuns).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function getActiveQaAppointmentRunForAdmin(adminId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(qaAppointmentRuns)
+    .where(and(eq(qaAppointmentRuns.adminId, adminId), gt(qaAppointmentRuns.expiresAt, now)))
+    .orderBy(desc(qaAppointmentRuns.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getQaAppointmentRunForParticipant(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(qaAppointmentRuns)
+    .where(and(or(eq(qaAppointmentRuns.clientId, userId), eq(qaAppointmentRuns.techId, userId)), gt(qaAppointmentRuns.expiresAt, new Date())))
+    .orderBy(desc(qaAppointmentRuns.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getQaAppointmentRunById(runId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(qaAppointmentRuns).where(eq(qaAppointmentRuns.id, runId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function deleteQaAppointmentRunForAdmin(runId: number, adminId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const rows = await db
+    .select()
+    .from(qaAppointmentRuns)
+    .where(and(eq(qaAppointmentRuns.id, runId), eq(qaAppointmentRuns.adminId, adminId)))
+    .limit(1);
+  const run = rows[0];
+  if (!run) return false;
+
+  // Stripe test objects remain in Stripe's own audit trail. Local QA data is
+  // deliberately removed in dependency order without touching real accounts.
+  await db.delete(qaAppointmentRuns).where(eq(qaAppointmentRuns.id, run.id));
+  await db.delete(bookingMatchAssessments).where(eq(bookingMatchAssessments.bookingId, run.bookingId));
+  await db.delete(bookingServiceLines).where(eq(bookingServiceLines.bookingId, run.bookingId));
+  await db.delete(bookings).where(eq(bookings.id, run.bookingId));
+  await db.delete(users).where(eq(users.id, run.clientId));
+  return true;
 }
 
 export async function getBookingById(bookingId: number) {

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { BookingTipDialog } from "@/components/BookingTipDialog";
 import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
+import { QaAppointmentBanner } from "@/components/QaAppointmentBanner";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-accent text-accent-foreground border border-border",
@@ -254,6 +255,7 @@ export default function Bookings() {
       </div>
 
       <div className="px-4 py-4 pb-24 space-y-3">
+        <QaAppointmentBanner />
         {isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="h-28 rounded-2xl bg-muted animate-pulse" />

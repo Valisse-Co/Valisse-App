@@ -9,17 +9,21 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createBooking,
+  createQaAppointmentRun,
+  createQaTestClient,
   createCollection,
   createLastMinuteSlot,
   createNotification,
   createPost,
   createReview,
   deleteCollection,
+  deleteQaAppointmentRunForAdmin,
   deleteLastMinuteSlot,
   deletePost,
   hardDeletePost,
   restorePost,
   getClientBookings,
+  getActiveQaAppointmentRunForAdmin,
   getConversationForParticipant,
   getConversationMessages,
   getDiscoverFeed,
@@ -29,6 +33,8 @@ import {
   getOrCreateConversation,
   getOrCreateSubscription,
   getPostById,
+  getQaAppointmentRunById,
+  getQaAppointmentRunForParticipant,
   getTechAnalytics,
   getTechAvailability,
   getTechBookings,
@@ -165,6 +171,13 @@ import {
   isValidAppointmentCodeInput,
   payoutEligibleAt,
 } from "../shared/appointmentLifecycle";
+import {
+  QA_APPOINTMENT_DURATION_MINUTES,
+  QA_APPOINTMENT_LABEL,
+  createQaRunExpiry,
+  createQaScheduledAt,
+  isQaAppointmentLabEnabled,
+} from "../shared/qaAppointment";
 import {
   chargeSavedCard,
   createTipPaymentIntent,
@@ -875,6 +888,162 @@ const bookingsRouter = router({
     }),
 });
 
+// ─── Preview-only QA Appointment Lab ─────────────────────────────────────────
+
+function isQaLabEnabled() {
+  return isQaAppointmentLabEnabled({
+    isProduction: ENV.isProduction,
+    stripeSecretKey: ENV.stripeSecretKey,
+  });
+}
+
+function assertQaLabAdministrator(user: { id: number; role: string }) {
+  if (!isQaLabEnabled()) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "The QA Appointment Lab is available only in preview with Stripe test mode." });
+  }
+  if (user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only a Valisse administrator can manage QA appointment runs." });
+  }
+}
+
+async function issueQaSessionForUser(params: {
+  openId: string;
+  name: string | null;
+  ctx: { req: any; res: any };
+}) {
+  const sessionToken = await sdk.createSessionToken(params.openId, {
+    name: params.name ?? "QA test user",
+    expiresInMs: ONE_YEAR_MS,
+  });
+  const cookieOptions = getSessionCookieOptions(params.ctx.req);
+  params.ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+}
+
+const qaAppointmentRouter = router({
+  availability: protectedProcedure.query(({ ctx }) => ({
+    enabled: ctx.user.role === "admin" && isQaLabEnabled(),
+  })),
+
+  current: protectedProcedure.query(async ({ ctx }) => {
+    if (!isQaLabEnabled()) return { enabled: false, canManage: false, run: null, booking: null };
+
+    const isAdmin = ctx.user.role === "admin";
+    const run = isAdmin
+      ? await getActiveQaAppointmentRunForAdmin(ctx.user.id)
+      : await getQaAppointmentRunForParticipant(ctx.user.id);
+    if (!run) return { enabled: isAdmin, canManage: isAdmin, run: null, booking: null };
+    const booking = await getBookingById(run.bookingId);
+    if (!booking?.isQaTest) return { enabled: isAdmin, canManage: isAdmin, run: null, booking: null };
+    return {
+      enabled: true,
+      canManage: isAdmin && run.adminId === ctx.user.id,
+      run: { id: run.id, clientId: run.clientId, techId: run.techId, bookingId: run.bookingId, expiresAt: run.expiresAt },
+      booking,
+    };
+  }),
+
+  start: protectedProcedure.mutation(async ({ ctx }) => {
+    assertQaLabAdministrator(ctx.user);
+    const existing = await getActiveQaAppointmentRunForAdmin(ctx.user.id);
+    if (existing) return { runId: existing.id, bookingId: existing.bookingId, reused: true };
+
+    const services = await getTechServices(ctx.user.id);
+    const primaryService = services[0];
+    if (!primaryService) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add at least one active technician service before starting a QA appointment." });
+    }
+
+    const client = await createQaTestClient();
+    const scheduledAt = createQaScheduledAt();
+    const bookingId = await createBooking({
+      clientId: client.id,
+      techId: ctx.user.id,
+      serviceType: QA_APPOINTMENT_LABEL,
+      scheduledAt,
+      duration: QA_APPOINTMENT_DURATION_MINUTES,
+      status: "pending",
+      paymentMethodStatus: "none",
+      paymentStatus: "unpaid",
+      payoutStatus: "not_ready",
+      notes: "Preview-only QA test. No customer messaging is sent.",
+      isQaTest: true,
+    });
+    await replaceBookingServiceLines(bookingId, [{
+      techServiceId: primaryService.id,
+      serviceName: primaryService.customName || primaryService.category,
+      lineType: "primary",
+      priceInCents: primaryService.priceInCents,
+      durationMinutes: QA_APPOINTMENT_DURATION_MINUTES,
+      position: 0,
+    }]);
+    const runId = await createQaAppointmentRun({
+      adminId: ctx.user.id,
+      clientId: client.id,
+      techId: ctx.user.id,
+      bookingId,
+      expiresAt: createQaRunExpiry(),
+    });
+    return { runId, bookingId, reused: false };
+  }),
+
+  enterClient: protectedProcedure
+    .input(z.object({ runId: z.number().int().positive(), view: z.enum(["payment", "bookings"]) }))
+    .mutation(async ({ ctx, input }) => {
+      assertQaLabAdministrator(ctx.user);
+      const run = await getQaAppointmentRunById(input.runId);
+      if (!run || run.adminId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND" });
+      const client = await getUserById(run.clientId);
+      if (!client) throw new TRPCError({ code: "NOT_FOUND", message: "The QA client could not be found." });
+      await issueQaSessionForUser({ openId: client.openId, name: client.name, ctx });
+      return { destination: input.view === "payment" ? "/qa/appointment-payment" : `/bookings?qaRun=${run.id}` };
+    }),
+
+  returnToAdmin: protectedProcedure.mutation(async ({ ctx }) => {
+    if (!isQaLabEnabled()) throw new TRPCError({ code: "NOT_FOUND" });
+    const run = await getQaAppointmentRunForParticipant(ctx.user.id);
+    if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "No active QA appointment run is associated with this account." });
+    const administrator = await getUserById(run.adminId);
+    if (!administrator || administrator.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    await issueQaSessionForUser({ openId: administrator.openId, name: administrator.name, ctx });
+    return { destination: "/admin/qa-appointments" };
+  }),
+
+  releasePayoutNow: protectedProcedure
+    .input(z.object({ runId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      assertQaLabAdministrator(ctx.user);
+      const run = await getQaAppointmentRunById(input.runId);
+      if (!run || run.adminId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND" });
+      const booking = await getBookingById(run.bookingId);
+      if (!booking?.isQaTest) throw new TRPCError({ code: "NOT_FOUND" });
+      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || !booking.stripePaymentIntentId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Complete and successfully charge this QA appointment before releasing its test payout." });
+      }
+      const tech = await getUserById(run.techId);
+      if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Connect and finish onboarding the technician's Stripe test account before releasing a QA payout." });
+      }
+      const serviceTotalInCents = await getBookingServiceTotalInCents(booking.id);
+      const transfer = await releaseBookingPayout({
+        bookingId: booking.id,
+        techAccountId: tech.stripeConnectedAccountId,
+        servicePaymentIntentId: booking.stripePaymentIntentId,
+        serviceTotalInCents,
+        tipPaymentIntentId: booking.stripeTipPaymentIntentId,
+      });
+      await markBookingPayoutResult(booking.id, "released", transfer.id);
+      return { success: true };
+    }),
+
+  cleanup: protectedProcedure
+    .input(z.object({ runId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      assertQaLabAdministrator(ctx.user);
+      const deleted = await deleteQaAppointmentRunForAdmin(input.runId, ctx.user.id);
+      return { deleted };
+    }),
+});
+
 // ─── Verified appointment and deferred-payment lifecycle ──────────────────────
 const appointmentRouter = router({
   paymentSetup: protectedProcedure
@@ -967,8 +1136,10 @@ const appointmentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: lockedUntil ? "Too many incorrect attempts. Try again in 15 minutes." : "That appointment code does not match." });
       }
       await startVerifiedAppointment(booking.id, new Date());
-      await createNotification({ userId: booking.clientId, type: "appointment_started", title: "Appointment started", body: "Your nail appointment is now in progress.", relatedId: booking.id });
-      void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_started", text: "Valisse: your nail appointment is now in progress. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Appointment-start SMS failed", error));
+      if (!booking.isQaTest) {
+        await createNotification({ userId: booking.clientId, type: "appointment_started", title: "Appointment started", body: "Your nail appointment is now in progress.", relatedId: booking.id });
+        void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_started", text: "Valisse: your nail appointment is now in progress. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Appointment-start SMS failed", error));
+      }
       return { success: true };
     }),
 
@@ -991,14 +1162,18 @@ const appointmentRouter = router({
         const payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion" });
         if (payment.status !== "succeeded") throw new Error("The service charge requires client action.");
         await markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" });
-        await createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id });
-        await createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id });
-        void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_complete", text: "Valisse: your appointment is complete and your approved service payment was processed. You can add a tip or report an issue in the app within 24 hours. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Completion SMS failed", error));
+        if (!booking.isQaTest) {
+          await createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id });
+          await createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id });
+          void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_complete", text: "Valisse: your appointment is complete and your approved service payment was processed. You can add a tip or report an issue in the app within 24 hours. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Completion SMS failed", error));
+        }
         return { success: true, paymentDue: false };
       } catch (error) {
         await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
-        await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id });
-        void sendValisseTransactionalSms({ userId: booking.clientId, category: "payment_due", text: "Valisse: payment is needed for your completed appointment. Update your payment method in the app to settle the balance. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Payment-due SMS failed", error));
+        if (!booking.isQaTest) {
+          await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id });
+          void sendValisseTransactionalSms({ userId: booking.clientId, category: "payment_due", text: "Valisse: payment is needed for your completed appointment. Update your payment method in the app to settle the balance. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Payment-due SMS failed", error));
+        }
         return { success: true, paymentDue: true };
       }
     }),
@@ -1012,10 +1187,12 @@ const appointmentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "This booking is not currently eligible for an issue report." });
       }
       await reportBookingIssue(booking.id, input.reason, new Date());
-      await createNotification({ userId: booking.techId, type: "booking_issue_reported", title: "Client reported an issue", body: "Payout is paused while the issue is reviewed.", relatedId: booking.id });
-      void sendValisseTransactionalSms({ userId: booking.techId, category: "booking_issue", text: "Valisse: a client reported an issue with a completed appointment. Your payout is paused while it is reviewed. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Issue-report SMS failed", error));
-      for (const adminId of await getAdminUserIds()) {
-        await createNotification({ userId: adminId, type: "booking_issue_reported", title: "Booking issue reported", body: "A client reported an issue and the payout is on hold.", relatedId: booking.id });
+      if (!booking.isQaTest) {
+        await createNotification({ userId: booking.techId, type: "booking_issue_reported", title: "Client reported an issue", body: "Payout is paused while the issue is reviewed.", relatedId: booking.id });
+        void sendValisseTransactionalSms({ userId: booking.techId, category: "booking_issue", text: "Valisse: a client reported an issue with a completed appointment. Your payout is paused while it is reviewed. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Issue-report SMS failed", error));
+        for (const adminId of await getAdminUserIds()) {
+          await createNotification({ userId: adminId, type: "booking_issue_reported", title: "Booking issue reported", body: "A client reported an issue and the payout is on hold.", relatedId: booking.id });
+        }
       }
       return { success: true };
     }),
@@ -1039,7 +1216,9 @@ const appointmentRouter = router({
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       await setBookingTipPaymentIntent(booking.id, input.paymentIntentId);
-      await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id });
+      if (!booking.isQaTest) {
+        await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id });
+      }
       return { success: true };
     }),
 
@@ -2296,6 +2475,7 @@ export const appRouter = router({
   techFollows: techFollowsRouter,
   reports: reportsRouter,
   cancellation: cancellationRouter,
+  qaAppointment: qaAppointmentRouter,
   appointment: appointmentRouter,
   settings: settingsRouter,
   smartService: smartServiceMatchRouter,

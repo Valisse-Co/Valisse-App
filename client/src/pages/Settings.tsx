@@ -106,6 +106,7 @@ export default function Settings() {
   const [serviceDetails, setServiceDetails] = useState<Record<string, { price: string; duration: number }>>({});
   const [priceRange, setPriceRange] = useState("");
   const [phone, setPhone] = useState("");
+  const qaAvailability = trpc.qaAppointment.availability.useQuery(undefined, { enabled: user?.role === "admin" });
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
@@ -262,6 +263,18 @@ export default function Settings() {
             </div>
             <ChevronRight size={16} className="text-muted-foreground flex-shrink-0" />
           </button>
+          {qaAvailability.data?.enabled && (
+            <button onClick={() => navigate("/admin/qa-appointments")} className="w-full flex items-center gap-4 border-t border-amber-200/80 px-4 py-3.5 text-left transition-colors hover:bg-amber-100/50 dark:border-amber-900/50 dark:hover:bg-amber-950/20">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <CreditCard size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">QA Appointment Lab</p>
+                <p className="truncate text-xs text-muted-foreground">Test checkout, check-in, payment, and payout in Stripe test mode</p>
+              </div>
+              <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+            </button>
+          )}
         </section>
       )}
 

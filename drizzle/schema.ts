@@ -317,6 +317,10 @@ export const bookings = mysqlTable("bookings", {
   paymentCapturedAt: timestamp("paymentCapturedAt"),
   issueReportedAt: timestamp("issueReportedAt"),
   issueReason: text("issueReason"),
+  // A run created by the preview-only administrator QA Appointment Lab. This
+  // marker suppresses customer messaging while keeping the normal lifecycle
+  // and Stripe test-mode calls intact.
+  isQaTest: boolean("isQaTest").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -342,6 +346,22 @@ export const bookingServiceLines = mysqlTable("booking_service_lines", {
 
 export type BookingServiceLine = typeof bookingServiceLines.$inferSelect;
 export type InsertBookingServiceLine = typeof bookingServiceLines.$inferInsert;
+
+// ─── Preview QA Appointment Runs ─────────────────────────────────────────────
+// These records exist only for preview/test-mode administrator flows. They bind a
+// disposable client and an administrator technician to one real booking lifecycle
+// without granting production users any role-switching capability.
+export const qaAppointmentRuns = mysqlTable("qa_appointment_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  adminId: int("adminId").notNull(),
+  clientId: int("clientId").notNull(),
+  techId: int("techId").notNull(),
+  bookingId: int("bookingId").notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type QaAppointmentRun = typeof qaAppointmentRuns.$inferSelect;
 
 // ─── Booking Revisions ────────────────────────────────────────────────────────
 // Technicians can propose a revised service mix, duration, and quote. The client
