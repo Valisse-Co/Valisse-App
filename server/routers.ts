@@ -189,8 +189,8 @@ import {
   chargeSavedCard,
   createTipPaymentIntent,
   createBookingSetupIntent,
-  createConnectedAccountLink,
-  createExpressConnectedAccount,
+  createRecipientOnboardingLink,
+  createRecipientConnectedAccount,
   createStripeCustomer,
   getConnectedAccountReadiness,
   releaseBookingPayout,
@@ -1411,11 +1411,15 @@ const appointmentRouter = router({
       }
       let accountId = ctx.user.stripeConnectedAccountId;
       if (!accountId) {
-        const account = await createExpressConnectedAccount({ techId: ctx.user.id, email: ctx.user.email });
+        const account = await createRecipientConnectedAccount({
+          techId: ctx.user.id,
+          email: ctx.user.email,
+          displayName: ctx.user.businessName ?? ctx.user.name,
+        });
         accountId = account.id;
         await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountId: accountId, stripeConnectedAccountReady: false });
       }
-      const link = await createConnectedAccountLink({
+      const link = await createRecipientOnboardingLink({
         accountId,
         refreshUrl: `${requestedOrigin}/settings/payouts?refresh=1`,
         returnUrl: `${requestedOrigin}/settings/payouts?return=1`,
@@ -1425,9 +1429,9 @@ const appointmentRouter = router({
 
   refreshTechConnection: protectedProcedure.query(async ({ ctx }) => {
     if (!ctx.user.stripeConnectedAccountId) return { connected: false, ready: false };
-    const { ready } = await getConnectedAccountReadiness(ctx.user.stripeConnectedAccountId);
+    const { ready, transferStatus } = await getConnectedAccountReadiness(ctx.user.stripeConnectedAccountId);
     await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountReady: ready });
-    return { connected: true, ready };
+    return { connected: true, ready, transferStatus };
   }),
 });
 

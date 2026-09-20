@@ -652,3 +652,9 @@
 - [x] Add administrator actions to release a held payout or issue a full/partial client refund after review
 - [x] Record issue resolution outcomes and Stripe refund identifiers for review history
 - [x] Add focused regression coverage, validate responsive UI, and save a checkpoint
+
+## Stripe Accounts v2 Payout Onboarding Recovery
+- [x] Replace rejected legacy Connect account creation with Stripe Accounts v2 recipient configuration
+- [x] Generate Stripe Accounts v2 hosted onboarding links and verify recipient payout readiness
+- [x] Preserve existing payout, webhook, and v1-connected-account compatibility paths
+- [x] Test the recovered test-mode onboarding launch and save a checkpoint

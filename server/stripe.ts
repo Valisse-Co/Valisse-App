@@ -1,6 +1,12 @@
 import Stripe from "stripe";
 import { ENV } from "./_core/env";
 import { calculatePlatformPayout } from "../shared/appointmentLifecycle";
+import {
+  createRecipientAccountRequest,
+  createRecipientOnboardingLinkRequest,
+  isRecipientPayoutReady,
+  STRIPE_ACCOUNTS_V2_API_VERSION,
+} from "../shared/stripeConnectV2";
 
 let stripeClient: Stripe | null = null;
 
@@ -121,32 +127,36 @@ export async function refundPaymentIntent(params: {
   }, { idempotencyKey: `valisse_booking_${params.bookingId}_${params.kind}_${params.amountInCents}` });
 }
 
-export async function createExpressConnectedAccount(params: { techId: number; email?: string | null }) {
+/**
+ * Creates a Connect Accounts v2 recipient. Recipient accounts are intended for
+ * Valisse's separate-charge-and-transfer marketplace model, while the Express
+ * dashboard keeps Stripe-hosted identity and bank onboarding with the tech.
+ */
+export async function createRecipientConnectedAccount(params: { techId: number; email?: string | null; displayName?: string | null }) {
   const stripe = getStripe();
-  return stripe.accounts.create({
-    type: "express",
-    country: "US",
-    email: params.email ?? undefined,
-    capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
-    metadata: { valisse_tech_id: String(params.techId) },
-  });
+  return stripe.v2.core.accounts.create(
+    createRecipientAccountRequest(params),
+    { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION, idempotencyKey: `valisse_recipient_${params.techId}` }
+  );
 }
 
-export async function createConnectedAccountLink(params: { accountId: string; refreshUrl: string; returnUrl: string }) {
+export async function createRecipientOnboardingLink(params: { accountId: string; refreshUrl: string; returnUrl: string }) {
   const stripe = getStripe();
-  return stripe.accountLinks.create({
-    account: params.accountId,
-    refresh_url: params.refreshUrl,
-    return_url: params.returnUrl,
-    type: "account_onboarding",
-  });
+  return stripe.v2.core.accountLinks.create(
+    createRecipientOnboardingLinkRequest(params),
+    { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION }
+  );
 }
 
 export async function getConnectedAccountReadiness(accountId: string) {
   const stripe = getStripe();
-  const account = await stripe.accounts.retrieve(accountId);
+  const account = await stripe.v2.core.accounts.retrieve(accountId, {
+    include: ["configuration.recipient", "requirements"],
+  }, { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION });
+  const transferStatus = account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status;
   return {
-    ready: Boolean(account.details_submitted && account.charges_enabled && account.payouts_enabled),
+    ready: isRecipientPayoutReady(transferStatus),
+    transferStatus: transferStatus ?? "pending",
     account,
   };
 }
