@@ -5,11 +5,16 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { getPreviewHmrClientOptions } from "./viteHmr";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    // Vite shares the Express HTTP server in middleware mode. Its default
+    // direct fallback advertises localhost:5173, which browsers outside this
+    // sandbox cannot reach. The public preview proxy forwards secure sockets
+    // on 443 to this server instead.
+    hmr: { server, ...getPreviewHmrClientOptions() },
     allowedHosts: true as const,
   };
 

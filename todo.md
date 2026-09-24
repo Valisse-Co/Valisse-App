@@ -664,3 +664,9 @@
 - [x] Add server-authoritative technician payout history from completed appointment records
 - [x] Add a mobile-first payout history section to Settings → Payouts
 - [x] Add regression coverage, validate the user interface, and save a checkpoint
+
+## Vite Preview WebSocket Repair
+- [x] Configure proxy-safe Vite HMR for the HTTPS preview domain
+- [x] Add regression coverage for public-preview HMR options
+- [x] Verify WebSocket client settings and browser console after restart
+- [x] Save a validated checkpoint
