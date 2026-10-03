@@ -18,6 +18,7 @@ import { DialogFooter } from "@/components/ui/dialog";
 import { useRef } from "react";
 import { ScheduleTab } from "./TechBookings";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
+import { getBrowserTimeZone } from "@shared/lastMinuteBooking";
 import { formatDollarsInputFromCents, formatUsdCents } from "@shared/money";
 
 // ─── Service helpers (mirrored from SettingsProfile) ─────────────────────────
@@ -259,7 +260,14 @@ export default function TechDashboard() {
   const handleCreateSlot = () => {
     if (!slotDate || !slotStartTime || !slotEndTime) { toast.error("Please select date and time range"); return; }
     if (slotStartTime >= slotEndTime) { toast.error("End time must be after start time"); return; }
-    createSlot.mutate({ slotDate, startTime: slotStartTime, endTime: slotEndTime, note: slotNote || undefined, isPushed: false });
+    createSlot.mutate({
+      slotDate,
+      startTime: slotStartTime,
+      endTime: slotEndTime,
+      note: slotNote || undefined,
+      isPushed: false,
+      timeZone: getBrowserTimeZone(),
+    });
   };
 
   if (!isAuthenticated) return null;

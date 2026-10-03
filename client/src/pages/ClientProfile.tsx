@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Camera, ChevronRight, MapPin, Settings, UserRound } from "lucide-react";
+import { Bookmark, Camera, ChevronRight, MapPin, Settings, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { CLIENT_PROFILE_SAVED_PATH } from "@shared/clientNavigation";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -93,6 +94,14 @@ export default function ClientProfile() {
           <span className="flex-1 min-w-0">
             <span className="block text-sm font-medium text-foreground">Personal details</span>
             <span className="block text-xs text-muted-foreground truncate">Name, phone number, and location</span>
+          </span>
+          <ChevronRight size={18} className="text-muted-foreground" />
+        </button>
+        <button type="button" onClick={() => navigate(CLIENT_PROFILE_SAVED_PATH)} className="w-full flex items-center gap-3 p-4 text-left hover:bg-muted/40 transition-colors">
+          <span className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><Bookmark size={18} /></span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-medium text-foreground">Saved posts & albums</span>
+            <span className="block text-xs text-muted-foreground truncate">Your saved looks and inspiration collections</span>
           </span>
           <ChevronRight size={18} className="text-muted-foreground" />
         </button>

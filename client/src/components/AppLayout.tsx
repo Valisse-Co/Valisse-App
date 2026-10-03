@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import {
-  Bookmark,
+  Bell,
   Calendar,
   Compass,
   MessageCircle,
@@ -16,6 +16,7 @@ import { ReactNode, useEffect, useRef } from "react";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { CLIENT_BOTTOM_NAVIGATION, type ClientBottomNavigationKey } from "@shared/clientNavigation";
 
 interface NavItem {
   label: string;
@@ -36,10 +37,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       : (isTech ? "nail_tech" : "client");
 
   // Fetch notifications list to detect new_post toasts
-  const { data: notifList, refetch: refetchList } = trpc.notifications.list.useQuery(
+  const { data: notifList } = trpc.notifications.list.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: 30_000 }
   );
+  const unreadNotificationCount = notifList?.filter((notification: any) => !notification.isRead).length ?? 0;
 
   // Toast new_post notifications that arrive AFTER initial mount
   const seenIdsRef = useRef<Set<number> | null>(null);
@@ -74,13 +76,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     });
   }, [notifList, navigate]);
 
-  const clientNav: NavItem[] = [
-    { label: "Discover", icon: <Compass size={22} />, href: "/discover" },
-    { label: "Messages", icon: <MessageCircle size={22} />, href: "/messages" },
-    { label: "Bookings", icon: <Calendar size={22} />, href: "/bookings" },
-    { label: "Saved", icon: <Bookmark size={22} />, href: "/saved" },
-    { label: "Profile", icon: <UserRound size={22} />, href: "/profile" },
-  ];
+  const clientIcons: Record<ClientBottomNavigationKey, ReactNode> = {
+    discover: <Compass size={22} />,
+    messages: <MessageCircle size={22} />,
+    bookings: <Calendar size={22} />,
+    notifications: <Bell size={22} />,
+    profile: <UserRound size={22} />,
+  };
+  const clientNav: NavItem[] = CLIENT_BOTTOM_NAVIGATION.map((item) => ({
+    ...item,
+    icon: clientIcons[item.key],
+    badge: item.key === "notifications" ? unreadNotificationCount : undefined,
+  }));
 
   const techNav: NavItem[] = [
     { label: "Dashboard", icon: <LayoutDashboard size={22} />, href: "/dashboard" },

@@ -69,6 +69,8 @@ export const users = mysqlTable("users", {
   // Geolocation for proximity filtering
   lat: float("lat"),
   lng: float("lng"),
+  // IANA time zone captured from the technician device when publishing local availability.
+  timeZone: varchar("timeZone", { length: 64 }),
   // Verified client city. Kept separate from the technician business address so
   // a dual-role identity can hold both locations without duplicating the user.
   clientCity: varchar("clientCity", { length: 128 }),

@@ -17,9 +17,12 @@ describe("startup and onboarding routing contracts", () => {
 
   it("uses Profile rather than Alerts or Reports in the client bottom navigation", () => {
     const layoutSource = readFileSync(resolve(projectRoot, "client/src/components/AppLayout.tsx"), "utf8");
-    expect(layoutSource).toContain('{ label: "Profile", icon: <UserRound size={22} />, href: "/profile" }');
-    expect(layoutSource).not.toContain('label: "Alerts"');
-    expect(layoutSource).not.toContain('label: "Reports"');
+    const navigationSource = readFileSync(resolve(projectRoot, "shared/clientNavigation.ts"), "utf8");
+    expect(layoutSource).toContain("CLIENT_BOTTOM_NAVIGATION");
+    expect(navigationSource).toContain('{ key: "notifications", label: "Notifications", href: "/notifications" }');
+    expect(navigationSource).toContain('{ key: "profile", label: "Profile", href: "/profile" }');
+    expect(navigationSource).not.toContain('label: "Alerts"');
+    expect(navigationSource).not.toContain('label: "Reports"');
   });
 
   it("requires an explicit new-account intent before an incomplete account can enter onboarding", () => {

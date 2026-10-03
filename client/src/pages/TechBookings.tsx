@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
+import { getBrowserTimeZone } from "@shared/lastMinuteBooking";
 import { formatUsdCents, formatUsdDollars } from "@shared/money";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1882,7 +1883,14 @@ export default function TechBookings() {
   const handleCreateSlot = () => {
     if (!slotDate || !slotStartTime || !slotEndTime) { toast.error("Please select date and time range"); return; }
     if (slotStartTime >= slotEndTime) { toast.error("End time must be after start time"); return; }
-    createSlot.mutate({ slotDate, startTime: slotStartTime, endTime: slotEndTime, note: slotNote || undefined, isPushed: false });
+    createSlot.mutate({
+      slotDate,
+      startTime: slotStartTime,
+      endTime: slotEndTime,
+      note: slotNote || undefined,
+      isPushed: false,
+      timeZone: getBrowserTimeZone(),
+    });
   };
 
   if (!isAuthenticated) {

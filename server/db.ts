@@ -44,7 +44,15 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
-import { fitsWithinAvailabilityWindows, mergeAvailabilityWindows, timeToMinutes } from "../shared/lastMinuteBooking";
+import {
+  addLocalDays,
+  fitsWithinAvailabilityWindows,
+  getZonedDateKey,
+  getZonedDateTimeParts,
+  getZonedDateTimeEpoch,
+  mergeAvailabilityWindows,
+  timeToMinutes,
+} from "../shared/lastMinuteBooking";
 import { canDiscoverAccount, getConversationPartner, getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
 
@@ -100,6 +108,15 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+async function getTechTimeZone(database: ReturnType<typeof drizzle>, techId: number): Promise<string> {
+  const rows = await database
+    .select({ timeZone: users.timeZone })
+    .from(users)
+    .where(eq(users.id, techId))
+    .limit(1);
+  return rows[0]?.timeZone ?? "UTC";
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -1474,12 +1491,17 @@ export async function createLastMinuteSlot(
   endTime: string,    // HH:MM 24h
   note: string | undefined,
   isPushed: boolean,
+  timeZone: string,
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  // expiresAt = end of the slot window on the given date (unix ms)
-  const expDate = new Date(`${slotDate}T${endTime}:00`);
-  const expiresAt = expDate.getTime();
+  // Slots are entered in the technician's local wall-clock time. The server
+  // runs in UTC, so calculate the end instant from the supplied IANA zone.
+  const expiresAt = getZonedDateTimeEpoch(slotDate, endTime, timeZone);
+  if (expiresAt <= Date.now()) {
+    throw new Error("This last-minute opening has already ended. Choose a later time.");
+  }
+  await db.update(users).set({ timeZone }).where(eq(users.id, techId));
   const [result] = await db.insert(lastMinuteSlots).values({
     techId,
     slotDate,
@@ -1851,6 +1873,7 @@ export async function getAvailableSlots(
 ): Promise<Array<{ time: string; available: boolean; reason: string | undefined }>> {
   const db = await getDb();
   if (!db) return [];
+  const techTimeZone = await getTechTimeZone(db, techId);
 
   // Parse the requested date
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -1905,8 +1928,8 @@ export async function getAvailableSlots(
   const breakEnd = av?.breakEnd ? timeToMinutes(av.breakEnd) : null;
 
   // 2. Build "blocked intervals" from existing bookings on this date
-  const dayStart = new Date(year, month - 1, day, 0, 0, 0);
-  const dayEnd = new Date(year, month - 1, day, 23, 59, 59);
+  const dayStart = new Date(getZonedDateTimeEpoch(dateStr, "00:00", techTimeZone));
+  const dayEnd = new Date(getZonedDateTimeEpoch(addLocalDays(dateStr, 1), "00:00", techTimeZone));
 
   const existingBookings = await db
     .select({ scheduledAt: bookings.scheduledAt, duration: bookings.duration, status: bookings.status })
@@ -1937,7 +1960,8 @@ export async function getAvailableSlots(
   const blocked: Interval[] = [];
 
   for (const b of existingBookings) {
-    const startMins = b.scheduledAt.getHours() * 60 + b.scheduledAt.getMinutes();
+    const localBookingTime = getZonedDateTimeParts(b.scheduledAt.getTime(), techTimeZone);
+    const startMins = localBookingTime.hour * 60 + localBookingTime.minute;
     const endMins = startMins + (b.duration ?? 60) + bufferMins;
     blocked.push({ start: startMins, end: endMins, reason: "booked" });
   }
@@ -1958,12 +1982,12 @@ export async function getAvailableSlots(
   const slots: Array<{ time: string; available: boolean; reason: string | undefined }> = [];
   const slotInterval = 15; // 15-minute grid
 
-  const now = new Date();
+  const now = getZonedDateTimeParts(Date.now(), techTimeZone);
   const isToday =
-    now.getFullYear() === year &&
-    now.getMonth() === month - 1 &&
-    now.getDate() === day;
-  const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+    now.year === year &&
+    now.month === month &&
+    now.day === day;
+  const nowMins = isToday ? now.hour * 60 + now.minute : 0;
 
   // Iterate every 15 mins across the FULL working window so unavailable slots
   // are still visible (grayed out) in the UI.
@@ -2030,6 +2054,7 @@ export async function getMonthBookableStatus(
 ): Promise<Record<string, boolean>> {
   const db = await getDb();
   if (!db) return {};
+  const techTimeZone = await getTechTimeZone(db, techId);
 
   // Get all active availability rules for this tech
   const avRows = await db
@@ -2065,9 +2090,9 @@ export async function getMonthBookableStatus(
 
   const workingDowSet = new Set(avRows.map(a => a.dayOfWeek));
 
-  // Build date range for the month
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // Build date range for the month in the technician's local calendar.
+  const localNow = getZonedDateTimeParts(Date.now(), techTimeZone);
+  const todayStr = getZonedDateKey(Date.now(), techTimeZone);
 
   // Collect working dates in this month
   const workingDates: string[] = [];
@@ -2090,8 +2115,10 @@ export async function getMonthBookableStatus(
   if (candidateDates.length === 0) return {};
 
   // Fetch all bookings in this month for this tech
-  const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
-  const monthEnd   = new Date(year, month, 0, 23, 59, 59);
+  const monthStartDate = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEndDate = addLocalDays(monthStartDate, daysInMonth);
+  const monthStart = new Date(getZonedDateTimeEpoch(monthStartDate, "00:00", techTimeZone));
+  const monthEnd = new Date(getZonedDateTimeEpoch(monthEndDate, "00:00", techTimeZone));
   const existingBookings = await db
     .select({ scheduledAt: bookings.scheduledAt, duration: bookings.duration })
     .from(bookings)
@@ -2143,16 +2170,16 @@ export async function getMonthBookableStatus(
     const blocked: Interval[] = [];
 
     for (const b of existingBookings) {
-      const bDate = b.scheduledAt;
-      if (bDate.getFullYear() === y && bDate.getMonth() === mo - 1 && bDate.getDate() === day) {
-        const s = bDate.getHours() * 60 + bDate.getMinutes();
+      const bDate = getZonedDateTimeParts(b.scheduledAt.getTime(), techTimeZone);
+      if (bDate.year === y && bDate.month === mo && bDate.day === day) {
+        const s = bDate.hour * 60 + bDate.minute;
         blocked.push({ start: s, end: s + (b.duration ?? 60) + bufferMins });
       }
     }
 
     for (const bl of blocks) {
-      const bDate = bl.blockDate;
-      if (bDate.getFullYear() === y && bDate.getMonth() === mo - 1 && bDate.getDate() === day) {
+      const bDate = getZonedDateTimeParts(bl.blockDate.getTime(), techTimeZone);
+      if (bDate.year === y && bDate.month === mo && bDate.day === day) {
         blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime) });
       }
     }
@@ -2161,9 +2188,8 @@ export async function getMonthBookableStatus(
       blocked.push({ start: breakStart, end: breakEnd });
     }
 
-    const now = new Date();
-    const isToday = now.getFullYear() === y && now.getMonth() === mo - 1 && now.getDate() === day;
-    const nowMins = isToday ? now.getHours() * 60 + now.getMinutes() : 0;
+    const isToday = localNow.year === y && localNow.month === mo && localNow.day === day;
+    const nowMins = isToday ? localNow.hour * 60 + localNow.minute : 0;
 
     let hasOpen = false;
     for (let t = workStart; t < workEnd; t += 15) {
@@ -2195,9 +2221,11 @@ export async function createBookingWithConflictCheck(
   const scheduledAt = data.scheduledAt;
   const durationMins = data.duration ?? 60;
   const techId = data.techId;
+  const techTimeZone = await getTechTimeZone(db, techId);
+  const localScheduledAt = getZonedDateTimeParts(scheduledAt.getTime(), techTimeZone);
 
-  const dateStr = `${scheduledAt.getFullYear()}-${String(scheduledAt.getMonth() + 1).padStart(2, "0")}-${String(scheduledAt.getDate()).padStart(2, "0")}`;
-  const timeStr = `${String(scheduledAt.getHours()).padStart(2, "0")}:${String(scheduledAt.getMinutes()).padStart(2, "0")}`;
+  const dateStr = `${localScheduledAt.year}-${String(localScheduledAt.month).padStart(2, "0")}-${String(localScheduledAt.day).padStart(2, "0")}`;
+  const timeStr = `${String(localScheduledAt.hour).padStart(2, "0")}:${String(localScheduledAt.minute).padStart(2, "0")}`;
   const computedSlots = await getAvailableSlots(techId, dateStr, durationMins, data.clientId, requestedServiceIds);
   const selectedSlot = computedSlots.find((slot) => slot.time === timeStr);
   if (!selectedSlot?.available) {
@@ -2214,7 +2242,7 @@ export async function createBookingWithConflictCheck(
   const slotEnd = new Date(scheduledAt.getTime() + durationMins * 60 * 1000);
 
   // Get buffer for this tech on this day
-  const dayOfWeek = scheduledAt.getDay();
+  const dayOfWeek = new Date(localScheduledAt.year, localScheduledAt.month - 1, localScheduledAt.day).getDay();
   const avRows = await db
     .select({ id: availability.id, bufferMinutes: availability.bufferMinutes })
     .from(availability)

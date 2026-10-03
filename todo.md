@@ -670,3 +670,9 @@
 - [x] Add regression coverage for public-preview HMR options
 - [x] Verify WebSocket client settings and browser console after restart
 - [x] Save a validated checkpoint
+
+## Last-Minute Slot Visibility and Client Alerts
+- [x] Repair same-day active last-minute slot visibility in booking availability and the technician dashboard
+- [x] Confirm subscriber notifications are created and expose Notifications from the client bottom navigation
+- [x] Move Saved posts from the client bottom navigation into a Profile subsection
+- [x] Add regression coverage, validate the mobile flows, and save a checkpoint

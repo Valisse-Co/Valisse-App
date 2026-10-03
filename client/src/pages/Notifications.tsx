@@ -234,7 +234,7 @@ export default function Notifications() {
             >
               <ArrowLeft size={20} />
             </button>
-            <h1 className="text-xl font-semibold">Alerts</h1>
+            <h1 className="text-xl font-semibold">Notifications</h1>
             {totalUnread > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-primary text-white text-xs font-bold">
                 {totalUnread}

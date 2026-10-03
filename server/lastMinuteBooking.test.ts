@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildLastMinuteBookingPath,
   fitsWithinAvailabilityWindows,
+  getZonedDateTimeParts,
+  getZonedDateTimeEpoch,
   mergeAvailabilityWindows,
   timeToMinutes,
 } from "../shared/lastMinuteBooking";
@@ -38,5 +40,27 @@ describe("last-minute booking helpers", () => {
     ]);
 
     expect(fitsWithinAvailabilityWindows(timeToMinutes("16:30"), 90, windows)).toBe(false);
+  });
+
+  it("keeps a same-day technician opening active through its local end time", () => {
+    expect(getZonedDateTimeEpoch("2026-10-03", "17:00", "America/Denver")).toBe(
+      Date.UTC(2026, 9, 3, 23, 0, 0),
+    );
+  });
+
+  it("uses the technician's local clock when deciding whether a same-day slot is past", () => {
+    expect(getZonedDateTimeParts(Date.UTC(2026, 9, 3, 18, 58), "America/Denver")).toMatchObject({
+      year: 2026,
+      month: 10,
+      day: 3,
+      hour: 12,
+      minute: 58,
+    });
+  });
+
+  it("rejects a local clock time skipped by daylight-saving time", () => {
+    expect(() => getZonedDateTimeEpoch("2026-03-08", "02:30", "America/Denver")).toThrow(
+      "does not exist",
+    );
   });
 });

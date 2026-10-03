@@ -1735,6 +1735,7 @@ const lastMinuteRouter = router({
         endTime: z.string(),     // HH:MM 24h
         note: z.string().optional(),
         isPushed: z.boolean().default(false),
+        timeZone: z.string().min(1).max(100),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1745,6 +1746,7 @@ const lastMinuteRouter = router({
         input.endTime,
         input.note,
         input.isPushed,
+        input.timeZone,
       );
       // Notify followers
       const followerIds = await getTechFollowerIds(ctx.user.id);
