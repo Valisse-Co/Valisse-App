@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -214,6 +214,11 @@ export default function Bookings() {
   const [cancellingBookingId, setCancellingBookingId] = useState<number | null>(null);
   const [cancellingTechId, setCancellingTechId] = useState<number | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{ bookingId: number; techId: number; techName: string } | null>(null);
+  const [focusedBookingId] = useState(() => {
+    const raw = new URLSearchParams(window.location.search).get("bookingId");
+    const parsed = raw ? Number(raw) : null;
+    return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  });
 
   const { data: bookingsData, isLoading, refetch } = trpc.bookings.allBookings.useQuery(
     undefined,
@@ -252,6 +257,21 @@ export default function Bookings() {
   }) ?? [];
 
   const displayed = tab === "upcoming" ? upcoming : past;
+
+  useEffect(() => {
+    if (!focusedBookingId || !bookingsData) return;
+    const focused = bookingsData.find((row) => row.booking.id === focusedBookingId)?.booking;
+    if (!focused) return;
+    const isPastBooking = new Date(focused.scheduledAt as any) < new Date() || ["cancelled", "completed", "declined"].includes(focused.status);
+    setTab(isPastBooking ? "past" : "upcoming");
+  }, [bookingsData, focusedBookingId]);
+
+  useEffect(() => {
+    if (!focusedBookingId || isLoading) return;
+    window.setTimeout(() => {
+      document.getElementById(`booking-${focusedBookingId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
+  }, [displayed, focusedBookingId, isLoading]);
 
   return (
     <div className="page-enter">
@@ -306,7 +326,8 @@ export default function Bookings() {
                 key={booking.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-card rounded-2xl p-4 shadow-sm border border-border"
+                id={`booking-${booking.id}`}
+                className={cn("bg-card rounded-2xl p-4 shadow-sm border border-border scroll-mt-24", booking.id === focusedBookingId && "ring-2 ring-primary ring-offset-2")}
               >
                 <div className="flex items-start gap-3">
                   <Avatar className="w-12 h-12 border border-border">
@@ -372,6 +393,14 @@ export default function Bookings() {
                     <p className="text-xs text-amber-700 dark:text-amber-400">
                       Late cancellation fee of <span className="font-semibold">{formatUsdDollars((booking as any).cancellationFeeAmount)}</span> is pending. Your tech may waive this.
                     </p>
+                  </div>
+                )}
+
+                {booking.status === "disputed" && (booking as any).issueReason && (
+                  <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+                    <p className="text-xs font-semibold text-destructive">Appointment issue reported</p>
+                    <p className="mt-1 text-xs text-destructive/90"><span className="font-medium">Your report:</span> {(booking as any).issueReason}</p>
+                    <p className="mt-1 text-xs text-destructive/80">The nail tech payout is on hold while an administrator reviews the appointment.</p>
                   </div>
                 )}
 

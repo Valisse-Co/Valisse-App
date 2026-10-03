@@ -676,3 +676,9 @@
 - [x] Confirm subscriber notifications are created and expose Notifications from the client bottom navigation
 - [x] Move Saved posts from the client bottom navigation into a Profile subsection
 - [x] Add regression coverage, validate the mobile flows, and save a checkpoint
+
+## Notification Lifecycle, Details, and Destinations
+- [x] Remove expired last-minute opening alerts from all notification surfaces and unread counts
+- [x] Enrich booking and appointment-issue notifications with authorized names, service, duration, and issue context
+- [x] Route notification taps to the relevant booking, appointment issue, post, or last-minute booking destination
+- [x] Add regression coverage, validate mobile behavior, and save a checkpoint

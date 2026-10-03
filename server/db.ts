@@ -55,6 +55,7 @@ import {
 } from "../shared/lastMinuteBooking";
 import { canDiscoverAccount, getConversationPartner, getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
+import { filterVisibleLastMinuteNotifications, isBookingNotification, presentNotification } from "../shared/notificationPresentation";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -233,11 +234,23 @@ export async function getAdminUserIds(): Promise<number[]> {
 export async function getDisputedBookingsForAdmin() {
   const db = await getDb();
   if (!db) return [];
-  return db
+  const disputedBookings = await db
     .select()
     .from(bookings)
     .where(eq(bookings.payoutStatus, "on_hold"))
     .orderBy(desc(bookings.issueReportedAt));
+  if (disputedBookings.length === 0) return [];
+  const partyIds = Array.from(new Set(disputedBookings.flatMap((booking) => [booking.clientId, booking.techId])));
+  const parties = await db
+    .select({ id: users.id, name: users.name, businessName: users.businessName })
+    .from(users)
+    .where(inArray(users.id, partyIds));
+  const partiesById = new Map(parties.map((party) => [party.id, party]));
+  return disputedBookings.map((booking) => ({
+    ...booking,
+    clientName: partiesById.get(booking.clientId)?.name ?? null,
+    techName: partiesById.get(booking.techId)?.businessName ?? partiesById.get(booking.techId)?.name ?? null,
+  }));
 }
 
 export async function getUserByEmail(email: string) {
@@ -1835,15 +1848,70 @@ export async function getFollowerCount(userId: number) {
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
-export async function getUserNotifications(userId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db
+// A last-minute alert is relevant only while its underlying opening is bookable.
+// Centralizing the filtering here keeps the list and both unread badges in sync.
+async function getVisibleUserNotificationRows(database: ReturnType<typeof drizzle>, userId: number) {
+  const notificationRows = await database
     .select()
     .from(notifications)
     .where(eq(notifications.userId, userId))
-    .orderBy(desc(notifications.createdAt))
-    .limit(30);
+    .orderBy(desc(notifications.createdAt));
+
+  const slotIds = notificationRows
+    .filter((notification) => notification.type === "last_minute_slot" && notification.relatedId !== null)
+    .map((notification) => notification.relatedId!);
+  if (slotIds.length === 0) return notificationRows;
+
+  const activeSlots = await database
+    .select({ id: lastMinuteSlots.id })
+    .from(lastMinuteSlots)
+    .where(and(inArray(lastMinuteSlots.id, slotIds), gt(lastMinuteSlots.expiresAt, Date.now())));
+  return filterVisibleLastMinuteNotifications(notificationRows, new Set(activeSlots.map((slot) => slot.id)));
+}
+
+export async function getUserNotifications(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const notificationRows = await getVisibleUserNotificationRows(db, userId);
+  const bookingIds = notificationRows
+    .filter((notification) => notification.relatedId !== null && isBookingNotification(notification.type))
+    .map((notification) => notification.relatedId!);
+  const bookingRows = bookingIds.length > 0
+    ? await db.select().from(bookings).where(inArray(bookings.id, bookingIds))
+    : [];
+  const bookingById = new Map(bookingRows.map((booking) => [booking.id, booking]));
+
+  const personIds = new Set<number>([userId]);
+  for (const booking of bookingRows) {
+    personIds.add(booking.clientId);
+    personIds.add(booking.techId);
+  }
+  const people = await db
+    .select({ id: users.id, name: users.name, businessName: users.businessName, role: users.role })
+    .from(users)
+    .where(inArray(users.id, Array.from(personIds)));
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const recipient = peopleById.get(userId);
+
+  return notificationRows.slice(0, 30).map((notification) => {
+    const booking = notification.relatedId ? bookingById.get(notification.relatedId) : undefined;
+    const client = booking ? peopleById.get(booking.clientId) : undefined;
+    const tech = booking ? peopleById.get(booking.techId) : undefined;
+    const canViewBooking = Boolean(booking && (booking.clientId === userId || booking.techId === userId || recipient?.role === "admin"));
+    const presentation = presentNotification(notification, canViewBooking && booking ? {
+      bookingId: booking.id,
+      clientId: booking.clientId,
+      techId: booking.techId,
+      clientName: client?.name ?? null,
+      techName: tech?.businessName ?? tech?.name ?? null,
+      serviceName: booking.serviceType,
+      durationMinutes: booking.duration,
+      issueReason: booking.issueReason,
+      recipientId: userId,
+      recipientRole: recipient?.role === "admin" ? "admin" : "user",
+    } : undefined);
+    return { ...notification, ...presentation };
+  });
 }
 
 export async function markNotificationsRead(userId: number) {
@@ -2673,25 +2741,15 @@ export async function createNotification(data: {
 export async function getUnreadNotificationCount(userId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const rows = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
-  return Number(rows[0]?.count ?? 0);
+  const rows = await getVisibleUserNotificationRows(db, userId);
+  return rows.filter((notification) => !notification.isRead).length;
 }
 
 export async function getUnreadSlotNotificationCount(userId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const rows = await db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(notifications)
-    .where(and(
-      eq(notifications.userId, userId),
-      eq(notifications.isRead, false),
-      eq(notifications.type, "last_minute_slot")
-    ));
-  return Number(rows[0]?.count ?? 0);
+  const rows = await getVisibleUserNotificationRows(db, userId);
+  return rows.filter((notification) => !notification.isRead && notification.type === "last_minute_slot").length;
 }
 
 export async function markSingleNotificationRead(notificationId: number, userId: number) {

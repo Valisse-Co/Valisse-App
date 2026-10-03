@@ -1019,6 +1019,17 @@ const bookingsRouter = router({
           appointmentCodeVisibleAt(booking.scheduledAt)
         );
       }
+      if (!booking.isQaTest) {
+        await createNotification({
+          userId: booking.clientId,
+          type: input.status === "confirmed" ? "booking_confirmed" : "booking_declined",
+          title: input.status === "confirmed" ? "Booking confirmed" : "Booking declined",
+          body: input.status === "confirmed"
+            ? "Your nail tech confirmed this appointment."
+            : "Your nail tech was unable to accept this appointment.",
+          relatedId: booking.id,
+        });
+      }
       return { success: true };
     }),
 });

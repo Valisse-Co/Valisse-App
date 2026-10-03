@@ -127,6 +127,7 @@ type BookingCardProps = {
     revisionStatus?: string | null;
     paymentStatus?: string | null;
     payoutStatus?: string | null;
+    issueReason?: string | null;
   };
   client: { name?: string | null; avatarUrl?: string | null } | null;
   addonService?: { category?: string | null; customName?: string | null; durationMinutes?: number | null } | null;
@@ -135,9 +136,10 @@ type BookingCardProps = {
   onCancel: (id: number) => void;
   onMarkComplete: (id: number) => void;
   isUpdating: boolean;
+  highlighted?: boolean;
 };
 
-function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating }: BookingCardProps) {
+function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCancel, onMarkComplete, isUpdating, highlighted = false }: BookingCardProps) {
   const utils = trpc.useUtils();
   const time = new Date(booking.scheduledAt as any);
   const now = new Date();
@@ -175,14 +177,15 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
 
   return (
     <div className={cn(
-      "rounded-2xl border bg-card p-4 shadow-sm transition-all",
+      "rounded-2xl border bg-card p-4 shadow-sm transition-all scroll-mt-24",
       booking.needsReview
         ? "border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-900/20"
         : booking.status === "pending"
           ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10"
           : "border-border",
-      isPast && booking.status !== "completed" && "opacity-60"
-    )}>
+      isPast && booking.status !== "completed" && "opacity-60",
+      highlighted && "ring-2 ring-primary ring-offset-2"
+    )} id={`booking-${booking.id}`}>
       {/* Needs Review banner */}
       {booking.needsReview && (
         <button
@@ -323,7 +326,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
       )}
       {booking.status === "completed" && booking.payoutStatus === "pending_dispute_window" && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2"><p className="text-xs font-semibold text-primary">Payout review window</p><p className="mt-0.5 text-xs text-muted-foreground">The client’s payment is captured. Your payout releases after the 24-hour issue window unless an issue is reported.</p></div>}
       {booking.status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2"><p className="text-xs font-semibold text-amber-800">Client payment needed</p><p className="mt-0.5 text-xs text-amber-700">The appointment is completed. The client must update their payment method before payout can begin.</p></div>}
-      {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2"><p className="text-xs font-semibold text-destructive">Client reported an issue</p><p className="mt-0.5 text-xs text-destructive/80">Payout is on hold while an administrator reviews the appointment.</p></div>}
+      {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2"><p className="text-xs font-semibold text-destructive">Client reported an issue</p>{booking.issueReason && <p className="mt-1 text-xs text-destructive/90"><span className="font-semibold">Reported issue:</span> {booking.issueReason}</p>}<p className="mt-1 text-xs text-destructive/80">Payout is on hold while an administrator reviews the appointment.</p></div>}
       <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader><DialogTitle>Start verified appointment</DialogTitle></DialogHeader>
@@ -350,6 +353,11 @@ function BookingsTimelineTab() {
   const todayRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<UpcomingFilter>("all");
   const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [focusedBookingId] = useState(() => {
+    const raw = new URLSearchParams(window.location.search).get("bookingId");
+    const parsed = raw ? Number(raw) : null;
+    return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  });
 
   const updateStatus = trpc.bookings.updateStatus.useMutation({
     onSuccess: () => {
@@ -413,6 +421,13 @@ function BookingsTimelineTab() {
       }, 150);
     }
   }, [isLoading]);
+
+  useEffect(() => {
+    if (isLoading || !focusedBookingId) return;
+    window.setTimeout(() => {
+      document.getElementById(`booking-${focusedBookingId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
+  }, [isLoading, focusedBookingId, timelineData]);
 
   // Count totals for summary
   const totalPending = (timelineData ?? []).filter(r => r.booking.status === "pending").length;
@@ -523,6 +538,7 @@ function BookingsTimelineTab() {
                       onCancel={id => setCancellingId(id)}
                       onMarkComplete={id => completeAppointment.mutate({ bookingId: id })}
                       isUpdating={updateStatus.isPending || completeAppointment.isPending}
+                      highlighted={booking.id === focusedBookingId}
                     />
                   ))}
                 </div>

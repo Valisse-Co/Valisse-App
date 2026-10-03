@@ -43,7 +43,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
   const unreadNotificationCount = notifList?.filter((notification: any) => !notification.isRead).length ?? 0;
 
-  // Toast new_post notifications that arrive AFTER initial mount
+  // Toast newly-arrived notifications only after the initial list is seeded.
   const seenIdsRef = useRef<Set<number> | null>(null);
   useEffect(() => {
     if (!notifList) return;
@@ -53,26 +53,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       return;
     }
     // Subsequent polls: toast genuinely new unread notifications
-    const newOnes = notifList.filter(
-      (n: any) => (n.type === "new_post" || n.type === "last_minute_slot") && !n.isRead && !seenIdsRef.current!.has(n.id)
-    );
+    const newOnes = notifList.filter((n: any) => !n.isRead && !seenIdsRef.current!.has(n.id));
     newOnes.forEach((n: any) => {
       seenIdsRef.current!.add(n.id);
-      if (n.type === "last_minute_slot") {
-        toast.warning(n.title, {
-          description: n.body ?? "Tap to view and book",
-          duration: 8000,
-          action: { label: "Book Now", onClick: () => navigate("/notifications") },
-        });
-      } else {
-        toast(n.title, {
-          description: n.body ?? undefined,
-          duration: 5000,
-          action: n.relatedId
-            ? { label: "View", onClick: () => navigate(`/post/${n.relatedId}?from=/notifications`) }
-            : undefined,
-        });
-      }
+      const showToast = n.type === "last_minute_slot" ? toast.warning : toast;
+      showToast(n.title, {
+        description: n.body ?? undefined,
+        duration: n.type === "last_minute_slot" ? 8000 : 6000,
+        action: n.destination
+          ? { label: n.actionLabel ?? "View details", onClick: () => navigate(n.destination) }
+          : undefined,
+      });
     });
   }, [notifList, navigate]);
 

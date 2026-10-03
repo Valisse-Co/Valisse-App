@@ -169,7 +169,7 @@ function SlotNotifCard({ n, onNavigate }: { n: any; onNavigate: (n: any) => void
                 "text-[10px] font-semibold flex items-center gap-0.5",
                 n.isRead ? "text-muted-foreground" : "text-primary"
               )}>
-                Book Now <ChevronRight size={10} />
+                {n.actionLabel ?? "Book Now"} <ChevronRight size={10} />
               </span>
             </div>
           </div>
@@ -206,10 +206,8 @@ export default function Notifications() {
 
   const handleNotifClick = (n: any) => {
     if (!n.isRead) markOne.mutate({ notificationId: n.id });
-    if (n.type === "last_minute_slot" && n.relatedId) {
-      navigate(`/book-last-minute/${n.relatedId}`);
-    } else if (n.type === "new_post" && n.relatedId) {
-      navigate(`/post/${n.relatedId}?from=/notifications`);
+    if (n.destination) {
+      navigate(n.destination);
     } else if (n.type === "booking_cancelled_by_tech" && n.relatedId) {
       setAltTechsBookingId(n.relatedId);
     }
@@ -328,7 +326,21 @@ export default function Notifications() {
                       {n.body && (
                         <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
                       )}
-                      {n.type === "booking_cancelled_by_tech" && n.relatedId && (
+                      {n.details && (
+                        <div className="mt-2 space-y-0.5 rounded-lg bg-muted/60 px-2.5 py-2 text-[11px] text-muted-foreground">
+                          <p><span className="font-medium text-foreground">{n.details.personLabel}:</span> {n.details.personName}</p>
+                          <p>{n.details.serviceSummary}</p>
+                          {n.details.issueReason && n.type === "booking_issue_reported" && (
+                            <p className="pt-1 text-destructive"><span className="font-medium">Reported issue:</span> {n.details.issueReason}</p>
+                          )}
+                        </div>
+                      )}
+                      {n.destination && (
+                        <span className="inline-block mt-1.5 text-xs text-primary font-medium underline underline-offset-2">
+                          {n.actionLabel ?? "View details"} →
+                        </span>
+                      )}
+                      {!n.destination && n.type === "booking_cancelled_by_tech" && n.relatedId && (
                         <span className="inline-block mt-1.5 text-xs text-primary font-medium underline underline-offset-2">
                           See available alternatives →
                         </span>
