@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
-import { getStripe } from "./stripe";
+import { getConnectedAccountReadiness, getStripe } from "./stripe";
 import { ENV } from "./_core/env";
+import { getStripeEnvironmentMode, shouldProcessStripeEvent } from "../shared/stripeMode";
 import {
   getBookingById,
   markBookingPaymentResult,
@@ -8,21 +9,30 @@ import {
   updateUserStripeReferences,
 } from "./db";
 
-export async function handleStripeWebhook(req: Request, res: Response) {
-  if (!ENV.stripeWebhookSecret) return res.status(500).json({ error: "Stripe webhook secret is not configured." });
+async function processStripeWebhook(req: Request, res: Response, connect: boolean) {
+  const webhookSecret = connect ? ENV.stripeConnectWebhookSecret : ENV.stripeWebhookSecret;
+  if (!webhookSecret) return res.status(500).json({ error: connect ? "Stripe Connect webhook secret is not configured." : "Stripe webhook secret is not configured." });
   const signature = req.headers["stripe-signature"];
   if (typeof signature !== "string") return res.status(400).json({ error: "Missing Stripe signature." });
 
   let event;
   try {
-    event = getStripe().webhooks.constructEvent(req.body, signature, ENV.stripeWebhookSecret);
+    event = getStripe().webhooks.constructEvent(req.body, signature, webhookSecret);
   } catch (error) {
     return res.status(400).json({ error: "Invalid Stripe webhook signature." });
   }
 
-  if (event.id.startsWith("evt_test_")) {
-    console.log("[Stripe webhook] Test event verified", event.id);
-    return res.json({ verified: true });
+  const stripeMode = getStripeEnvironmentMode(ENV.stripeSecretKey);
+  if (stripeMode !== "test" && stripeMode !== "live") {
+    return res.status(500).json({ error: "Stripe environment is not configured." });
+  }
+  if (!shouldProcessStripeEvent(stripeMode, event.livemode)) {
+    console.info("[Stripe webhook] Ignored event from a different Stripe environment", {
+      eventId: event.id,
+      eventLivemode: event.livemode,
+      configuredMode: stripeMode,
+    });
+    return res.json({ received: true, ignored: "environment_mismatch" });
   }
 
   try {
@@ -60,9 +70,11 @@ export async function handleStripeWebhook(req: Request, res: Response) {
       const account = event.data.object;
       const techId = Number(account.metadata?.valisse_tech_id);
       if (Number.isFinite(techId)) {
+        const readiness = await getConnectedAccountReadiness(account.id);
         await updateUserStripeReferences(techId, {
           stripeConnectedAccountId: account.id,
-          stripeConnectedAccountReady: Boolean(account.details_submitted && account.charges_enabled && account.payouts_enabled),
+          stripeConnectedAccountMode: stripeMode,
+          stripeConnectedAccountReady: readiness.ready,
         });
       }
     }
@@ -73,4 +85,12 @@ export async function handleStripeWebhook(req: Request, res: Response) {
     console.error("[Stripe webhook] Processing error", event.type, event.id, error);
     return res.status(500).json({ error: "Webhook processing failed." });
   }
+}
+
+export async function handleStripeWebhook(req: Request, res: Response) {
+  return processStripeWebhook(req, res, false);
+}
+
+export async function handleStripeConnectWebhook(req: Request, res: Response) {
+  return processStripeWebhook(req, res, true);
 }

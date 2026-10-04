@@ -1324,7 +1324,9 @@ export async function updateUserStripeReferences(
   userId: number,
   values: {
     stripeCustomerId?: string;
+    stripeCustomerMode?: "test" | "live";
     stripeConnectedAccountId?: string;
+    stripeConnectedAccountMode?: "test" | "live";
     stripeConnectedAccountReady?: boolean;
   }
 ) {

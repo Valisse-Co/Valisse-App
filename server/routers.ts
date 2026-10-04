@@ -185,6 +185,7 @@ import {
   getStandardTipOptions,
   isTipFinal,
 } from "../shared/paymentResolution";
+import { isStripeObjectInConfiguredEnvironment } from "../shared/stripeMode";
 import {
   QA_APPOINTMENT_DURATION_MINUTES,
   QA_APPOINTMENT_LABEL,
@@ -200,6 +201,7 @@ import {
   createRecipientConnectedAccount,
   createStripeCustomer,
   getConnectedAccountReadiness,
+  getStripeIntegrationStatus,
   releaseBookingPayout,
   refundPaymentIntent,
   verifyBookingSetupIntent,
@@ -1191,6 +1193,14 @@ const qaAppointmentRouter = router({
 });
 
 // ─── Verified appointment and deferred-payment lifecycle ──────────────────────
+function getConfiguredStripeModeOrThrow(): "test" | "live" {
+  const integration = getStripeIntegrationStatus();
+  if (integration.mode !== "test" && integration.mode !== "live") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Stripe is not configured with a valid test or live secret key." });
+  }
+  return integration.mode;
+}
+
 const appointmentRouter = router({
   paymentSetup: protectedProcedure
     .input(z.object({ bookingId: z.number() }))
@@ -1199,11 +1209,12 @@ const appointmentRouter = router({
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       if (!ctx.user.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address before saving a payment method." });
 
+      const stripeMode = getConfiguredStripeModeOrThrow();
       let customerId = ctx.user.stripeCustomerId;
-      if (!customerId) {
+      if (!customerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         const customer = await createStripeCustomer({ userId: ctx.user.id, name: ctx.user.name, email: ctx.user.email });
         customerId = customer.id;
-        await updateUserStripeReferences(ctx.user.id, { stripeCustomerId: customerId });
+        await updateUserStripeReferences(ctx.user.id, { stripeCustomerId: customerId, stripeCustomerMode: stripeMode });
       }
       const setupIntent = await createBookingSetupIntent({ bookingId: booking.id, customerId });
       await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: setupIntent.id, paymentMethodStatus: "required" });
@@ -1217,7 +1228,10 @@ const appointmentRouter = router({
       if (!booking || booking.clientId !== ctx.user.id || booking.stripeSetupIntentId !== input.setupIntentId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe environment changed. Save your payment method again before continuing." });
+      }
       try {
         await verifyBookingSetupIntent({ setupIntentId: input.setupIntentId, customerId: ctx.user.stripeCustomerId, bookingId: booking.id });
       } catch (error) {
@@ -1296,9 +1310,10 @@ const appointmentRouter = router({
       if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       if (booking.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "Start the verified appointment before completing it." });
       const client = await getUserById(booking.clientId);
-      if (!client?.stripeCustomerId || booking.paymentMethodStatus !== "saved") {
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (!client?.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, stripeMode) || booking.paymentMethodStatus !== "saved") {
         await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
-        throw new TRPCError({ code: "BAD_REQUEST", message: "The client has no verified payment method. Payment is now due." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The client has no verified payment method for the active Stripe environment. Payment is now due." });
       }
       const completedAt = new Date();
       const eligibleAt = payoutEligibleAt(completedAt);
@@ -1369,7 +1384,10 @@ const appointmentRouter = router({
       if (isTipFinal(booking.tipStatus)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A final tip choice has already been recorded for this appointment." });
       }
-      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
+      }
       const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents });
       return { clientSecret: intent.client_secret, paymentIntentId: intent.id, amountInCents: input.amountInCents };
     }),
@@ -1382,7 +1400,10 @@ const appointmentRouter = router({
       if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip." });
       }
-      if (!ctx.user.stripeCustomerId) throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for this account." });
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
+      }
       try {
         await verifyTipPaymentIntent({
           paymentIntentId: input.paymentIntentId,
@@ -1449,8 +1470,17 @@ const appointmentRouter = router({
 
       if (input.action === "release_payout") {
         const tech = await getUserById(booking.techId);
-        if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady) {
+        const stripeMode = getConfiguredStripeModeOrThrow();
+        if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady || !isStripeObjectInConfiguredEnvironment(tech.stripeConnectedAccountMode, stripeMode)) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before this held payout can be released." });
+        }
+        const currentReadiness = await getConnectedAccountReadiness(tech.stripeConnectedAccountId);
+        await updateUserStripeReferences(tech.id, {
+          stripeConnectedAccountReady: currentReadiness.ready,
+          stripeConnectedAccountMode: stripeMode,
+        });
+        if (!currentReadiness.ready) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech’s Stripe payout capability is no longer active. Ask them to complete Stripe onboarding again." });
         }
         const transfer = await releaseBookingPayout({
           bookingId: booking.id,
@@ -1474,8 +1504,19 @@ const appointmentRouter = router({
       }
 
       const payoutTech = resolution.payoutableServiceTotalInCents > 0 ? await getUserById(booking.techId) : null;
-      if (resolution.payoutableServiceTotalInCents > 0 && (!payoutTech?.stripeConnectedAccountId || !payoutTech.stripeConnectedAccountReady)) {
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (resolution.payoutableServiceTotalInCents > 0 && (!payoutTech?.stripeConnectedAccountId || !payoutTech.stripeConnectedAccountReady || !isStripeObjectInConfiguredEnvironment(payoutTech.stripeConnectedAccountMode, stripeMode))) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before you can issue a partial refund and release the remaining payout." });
+      }
+      if (payoutTech?.stripeConnectedAccountId) {
+        const currentReadiness = await getConnectedAccountReadiness(payoutTech.stripeConnectedAccountId);
+        await updateUserStripeReferences(payoutTech.id, {
+          stripeConnectedAccountReady: currentReadiness.ready,
+          stripeConnectedAccountMode: stripeMode,
+        });
+        if (!currentReadiness.ready) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech’s Stripe payout capability is no longer active. Ask them to complete Stripe onboarding again." });
+        }
       }
 
       const serviceRefund = await refundPaymentIntent({
@@ -1546,7 +1587,10 @@ const appointmentRouter = router({
       if (browserOrigin && requestedOrigin !== browserOrigin) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe onboarding must return to the Valisse session that started it." });
       }
-      let accountId = ctx.user.stripeConnectedAccountId;
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      let accountId = isStripeObjectInConfiguredEnvironment(ctx.user.stripeConnectedAccountMode, stripeMode)
+        ? ctx.user.stripeConnectedAccountId
+        : null;
       if (!accountId) {
         const account = await createRecipientConnectedAccount({
           techId: ctx.user.id,
@@ -1554,7 +1598,11 @@ const appointmentRouter = router({
           displayName: ctx.user.businessName ?? ctx.user.name,
         });
         accountId = account.id;
-        await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountId: accountId, stripeConnectedAccountReady: false });
+        await updateUserStripeReferences(ctx.user.id, {
+          stripeConnectedAccountId: accountId,
+          stripeConnectedAccountMode: stripeMode,
+          stripeConnectedAccountReady: false,
+        });
       }
       const link = await createRecipientOnboardingLink({
         accountId,
@@ -1565,10 +1613,19 @@ const appointmentRouter = router({
     }),
 
   refreshTechConnection: protectedProcedure.query(async ({ ctx }) => {
-    if (!ctx.user.stripeConnectedAccountId) return { connected: false, ready: false };
+    const integration = getStripeIntegrationStatus();
+    if (integration.mode !== "test" && integration.mode !== "live") {
+      return { connected: false, ready: false, ...integration };
+    }
+    if (!ctx.user.stripeConnectedAccountId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeConnectedAccountMode, integration.mode)) {
+      return { connected: false, ready: false, requiresOnboarding: Boolean(ctx.user.stripeConnectedAccountId), ...integration };
+    }
     const { ready, transferStatus } = await getConnectedAccountReadiness(ctx.user.stripeConnectedAccountId);
-    await updateUserStripeReferences(ctx.user.id, { stripeConnectedAccountReady: ready });
-    return { connected: true, ready, transferStatus };
+    await updateUserStripeReferences(ctx.user.id, {
+      stripeConnectedAccountReady: ready,
+      stripeConnectedAccountMode: integration.mode,
+    });
+    return { connected: true, ready, transferStatus, ...integration };
   }),
 
   payoutHistory: protectedProcedure.query(async ({ ctx }) => {
@@ -2227,7 +2284,8 @@ const cancellationRouter = router({
           if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
             feeAmountDollars = resolved.feeAmountDollars;
             const client = await getUserById(booking.clientId);
-            if (client?.stripeCustomerId && booking.paymentMethodStatus === "saved") {
+            const stripeMode = getConfiguredStripeModeOrThrow();
+            if (client?.stripeCustomerId && isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, stripeMode) && booking.paymentMethodStatus === "saved") {
               try {
                 const payment = await chargeSavedCard({
                   bookingId: booking.id,

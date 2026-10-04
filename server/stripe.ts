@@ -7,8 +7,19 @@ import {
   isRecipientPayoutReady,
   STRIPE_ACCOUNTS_V2_API_VERSION,
 } from "../shared/stripeConnectV2";
+import { getStripeEnvironmentMode } from "../shared/stripeMode";
 
 let stripeClient: Stripe | null = null;
+
+export function getStripeIntegrationStatus() {
+  const mode = getStripeEnvironmentMode(ENV.stripeSecretKey);
+  return {
+    mode,
+    configured: mode === "test" || mode === "live",
+    webhookConfigured: Boolean(ENV.stripeWebhookSecret),
+    connectWebhookConfigured: Boolean(ENV.stripeConnectWebhookSecret),
+  };
+}
 
 export function getStripe(): Stripe {
   if (!ENV.stripeSecretKey) throw new Error("Stripe is not configured. Open Settings → Payment to finish Stripe setup.");

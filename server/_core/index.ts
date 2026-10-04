@@ -10,7 +10,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { handleStripeWebhook } from "../stripeWebhook";
+import { handleStripeConnectWebhook, handleStripeWebhook } from "../stripeWebhook";
 import { handlePayoutRelease } from "../payoutReleaseHandler";
 import { handleTelnyxWebhook } from "../telnyxWebhook";
 
@@ -38,6 +38,7 @@ async function startServer() {
   const server = createServer(app);
   // Stripe requires the exact raw request body for webhook signature verification.
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
+  app.post("/api/stripe/connect-webhook", express.raw({ type: "application/json" }), handleStripeConnectWebhook);
   // Telnyx signs the exact raw payload with Ed25519, so this must precede JSON parsing.
   app.post("/api/telnyx/webhook", express.raw({ type: "application/json" }), handleTelnyxWebhook);
   app.post("/api/scheduled/release-payouts", handlePayoutRelease);

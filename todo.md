@@ -682,3 +682,9 @@
 - [x] Enrich booking and appointment-issue notifications with authorized names, service, duration, and issue context
 - [x] Route notification taps to the relevant booking, appointment issue, post, or last-minute booking destination
 - [x] Add regression coverage, validate mobile behavior, and save a checkpoint
+
+## Stripe Live-Mode and Connected Payout Readiness
+- [x] Audit live/test environment separation, Stripe webhooks, and Connect implementation
+- [x] Harden Accounts v2 connected-account readiness handling for production events
+- [ ] Verify a live technician’s Connected Account status after secure Stripe Dashboard access
+- [x] Produce and complete the pre-launch Stripe checklist without creating charges, transfers, or payouts

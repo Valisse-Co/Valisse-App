@@ -47,7 +47,11 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("passwordHash", { length: 255 }), // bcrypt hash for email+password accounts
   // Stripe references only; Stripe remains the source of truth for card and charge details.
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }).unique(),
+  // Stripe test and live objects are isolated. Track the owning environment so
+  // a sandbox customer can never be charged after production credentials ship.
+  stripeCustomerMode: varchar("stripeCustomerMode", { length: 16 }),
   stripeConnectedAccountId: varchar("stripeConnectedAccountId", { length: 255 }).unique(),
+  stripeConnectedAccountMode: varchar("stripeConnectedAccountMode", { length: 16 }),
   stripeConnectedAccountReady: boolean("stripeConnectedAccountReady").default(false).notNull(),
   // Subscription (tech only)
   subscriptionStatus: mysqlEnum("subscriptionStatus", ["trial", "active", "expired", "cancelled"]).default("trial"),

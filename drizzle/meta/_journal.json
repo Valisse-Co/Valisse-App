@@ -211,6 +211,13 @@
       "when": 1791054115515,
       "tag": "0029_crazy_killer_shrike",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1791091633367,
+      "tag": "0030_familiar_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

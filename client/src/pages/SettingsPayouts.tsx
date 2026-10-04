@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { ArrowLeft, CheckCircle2, CircleDollarSign, Clock3, Landmark, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleDollarSign, Clock3, Landmark, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,8 @@ export default function SettingsPayouts() {
   }
 
   const ready = connection.data?.ready;
+  const isTestMode = connection.data?.mode === "test";
+  const isLiveMode = connection.data?.mode === "live";
   return <div className="min-h-screen bg-background px-4 pb-10 pt-8">
     <div className="mx-auto max-w-lg">
       <Button variant="ghost" className="mb-4 -ml-3" onClick={() => navigate("/settings")}><ArrowLeft className="mr-2 h-4 w-4" />Settings</Button>
@@ -51,9 +53,13 @@ export default function SettingsPayouts() {
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Connect Stripe to receive your payout after a completed appointment’s 24-hour issue window. Valisse retains a 5% fee on services; tips go entirely to you.</p>
 
       <Card className="mt-6 rounded-2xl border-border p-5">
-        <div className="flex items-start gap-3"><div className="rounded-xl bg-primary/10 p-2.5 text-primary"><Landmark className="h-5 w-5" /></div><div className="flex-1"><p className="font-semibold text-foreground">Stripe connected account</p><p className="mt-1 text-sm text-muted-foreground">{connection.isLoading ? "Checking your Stripe payout account…" : ready ? "Your payout account is verified and ready to receive payouts." : connection.data?.connected ? "Stripe needs a few more details before Valisse can send payouts." : "Set up your secure Stripe Express account for bank payouts."}</p></div>{ready && <CheckCircle2 className="h-5 w-5 text-primary" />}</div>
-        <div className="mt-5 grid grid-cols-5 gap-2"><Button className="col-span-4" disabled={connect.isPending || ready} onClick={() => connect.mutate({ origin: window.location.origin })}>{ready ? "Payouts ready" : connect.isPending ? "Opening Stripe…" : connection.data?.connected ? "Continue secure Stripe setup" : "Set up payouts with Stripe"}</Button><Button variant="outline" size="icon" aria-label="Refresh Stripe account status" disabled={connection.isFetching} onClick={() => connection.refetch()}><RefreshCw className={connection.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} /></Button></div>
+        <div className="flex items-start gap-3"><div className="rounded-xl bg-primary/10 p-2.5 text-primary"><Landmark className="h-5 w-5" /></div><div className="flex-1"><p className="font-semibold text-foreground">Stripe connected account</p><p className="mt-1 text-sm text-muted-foreground">{connection.isLoading ? "Checking your Stripe payout account…" : ready ? isTestMode ? "Your Stripe test account is verified for sandbox payout testing." : "Your payout account is verified and ready to receive payouts." : connection.data?.connected ? "Stripe needs a few more details before Valisse can send payouts." : "Set up your secure Stripe Express account for bank payouts."}</p></div>{ready && <CheckCircle2 className="h-5 w-5 text-primary" />}</div>
+        <div className="mt-5 grid grid-cols-5 gap-2"><Button className="col-span-4" disabled={connect.isPending || ready} onClick={() => connect.mutate({ origin: window.location.origin })}>{ready ? isTestMode ? "Test payouts ready" : "Payouts ready" : connect.isPending ? "Opening Stripe…" : connection.data?.connected ? "Continue secure Stripe setup" : "Set up payouts with Stripe"}</Button><Button variant="outline" size="icon" aria-label="Refresh Stripe account status" disabled={connection.isFetching} onClick={() => connection.refetch()}><RefreshCw className={connection.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} /></Button></div>
       </Card>
+
+      {isTestMode && <div className="mt-4 flex gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><span><strong>Stripe test mode:</strong> this account can validate onboarding and transfers safely, but no real payouts can be sent. Live payouts require a separately onboarded live Stripe account.</span></div>}
+      {isLiveMode && <div className="mt-4 flex gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-xs leading-relaxed text-foreground"><ShieldCheck className="h-4 w-4 shrink-0 text-primary" /><span><strong>Stripe live mode:</strong> payout status is being checked against the live connected account. Only complete appointments with an approved 24-hour review window can release money.</span></div>}
+      {isLiveMode && !connection.data?.connectWebhookConfigured && <div className="mt-3 flex gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-xs leading-relaxed text-destructive"><AlertTriangle className="h-4 w-4 shrink-0" /><span><strong>Launch checklist item:</strong> automatic live connected-account status updates are not configured yet. An administrator can still refresh this screen, but do not launch payouts until the Stripe Connect webhook is added.</span></div>}
 
       <div className="mt-4 flex gap-3 rounded-2xl bg-muted/60 p-4 text-xs leading-relaxed text-muted-foreground"><ShieldCheck className="h-4 w-4 shrink-0 text-primary" /><span>Enter bank and identity details directly with Stripe. Valisse never collects or stores them. Return here after Stripe onboarding; this page refreshes your payout readiness.</span></div>
 
