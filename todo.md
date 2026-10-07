@@ -692,4 +692,8 @@
 ## Live Stripe Credential Handoff
 - [x] Store and validate the dedicated Stripe Connect webhook signing secret
 - [ ] Replace the three platform-managed Stripe test variables with their matching live-mode values through the secure project configuration UI
-- [ ] Restart and verify the app reports Stripe live mode before live Connect onboarding
+- [x] Restart and verify the app reports Stripe live mode before live Connect onboarding
+
+## Live Stripe Platform Activation Blocker
+- [ ] Complete Stripe’s Live account activation before creating the first Valisse Express recipient account
+- [ ] Retry Live technician Express onboarding and verify recipient payout readiness after platform activation

@@ -7,7 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { completePaymentMethodSetup } from "../../../shared/paymentSetup";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+const stripePromise = loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 function PaymentSetupForm({ bookingId, onComplete }: { bookingId: number; onComplete: () => void }) {
   const stripe = useStripe();

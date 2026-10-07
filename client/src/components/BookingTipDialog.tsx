@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+const stripePromise = loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 function TipPaymentForm({ bookingId, paymentIntentId, amountInCents, onComplete }: { bookingId: number; paymentIntentId: string; amountInCents: number; onComplete: () => void }) {
   const stripe = useStripe();

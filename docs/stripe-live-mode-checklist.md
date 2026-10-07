@@ -28,9 +28,9 @@ In Stripe Dashboard → **Developers → API keys** while in Live mode, collect 
 
 | Valisse setting | Stripe source | Required purpose |
 |---|---|---|
-| `STRIPE_SECRET_KEY` | Live secret key beginning `sk_live_` | Server-side customers, SetupIntents, charges, refunds, transfers, and Connect account creation |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Live publishable key beginning `pk_live_` | Browser Stripe Elements for saving cards and tips |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret for the platform-payment webhook below | Verifies platform payment events |
+| `VALISSE_STRIPE_LIVE_SECRET_KEY` | Live secret key beginning `sk_live_` | Server-side customers, SetupIntents, charges, refunds, transfers, and Connect account creation |
+| `VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY` | Live publishable key beginning `pk_live_` | Browser Stripe Elements for saving cards and tips |
+| `VALISSE_STRIPE_LIVE_WEBHOOK_SECRET` | Signing secret for the platform-payment webhook below | Verifies platform payment events |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | Signing secret for the dedicated Connect webhook below | Verifies connected-account status events |
 
 > The secret key and publishable key must come from the **same Live mode Stripe account**. Never mix `sk_test_` with `pk_live_`, or vice versa.
@@ -55,7 +55,7 @@ Select **Events from: Your account** and subscribe to:
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 
-Copy its unique signing secret into `STRIPE_WEBHOOK_SECRET`.
+Copy its unique signing secret into `VALISSE_STRIPE_LIVE_WEBHOOK_SECRET`.
 
 ### 2. Connected-account events
 

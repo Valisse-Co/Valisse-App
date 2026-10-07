@@ -7,8 +7,11 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  // The platform-provisioned Stripe variables remain test-mode defaults in
+  // preview. Explicit Valisse live overrides are kept separately so moving to
+  // production never mutates or reuses sandbox credentials.
+  stripeSecretKey: process.env.VALISSE_STRIPE_LIVE_SECRET_KEY || process.env.STRIPE_SECRET_KEY || "",
+  stripeWebhookSecret: process.env.VALISSE_STRIPE_LIVE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET || "",
   stripeConnectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "",
   telnyxApiKey: process.env.TELNYX_API_KEY ?? "",
   telnyxMessagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID ?? "",
