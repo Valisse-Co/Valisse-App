@@ -15,15 +15,16 @@
   ],
   "git_remote": {
     "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663596449434/f5fDK6NnMqbHPKTgeCgLZS",
-    "access_key_id": "ASIAZV3A2ECZCT4VNKR6",
-    "secret_access_key": "hz6LkEYgL2YjwA/NkHngCCZ/xXZpXu5Liu88j6AD",
-    "session_token": "IQoJb3JpZ2luX2VjEKX//////////wEaCXVzLWVhc3QtMSJHMEUCIQDNXZfDv4oNxXCmEYiZuQ98ZTvlarZyBKwKANGM+19AGQIgUuJJZw+eXWHxa4Vgqls0eN7rDoRSyBMezkLYj0Kc2oYq9gMIbRAEGgw2NjUzODYwOTg4NjYiDEIpJFPHKG4Cc919eirTA/ZZwR4BitvMWwRu8C86QeX48mMoEqPfuTQ8Qi2iNbKcgpwdcG4jk26cZiMk6/scRgOxPyt/izawQTOJgeNeVdaGb32v5YLySH25TWGzRZcjeYQszQ1uymtcw4fTb2TZjDeOwrONGrHo4HeM2L5ru3LVlEyYNTZotb206p2OyxZqM2afET6tMfPH44z6ocbG5QRbO3vqIN5bsuYzyYdJ1mLiFIIXzJBrfaczmB6XaFJAm9KNzonPYJGptoDM7WAk2T/aYfip6lFySvhBiS3xeZ8Pj+jqX0awkqpdx2Vr4+r6r/afEeSiDmj8tClXD/KnGy9zVP1Gz4z+bJ1bDTyCBpsEyRyqOYvkXhynSzFFMqL/3aRhF6kUcCHt5pxgCCzl4gp8/rAqQgOEfU+NQma0y/9kdFWeTpefR8rK/apDi9MQmxHDSR+VWdoMDTiH9WiYD8UjaLPegjB0pg3/OTC051fDUL/eJktAW08VK0c2v2kQtamiVszH8DAI8ditnUw9gMUqKpPo2ga8iU5i4alNWhjEvZ9gy+/z2urLtbgHu/Tmj8oNGx5nIwFuA7hyIPxyfjMH9fXw6KruWvfcOtpAoq2J5uqI7muGk1DxDEz12ZQ099+hMMi/vdUGOp0B2zN1Wi5bVvZwRxMf0PiSC+bsp5+q+e22EAEtksp+DQXczd7098fpjcbeMGW3FsSj4DlTzaL7rbV6XQTv1b/ugF07o9eYqCq//I2VIPvTpnoe25f6PzSUuHwX7CFrN7Y5lP7Kas+dOxcJM5jCIWlSxLw0QQGArv0DPu03yoKaoQWcqgiPIinUPMqV8TAUXbPiBI89ISpkFapwXAYgMg==",
-    "expiration": "2026-09-20T16:23:36.000Z",
+    "access_key_id": "ASIAZV3A2ECZGNIVBAUK",
+    "secret_access_key": "IWMSlNbR3ejTwYCB2OAN7R8TfmiM9OxXaUe9rmI5",
+    "session_token": "IQoJb3JpZ2luX2VjEDwaCXVzLWVhc3QtMSJGMEQCIBQI6Z2vE6lUNmSs393sUGSTTaM91CmgKiwDD64AEIagAiBC2cJJnyAPvCeoPK4Sqfn1zwia2LkXzbtN6yqo8+T2nir2AwgEEAQaDDY2NTM4NjA5ODg2NiIMpIQ0BNB92xHwrQiKKtMDTKEFbUrxS4wRLGhcuLnhxsRCqRt3gy0T0CTMshme7IKuiRHOMUJFzlUvaiI3yd//5hURmis8zePjv7ASteB82ct3Wo3CgW8Z4nh93g/f8I1xzk5ZePDpvLr0//8smok53HqP7BOGUnv8Pn0RslXgMsmAhgI9Lgf5h0VSOeBbIFdF7O2SmxcB7sKPS0RpnT0SF00Q+37c+O3w2sLvOtyCLTVnKAahwVmNno+9LMO/BX9NWkch9rNgU+qsxTHMIrnVOE3gw/j1jvvbvAW1Q0j8i3gCfDSUonUKN3yEThiAuHzfwrTT+4RHnvxEd9DlEN/Naauc1O25ji3lBpAmdc0RV9SGVlOkMVt1alPecIr+vTOdpaIIcdzgPX+rFfp7KECmP4UJwEJXJ7u2eWVgJ/+Nj56RACp6eCQNqZ5mSWGReZP/Dm+BLkyuiJLgtJ5cLH5u99C8+TECsQLaNZQRWqI35DGeccw8SIVJMZxNRw6E1LTNQGXbB5nwse5rDhOoU2OGUYP67pj+bNjGfilFNdcOyxUKq7GrGT5Dtuw2ja67zIDYnfOv2L8QMXb6xbp6k8VTqDb8idsE7Mb0M3xi0HM0vUuZqVU02OGrMVJBMkX3pdQG5zow/e2W1gY6ngE6qtg02Z+DsoxlO9ellAqHiA+RwVuOOkSZXzxinZkmS0xe0Rfdm+JDgWVCNdvYXwbgLRHAKvIN8EScYEQNFFgx7VHnFYC6WB+sHRpL2pZxfnSdzBa10HdNAtBzIlMcmLHzhGLjGbUTHhf/9MaChTt+RnbvXOp2xc3U9AnDvW61v7nNwWqYipHSRVwZkHD1E3xKj1eeDLB3bkgk3ETW4A==",
+    "expiration": "2026-10-07T15:05:33.000Z",
     "backend": "GIT_BACKEND_S3"
   },
   "name": "valisse",
   "path": "/home/ubuntu/valisse",
   "port": 3000,
+  "runtime_endpoints": null,
   "secrets": {
     "BUILT_IN_FORGE_API_KEY": "3AyJTpYDzC3y3EQ8FE5Vau",
     "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
@@ -31,6 +32,7 @@
     "OAUTH_SERVER_URL": "https://api.manus.im",
     "OWNER_NAME": "Ashton Earl",
     "OWNER_OPEN_ID": "bebQ2xBqBDC6SUTQxLcmKb",
+    "STRIPE_CONNECT_WEBHOOK_SECRET": "whsec_6VvRTbl45ortcHVVFevOWtLnQsjrtefN",
     "STRIPE_SECRET_KEY": "sk_test_51UELdHGWZ3686LBB0W9qhlf1B6QZQnoKb4PuspKMAmidCHv8UsMdgRqubNUuMr3nY3D4xtyDTq6pCqnIYBZtdH7n0079NwoEwK",
     "STRIPE_WEBHOOK_SECRET": "whsec_DTQKAwFKwvfrNd83XUkVyVi0qY4hRE9u",
     "TELNYX_API_KEY": "KEY01A09304300EBFF5E429F9C0D366ED45_LZqrJ0Fc0UU24RMlrk864v",

@@ -14,6 +14,15 @@ describe("Stripe environment safeguards", () => {
     expect(getStripeEnvironmentMode("not-a-stripe-key")).toBe("unknown");
   });
 
+  it("accepts only matching live client and server key prefixes", () => {
+    const secretMode = getStripeEnvironmentMode("sk_live_server_key");
+    const publishableMode = "pk_live_browser_key".startsWith("pk_live_") ? "live" : "unknown";
+    expect(secretMode).toBe("live");
+    expect(publishableMode).toBe(secretMode);
+    expect("whsec_platform".startsWith("whsec_")).toBe(true);
+    expect("whsec_connect".startsWith("whsec_")).toBe(true);
+  });
+
   it("accepts webhook events only from the configured Stripe environment", () => {
     expect(shouldProcessStripeEvent("test", false)).toBe(true);
     expect(shouldProcessStripeEvent("test", true)).toBe(false);

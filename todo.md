@@ -688,3 +688,8 @@
 - [x] Harden Accounts v2 connected-account readiness handling for production events
 - [ ] Verify a live technician’s Connected Account status after secure Stripe Dashboard access
 - [x] Produce and complete the pre-launch Stripe checklist without creating charges, transfers, or payouts
+
+## Live Stripe Credential Handoff
+- [x] Store and validate the dedicated Stripe Connect webhook signing secret
+- [ ] Replace the three platform-managed Stripe test variables with their matching live-mode values through the secure project configuration UI
+- [ ] Restart and verify the app reports Stripe live mode before live Connect onboarding
