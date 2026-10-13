@@ -62,6 +62,17 @@ export default function QaAppointmentLab() {
     onSuccess: () => { toast.success("Stripe test payout released."); utils.qaAppointment.current.invalidate(); },
     onError: (error) => toast.error(error.message || "Could not release the test payout."),
   });
+  const prepareTestPayout = trpc.qaAppointment.prepareTestPayout.useMutation({
+    onSuccess: ({ ready, onboardingUrl }) => {
+      if (onboardingUrl) {
+        window.location.assign(onboardingUrl);
+        return;
+      }
+      toast.success(ready ? "Stripe test payout account is ready." : "Stripe test payout setup needs attention.");
+      utils.qaAppointment.current.invalidate();
+    },
+    onError: (error) => toast.error(error.message || "Could not prepare the Stripe test payout account."),
+  });
   const cleanup = trpc.qaAppointment.cleanup.useMutation({
     onSuccess: () => { toast.success("Temporary Valisse QA records were removed. Stripe test-mode audit objects remain in Stripe."); utils.qaAppointment.current.invalidate(); },
     onError: (error) => toast.error(error.message || "Could not clean up the QA run."),
@@ -74,6 +85,7 @@ export default function QaAppointmentLab() {
   const completed = booking?.status === "completed" && paymentCaptured;
   const issueReported = booking?.status === "disputed";
   const payoutReleased = booking?.payoutStatus === "released";
+  const testPayoutReady = current.data?.testPayout?.ready ?? false;
   const lifecycleLabel = booking?.status === "pending" && paymentMethodSaved
     ? "Ready for technician confirmation"
     : statusLabel[booking?.status] ?? booking?.status;
@@ -134,8 +146,9 @@ export default function QaAppointmentLab() {
                 <Button size="sm" variant="outline" className="w-full" onClick={() => enterClient.mutate({ runId: run.id, view: "bookings" })} disabled={!completed || enterClient.isPending}>{booking.stripeTipPaymentIntentId ? "Tip recorded — open client card" : "Open tip / issue controls"}</Button>
               </Step>
 
-              <Step number={6} title="Release the Stripe test payout" detail="This skips only the 24-hour wait for this QA-marked booking. It keeps the actual Stripe test transfer and platform-fee calculation. Your Stripe test connected account must be fully onboarded." active={completed && !issueReported && !payoutReleased} complete={payoutReleased}>
-                <Button size="sm" className="w-full" onClick={() => releasePayout.mutate({ runId: run.id })} disabled={!completed || issueReported || payoutReleased || releasePayout.isPending}>{payoutReleased ? "Test payout released" : releasePayout.isPending ? "Releasing test payout…" : "Release test payout now"}</Button>
+              <Step number={6} title="Release the Stripe test payout" detail="This skips only the 24-hour wait for this QA-marked booking. It keeps the actual Stripe test transfer and platform-fee calculation, while using a separate sandbox recipient that never affects your Live bank account." active={completed && !issueReported && !payoutReleased} complete={payoutReleased}>
+                {!testPayoutReady && <Button size="sm" variant="outline" className="mb-2 w-full" onClick={() => prepareTestPayout.mutate({ runId: run.id, origin: window.location.origin })} disabled={prepareTestPayout.isPending}>{prepareTestPayout.isPending ? "Preparing sandbox payout…" : current.data?.testPayout?.connected ? "Refresh Stripe test payout status" : "Set up Stripe test payout"}</Button>}
+                <Button size="sm" className="w-full" onClick={() => releasePayout.mutate({ runId: run.id })} disabled={!completed || issueReported || payoutReleased || !testPayoutReady || releasePayout.isPending}>{payoutReleased ? "Test payout released" : releasePayout.isPending ? "Releasing test payout…" : !testPayoutReady ? "Set up sandbox payout first" : "Release test payout now"}</Button>
               </Step>
             </div>
 

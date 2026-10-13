@@ -185,7 +185,7 @@ import {
   getStandardTipOptions,
   isTipFinal,
 } from "../shared/paymentResolution";
-import { isStripeObjectInConfiguredEnvironment } from "../shared/stripeMode";
+import { isStripeObjectInConfiguredEnvironment, resolveStripeModeForBooking, type StripePaymentMode } from "../shared/stripeMode";
 import {
   QA_APPOINTMENT_DURATION_MINUTES,
   QA_APPOINTMENT_LABEL,
@@ -1041,7 +1041,7 @@ const bookingsRouter = router({
 function isQaLabEnabled() {
   return isQaAppointmentLabEnabled({
     isProduction: ENV.isProduction,
-    stripeSecretKey: ENV.stripeSecretKey,
+    stripeTestSecretKey: ENV.stripeTestSecretKey,
   });
 }
 
@@ -1087,6 +1087,9 @@ const qaAppointmentRouter = router({
       canManage: isAdmin && run.adminId === ctx.user.id,
       run: { id: run.id, clientId: run.clientId, techId: run.techId, bookingId: run.bookingId, expiresAt: run.expiresAt },
       booking,
+      testPayout: isAdmin && run.adminId === ctx.user.id
+        ? { connected: Boolean(ctx.user.stripeTestConnectedAccountId), ready: ctx.user.stripeTestConnectedAccountReady }
+        : null,
     };
   }),
 
@@ -1156,6 +1159,40 @@ const qaAppointmentRouter = router({
     return { destination: "/admin/qa-appointments" };
   }),
 
+  prepareTestPayout: protectedProcedure
+    .input(z.object({ runId: z.number().int().positive(), origin: z.string().url() }))
+    .mutation(async ({ ctx, input }) => {
+      assertQaLabAdministrator(ctx.user);
+      const run = await getQaAppointmentRunById(input.runId);
+      if (!run || run.adminId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND" });
+      const requestedOrigin = new URL(input.origin).origin;
+      const browserOrigin = typeof ctx.req.headers.origin === "string" ? ctx.req.headers.origin : null;
+      if (browserOrigin && requestedOrigin !== browserOrigin) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe test onboarding must return to the Valisse preview session that started it." });
+      }
+      let accountId = ctx.user.stripeTestConnectedAccountId;
+      if (!accountId) {
+        const account = await createRecipientConnectedAccount({
+          techId: ctx.user.id,
+          email: ctx.user.email,
+          displayName: ctx.user.businessName || ctx.user.name,
+          mode: "test",
+        });
+        accountId = account.id;
+        await updateUserStripeReferences(ctx.user.id, { stripeTestConnectedAccountId: accountId, stripeTestConnectedAccountReady: false });
+      }
+      const readiness = await getConnectedAccountReadiness(accountId, "test");
+      await updateUserStripeReferences(ctx.user.id, { stripeTestConnectedAccountReady: readiness.ready });
+      if (readiness.ready) return { ready: true, onboardingUrl: null };
+      const link = await createRecipientOnboardingLink({
+        accountId,
+        refreshUrl: `${requestedOrigin}/admin/qa-appointments`,
+        returnUrl: `${requestedOrigin}/admin/qa-appointments`,
+        mode: "test",
+      });
+      return { ready: false, onboardingUrl: link.url };
+    }),
+
   releasePayoutNow: protectedProcedure
     .input(z.object({ runId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
@@ -1168,16 +1205,18 @@ const qaAppointmentRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Complete and successfully charge this QA appointment before releasing its test payout." });
       }
       const tech = await getUserById(run.techId);
-      if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Connect and finish onboarding the technician's Stripe test account before releasing a QA payout." });
-      }
+      if (!tech?.stripeTestConnectedAccountId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Set up the technician's Stripe test payout account before releasing a QA payout." });
+      const readiness = await getConnectedAccountReadiness(tech.stripeTestConnectedAccountId, "test");
+      await updateUserStripeReferences(tech.id, { stripeTestConnectedAccountReady: readiness.ready });
+      if (!readiness.ready) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The technician's Stripe test payout account is not ready yet. Complete sandbox onboarding and try again." });
       const serviceTotalInCents = await getBookingServiceTotalInCents(booking.id);
       const transfer = await releaseBookingPayout({
         bookingId: booking.id,
-        techAccountId: tech.stripeConnectedAccountId,
+        techAccountId: tech.stripeTestConnectedAccountId,
         servicePaymentIntentId: booking.stripePaymentIntentId,
         serviceTotalInCents,
         tipPaymentIntentId: booking.stripeTipPaymentIntentId,
+        mode: "test",
       });
       await markBookingPayoutResult(booking.id, "released", transfer.id);
       return { success: true };
@@ -1200,7 +1239,21 @@ function getConfiguredStripeModeOrThrow(): "test" | "live" {
   }
   return integration.mode;
 }
-
+function getBookingStripeModeOrThrow(booking: { isQaTest: boolean }): StripePaymentMode {
+  try {
+    return resolveStripeModeForBooking({
+      isQaTest: booking.isQaTest,
+      configuredMode: getStripeIntegrationStatus().mode,
+      testSecretKey: ENV.stripeTestSecretKey,
+      isProduction: ENV.isProduction,
+    });
+  } catch (error) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: error instanceof Error ? error.message : "Stripe payment mode could not be selected for this booking.",
+    });
+  }
+}
 const appointmentRouter = router({
   paymentSetup: protectedProcedure
     .input(z.object({ bookingId: z.number() }))
@@ -1209,16 +1262,16 @@ const appointmentRouter = router({
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       if (!ctx.user.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address before saving a payment method." });
 
-      const stripeMode = getConfiguredStripeModeOrThrow();
+      const stripeMode = getBookingStripeModeOrThrow(booking);
       let customerId = ctx.user.stripeCustomerId;
       if (!customerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
-        const customer = await createStripeCustomer({ userId: ctx.user.id, name: ctx.user.name, email: ctx.user.email });
+        const customer = await createStripeCustomer({ userId: ctx.user.id, name: ctx.user.name, email: ctx.user.email, mode: stripeMode });
         customerId = customer.id;
         await updateUserStripeReferences(ctx.user.id, { stripeCustomerId: customerId, stripeCustomerMode: stripeMode });
       }
-      const setupIntent = await createBookingSetupIntent({ bookingId: booking.id, customerId });
+      const setupIntent = await createBookingSetupIntent({ bookingId: booking.id, customerId, mode: stripeMode });
       await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: setupIntent.id, paymentMethodStatus: "required" });
-      return { clientSecret: setupIntent.client_secret };
+      return { clientSecret: setupIntent.client_secret, stripeMode };
     }),
 
   paymentSetupComplete: protectedProcedure
@@ -1228,12 +1281,12 @@ const appointmentRouter = router({
       if (!booking || booking.clientId !== ctx.user.id || booking.stripeSetupIntentId !== input.setupIntentId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }
-      const stripeMode = getConfiguredStripeModeOrThrow();
+      const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe environment changed. Save your payment method again before continuing." });
       }
       try {
-        await verifyBookingSetupIntent({ setupIntentId: input.setupIntentId, customerId: ctx.user.stripeCustomerId, bookingId: booking.id });
+        await verifyBookingSetupIntent({ setupIntentId: input.setupIntentId, customerId: ctx.user.stripeCustomerId, bookingId: booking.id, mode: stripeMode });
       } catch (error) {
         await setBookingPaymentMethodState(booking.id, { stripeSetupIntentId: input.setupIntentId, paymentMethodStatus: "failed" });
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Payment method setup failed." });
@@ -1242,7 +1295,7 @@ const appointmentRouter = router({
       if (booking.status === "payment_due") {
         try {
           const totalInCents = await getBookingServiceTotalInCents(booking.id);
-          const payment = await chargeSavedCard({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion" });
+          const payment = await chargeSavedCard({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion", mode: stripeMode });
           if (payment.status !== "succeeded") throw new Error("Payment requires additional action.");
           const capturedAt = new Date();
           await markBookingPaymentResult(booking.id, {
@@ -1310,7 +1363,7 @@ const appointmentRouter = router({
       if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       if (booking.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "Start the verified appointment before completing it." });
       const client = await getUserById(booking.clientId);
-      const stripeMode = getConfiguredStripeModeOrThrow();
+      const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!client?.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, stripeMode) || booking.paymentMethodStatus !== "saved") {
         await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
         throw new TRPCError({ code: "BAD_REQUEST", message: "The client has no verified payment method for the active Stripe environment. Payment is now due." });
@@ -1320,7 +1373,7 @@ const appointmentRouter = router({
       await markAppointmentCompleted(booking.id, completedAt, eligibleAt);
       const totalInCents = await getBookingServiceTotalInCents(booking.id);
       try {
-        const payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion" });
+        const payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion", mode: stripeMode });
         if (payment.status !== "succeeded") throw new Error("The service charge requires client action.");
         await markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" });
         if (!booking.isQaTest) {
@@ -1384,12 +1437,12 @@ const appointmentRouter = router({
       if (isTipFinal(booking.tipStatus)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A final tip choice has already been recorded for this appointment." });
       }
-      const stripeMode = getConfiguredStripeModeOrThrow();
+      const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
       }
-      const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents });
-      return { clientSecret: intent.client_secret, paymentIntentId: intent.id, amountInCents: input.amountInCents };
+      const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents, mode: stripeMode });
+      return { clientSecret: intent.client_secret, paymentIntentId: intent.id, amountInCents: input.amountInCents, stripeMode };
     }),
 
   tipComplete: protectedProcedure
@@ -1400,7 +1453,7 @@ const appointmentRouter = router({
       if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip." });
       }
-      const stripeMode = getConfiguredStripeModeOrThrow();
+      const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
       }
@@ -1410,6 +1463,7 @@ const appointmentRouter = router({
           bookingId: booking.id,
           customerId: ctx.user.stripeCustomerId,
           amountInCents: input.amountInCents,
+          mode: stripeMode,
         });
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The tip payment could not be verified." });
@@ -1470,24 +1524,26 @@ const appointmentRouter = router({
 
       if (input.action === "release_payout") {
         const tech = await getUserById(booking.techId);
-        const stripeMode = getConfiguredStripeModeOrThrow();
-        if (!tech?.stripeConnectedAccountId || !tech.stripeConnectedAccountReady || !isStripeObjectInConfiguredEnvironment(tech.stripeConnectedAccountMode, stripeMode)) {
+        const stripeMode = getBookingStripeModeOrThrow(booking);
+        const payoutAccountId = booking.isQaTest ? tech?.stripeTestConnectedAccountId : tech?.stripeConnectedAccountId;
+        const payoutReady = booking.isQaTest ? tech?.stripeTestConnectedAccountReady : tech?.stripeConnectedAccountReady;
+        if (!tech || !payoutAccountId || !payoutReady || (!booking.isQaTest && !isStripeObjectInConfiguredEnvironment(tech.stripeConnectedAccountMode, stripeMode))) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before this held payout can be released." });
         }
-        const currentReadiness = await getConnectedAccountReadiness(tech.stripeConnectedAccountId);
-        await updateUserStripeReferences(tech.id, {
-          stripeConnectedAccountReady: currentReadiness.ready,
-          stripeConnectedAccountMode: stripeMode,
-        });
+        const currentReadiness = await getConnectedAccountReadiness(payoutAccountId, stripeMode);
+        await updateUserStripeReferences(tech.id, booking.isQaTest
+          ? { stripeTestConnectedAccountReady: currentReadiness.ready }
+          : { stripeConnectedAccountReady: currentReadiness.ready, stripeConnectedAccountMode: stripeMode });
         if (!currentReadiness.ready) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech’s Stripe payout capability is no longer active. Ask them to complete Stripe onboarding again." });
         }
         const transfer = await releaseBookingPayout({
           bookingId: booking.id,
-          techAccountId: tech.stripeConnectedAccountId,
+          techAccountId: payoutAccountId,
           servicePaymentIntentId: booking.stripePaymentIntentId,
           serviceTotalInCents,
           tipPaymentIntentId: booking.tipStatus === "paid" ? booking.stripeTipPaymentIntentId : null,
+          mode: stripeMode,
         });
         await resolveBookingIssue({
           bookingId: booking.id,
@@ -1504,16 +1560,17 @@ const appointmentRouter = router({
       }
 
       const payoutTech = resolution.payoutableServiceTotalInCents > 0 ? await getUserById(booking.techId) : null;
-      const stripeMode = getConfiguredStripeModeOrThrow();
-      if (resolution.payoutableServiceTotalInCents > 0 && (!payoutTech?.stripeConnectedAccountId || !payoutTech.stripeConnectedAccountReady || !isStripeObjectInConfiguredEnvironment(payoutTech.stripeConnectedAccountMode, stripeMode))) {
+      const stripeMode = getBookingStripeModeOrThrow(booking);
+      const payoutAccountId = booking.isQaTest ? payoutTech?.stripeTestConnectedAccountId : payoutTech?.stripeConnectedAccountId;
+      const payoutReady = booking.isQaTest ? payoutTech?.stripeTestConnectedAccountReady : payoutTech?.stripeConnectedAccountReady;
+      if (resolution.payoutableServiceTotalInCents > 0 && (!payoutTech || !payoutAccountId || !payoutReady || (!booking.isQaTest && !isStripeObjectInConfiguredEnvironment(payoutTech.stripeConnectedAccountMode, stripeMode)))) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech must complete Stripe payout onboarding before you can issue a partial refund and release the remaining payout." });
       }
-      if (payoutTech?.stripeConnectedAccountId) {
-        const currentReadiness = await getConnectedAccountReadiness(payoutTech.stripeConnectedAccountId);
-        await updateUserStripeReferences(payoutTech.id, {
-          stripeConnectedAccountReady: currentReadiness.ready,
-          stripeConnectedAccountMode: stripeMode,
-        });
+      if (payoutTech && payoutAccountId) {
+        const currentReadiness = await getConnectedAccountReadiness(payoutAccountId, stripeMode);
+        await updateUserStripeReferences(payoutTech.id, booking.isQaTest
+          ? { stripeTestConnectedAccountReady: currentReadiness.ready }
+          : { stripeConnectedAccountReady: currentReadiness.ready, stripeConnectedAccountMode: stripeMode });
         if (!currentReadiness.ready) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The nail tech’s Stripe payout capability is no longer active. Ask them to complete Stripe onboarding again." });
         }
@@ -1524,6 +1581,7 @@ const appointmentRouter = router({
         amountInCents: resolution.refundAmountInCents,
         bookingId: booking.id,
         kind: "service_issue_refund",
+        mode: stripeMode,
       });
       if (serviceRefund.status !== "succeeded") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe has not completed the client refund. Try again after confirming the refund status in Stripe." });
@@ -1537,6 +1595,7 @@ const appointmentRouter = router({
           amountInCents: booking.tipAmountInCents,
           bookingId: booking.id,
           kind: "tip_issue_refund",
+          mode: stripeMode,
         });
         if (tipRefund.status !== "succeeded") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "The service refund succeeded, but Stripe has not completed the tip refund. Confirm its status in Stripe before retrying." });
@@ -1549,10 +1608,11 @@ const appointmentRouter = router({
       if (resolution.payoutableServiceTotalInCents > 0) {
         const transfer = await releaseBookingPayout({
           bookingId: booking.id,
-          techAccountId: payoutTech!.stripeConnectedAccountId!,
+          techAccountId: payoutAccountId!,
           servicePaymentIntentId: booking.stripePaymentIntentId,
           serviceTotalInCents: resolution.payoutableServiceTotalInCents,
           tipPaymentIntentId: mustRefundTip ? null : booking.tipStatus === "paid" ? booking.stripeTipPaymentIntentId : null,
+          mode: stripeMode,
         });
         transferId = transfer.id;
         payoutStatus = "released";

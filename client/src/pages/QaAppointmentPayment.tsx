@@ -13,9 +13,13 @@ export default function QaAppointmentPayment() {
   const utils = trpc.useUtils();
   const current = trpc.qaAppointment.current.useQuery(undefined);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripeMode, setStripeMode] = useState<"test" | "live">("test");
   const booking = current.data?.booking as any;
   const beginSetup = trpc.appointment.paymentSetup.useMutation({
-    onSuccess: ({ clientSecret: nextSecret }) => setClientSecret(nextSecret),
+    onSuccess: ({ clientSecret: nextSecret, stripeMode: nextMode }) => {
+      setClientSecret(nextSecret);
+      setStripeMode(nextMode);
+    },
     onError: (error) => toast.error(error.message || "Could not prepare secure card setup."),
   });
 
@@ -31,7 +35,7 @@ export default function QaAppointmentPayment() {
 
   return (
     <div className="min-h-screen bg-background px-4 py-6">
-      <div className="mx-auto max-w-md space-y-4"><QaAppointmentBanner /><div className="text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"><CreditCard size={23} /></div><h1 className="mt-3 text-xl font-semibold text-foreground">Save a QA test card</h1><p className="mt-2 text-sm leading-relaxed text-muted-foreground">This is the same client-authorized card-save step used in booking. It stores a Stripe test card only and does not charge it now.</p></div><Card className="rounded-2xl p-5">{clientSecret ? <BookingPaymentSetup bookingId={booking.id} clientSecret={clientSecret} onComplete={() => { utils.qaAppointment.current.invalidate(); utils.bookings.clientBookings.invalidate(); navigate("/bookings?qaRun=1"); }} /> : <div className="space-y-4 text-center"><p className="text-xs leading-relaxed text-muted-foreground">Use 4242 4242 4242 4242 with any future date, CVC, and ZIP for a successful Stripe test-mode setup.</p><Button className="w-full" onClick={() => beginSetup.mutate({ bookingId: booking.id })} disabled={beginSetup.isPending}>{beginSetup.isPending ? "Preparing secure card form…" : "Continue to secure card setup"}</Button></div>}</Card></div>
+      <div className="mx-auto max-w-md space-y-4"><QaAppointmentBanner /><div className="text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"><CreditCard size={23} /></div><h1 className="mt-3 text-xl font-semibold text-foreground">Save a QA test card</h1><p className="mt-2 text-sm leading-relaxed text-muted-foreground">This is the same client-authorized card-save step used in booking. It stores a Stripe test card only and does not charge it now.</p></div><Card className="rounded-2xl p-5">{clientSecret ? <BookingPaymentSetup bookingId={booking.id} clientSecret={clientSecret} stripeMode={stripeMode} onComplete={() => { utils.qaAppointment.current.invalidate(); utils.bookings.clientBookings.invalidate(); navigate("/bookings?qaRun=1"); }} /> : <div className="space-y-4 text-center"><p className="text-xs leading-relaxed text-muted-foreground">Use 4242 4242 4242 4242 with any future date, CVC, and ZIP for a successful Stripe test-mode setup.</p><Button className="w-full" onClick={() => beginSetup.mutate({ bookingId: booking.id })} disabled={beginSetup.isPending}>{beginSetup.isPending ? "Preparing secure card form…" : "Continue to secure card setup"}</Button></div>}</Card></div>
     </div>
   );
 }

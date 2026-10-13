@@ -9,11 +9,11 @@ import {
 import { appointmentStartAvailableAt } from "../shared/appointmentLifecycle";
 
 describe("QA Appointment Lab safeguards", () => {
-  it("is available only outside production with a Stripe test-mode secret", () => {
-    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeSecretKey: "sk_test_example" })).toBe(true);
-    expect(isQaAppointmentLabEnabled({ isProduction: true, stripeSecretKey: "sk_test_example" })).toBe(false);
-    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeSecretKey: "sk_live_example" })).toBe(false);
-    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeSecretKey: "" })).toBe(false);
+  it("is available only outside production with separately configured Stripe test credentials", () => {
+    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeTestSecretKey: "sk_test_example" })).toBe(true);
+    expect(isQaAppointmentLabEnabled({ isProduction: true, stripeTestSecretKey: "sk_test_example" })).toBe(false);
+    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeTestSecretKey: "sk_live_example" })).toBe(false);
+    expect(isQaAppointmentLabEnabled({ isProduction: false, stripeTestSecretKey: "" })).toBe(false);
   });
 
   it("creates an appointment already eligible for real code verification", () => {

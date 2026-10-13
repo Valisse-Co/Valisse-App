@@ -158,6 +158,7 @@ export default function BookingFlow() {
   const [booked, setBooked]               = useState(false);
   const [pendingPaymentBookingId, setPendingPaymentBookingId] = useState<number | null>(null);
   const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
+  const [paymentSetupStripeMode, setPaymentSetupStripeMode] = useState<"test" | "live">("live");
 
   useEffect(() => {
     if (!preferredLastMinuteOpening) return;
@@ -429,6 +430,7 @@ export default function BookingFlow() {
       if (!setup.clientSecret) throw new Error("We could not prepare secure payment setup for this appointment.");
       setPendingPaymentBookingId(created.bookingId);
       setPaymentSetupClientSecret(setup.clientSecret);
+      setPaymentSetupStripeMode(setup.stripeMode);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create booking. Please try again.");
     }
@@ -518,6 +520,7 @@ export default function BookingFlow() {
             <BookingPaymentSetup
               bookingId={pendingPaymentBookingId}
               clientSecret={paymentSetupClientSecret}
+              stripeMode={paymentSetupStripeMode}
               onComplete={() => {
                 setBooked(true);
                 utils.bookings.clientBookings.invalidate();

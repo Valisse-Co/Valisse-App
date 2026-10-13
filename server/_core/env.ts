@@ -11,6 +11,9 @@ export const ENV = {
   // preview. Explicit Valisse live overrides are kept separately so moving to
   // production never mutates or reuses sandbox credentials.
   stripeSecretKey: process.env.VALISSE_STRIPE_LIVE_SECRET_KEY || process.env.STRIPE_SECRET_KEY || "",
+  // The preview-only QA Appointment Lab must remain in Stripe's sandbox even
+  // while normal preview bookings exercise the separate Live-mode override.
+  stripeTestSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.VALISSE_STRIPE_LIVE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET || "",
   stripeConnectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "",
   telnyxApiKey: process.env.TELNYX_API_KEY ?? "",

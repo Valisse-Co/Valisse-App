@@ -53,6 +53,10 @@ export const users = mysqlTable("users", {
   stripeConnectedAccountId: varchar("stripeConnectedAccountId", { length: 255 }).unique(),
   stripeConnectedAccountMode: varchar("stripeConnectedAccountMode", { length: 16 }),
   stripeConnectedAccountReady: boolean("stripeConnectedAccountReady").default(false).notNull(),
+  // A preview-only QA run can exercise a sandbox transfer without replacing the
+  // technician's production recipient or payout readiness.
+  stripeTestConnectedAccountId: varchar("stripeTestConnectedAccountId", { length: 255 }).unique(),
+  stripeTestConnectedAccountReady: boolean("stripeTestConnectedAccountReady").default(false).notNull(),
   // Subscription (tech only)
   subscriptionStatus: mysqlEnum("subscriptionStatus", ["trial", "active", "expired", "cancelled"]).default("trial"),
   subscriptionStartedAt: timestamp("subscriptionStartedAt"),

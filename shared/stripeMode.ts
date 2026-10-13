@@ -1,4 +1,5 @@
 export type StripeEnvironmentMode = "test" | "live" | "unconfigured" | "unknown";
+export type StripePaymentMode = "test" | "live";
 
 export function getStripeEnvironmentMode(secretKey: string | null | undefined): StripeEnvironmentMode {
   if (!secretKey) return "unconfigured";
@@ -8,7 +9,7 @@ export function getStripeEnvironmentMode(secretKey: string | null | undefined): 
 }
 
 /**
- * Production Stripe webhook destinations can receive events from both Stripe
+ * Production webhook destinations can receive events from both Stripe
  * environments. Only act on events from the environment of the configured API
  * key, so test traffic can never mutate live Valisse appointment records.
  */
@@ -24,8 +25,31 @@ export function shouldProcessStripeEvent(
 export function isStripeObjectInConfiguredEnvironment(
   storedMode: string | null | undefined,
   configuredMode: StripeEnvironmentMode,
-): storedMode is "test" | "live" {
+): storedMode is StripePaymentMode {
   return (storedMode === "test" || storedMode === "live") && storedMode === configuredMode;
+}
+
+/**
+ * Normal bookings always use the app's configured Stripe environment. A
+ * preview-only QA booking is the deliberate exception: it stays fully inside
+ * Stripe's sandbox even when the rest of the preview is validating Live mode.
+ */
+export function resolveStripeModeForBooking(params: {
+  isQaTest: boolean;
+  configuredMode: StripeEnvironmentMode;
+  testSecretKey: string | null | undefined;
+  isProduction: boolean;
+}): StripePaymentMode {
+  if (params.isQaTest) {
+    if (params.isProduction || getStripeEnvironmentMode(params.testSecretKey) !== "test") {
+      throw new Error("The QA appointment requires Stripe test-mode credentials in preview.");
+    }
+    return "test";
+  }
+  if (params.configuredMode === "test" || params.configuredMode === "live") {
+    return params.configuredMode;
+  }
+  throw new Error("Stripe is not configured with a valid test or live secret key.");
 }
 
 export function stripeModeLabel(mode: StripeEnvironmentMode): string {

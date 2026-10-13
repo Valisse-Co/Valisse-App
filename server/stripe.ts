@@ -7,9 +7,9 @@ import {
   isRecipientPayoutReady,
   STRIPE_ACCOUNTS_V2_API_VERSION,
 } from "../shared/stripeConnectV2";
-import { getStripeEnvironmentMode } from "../shared/stripeMode";
+import { getStripeEnvironmentMode, type StripePaymentMode } from "../shared/stripeMode";
 
-let stripeClient: Stripe | null = null;
+const stripeClients = new Map<StripePaymentMode, Stripe>();
 
 export function getStripeIntegrationStatus() {
   const mode = getStripeEnvironmentMode(ENV.stripeSecretKey);
@@ -21,14 +21,30 @@ export function getStripeIntegrationStatus() {
   };
 }
 
-export function getStripe(): Stripe {
-  if (!ENV.stripeSecretKey) throw new Error("Stripe is not configured. Open Settings → Payment to finish Stripe setup.");
-  if (!stripeClient) stripeClient = new Stripe(ENV.stripeSecretKey);
-  return stripeClient;
+function getStripeSecretKey(mode: StripePaymentMode): string {
+  const key = mode === "test" ? ENV.stripeTestSecretKey : ENV.stripeSecretKey;
+  const resolvedMode = getStripeEnvironmentMode(key);
+  if (resolvedMode !== mode) {
+    throw new Error(`Stripe ${mode} mode is not configured for this operation.`);
+  }
+  return key;
 }
 
-export async function createStripeCustomer(params: { userId: number; name?: string | null; email?: string | null }) {
-  const stripe = getStripe();
+/** Returns an API client for exactly one Stripe environment; never share it across modes. */
+export function getStripe(mode?: StripePaymentMode): Stripe {
+  const resolvedMode = mode ?? getStripeIntegrationStatus().mode;
+  if (resolvedMode !== "test" && resolvedMode !== "live") {
+    throw new Error("Stripe is not configured. Open Settings → Payment to finish Stripe setup.");
+  }
+  const existing = stripeClients.get(resolvedMode);
+  if (existing) return existing;
+  const client = new Stripe(getStripeSecretKey(resolvedMode));
+  stripeClients.set(resolvedMode, client);
+  return client;
+}
+
+export async function createStripeCustomer(params: { userId: number; name?: string | null; email?: string | null; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   return stripe.customers.create({
     name: params.name ?? undefined,
     email: params.email ?? undefined,
@@ -36,8 +52,8 @@ export async function createStripeCustomer(params: { userId: number; name?: stri
   });
 }
 
-export async function createBookingSetupIntent(params: { bookingId: number; customerId: string }) {
-  const stripe = getStripe();
+export async function createBookingSetupIntent(params: { bookingId: number; customerId: string; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   return stripe.setupIntents.create({
     customer: params.customerId,
     usage: "off_session",
@@ -46,8 +62,8 @@ export async function createBookingSetupIntent(params: { bookingId: number; cust
   });
 }
 
-export async function verifyBookingSetupIntent(params: { setupIntentId: string; customerId: string; bookingId: number }) {
-  const stripe = getStripe();
+export async function verifyBookingSetupIntent(params: { setupIntentId: string; customerId: string; bookingId: number; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   const setupIntent = await stripe.setupIntents.retrieve(params.setupIntentId);
   const customerId = typeof setupIntent.customer === "string" ? setupIntent.customer : setupIntent.customer?.id;
   const metadata = setupIntent.metadata ?? {};
@@ -62,8 +78,8 @@ export async function verifyBookingSetupIntent(params: { setupIntentId: string; 
   return setupIntent;
 }
 
-async function getSavedCardPaymentMethod(customerId: string) {
-  const stripe = getStripe();
+async function getSavedCardPaymentMethod(customerId: string, mode?: StripePaymentMode) {
+  const stripe = getStripe(mode);
   const methods = await stripe.paymentMethods.list({ customer: customerId, type: "card", limit: 1 });
   if (!methods.data[0]) throw new Error("No saved card is available for this booking.");
   return methods.data[0].id;
@@ -74,9 +90,10 @@ export async function chargeSavedCard(params: {
   customerId: string;
   amountInCents: number;
   kind: "service_completion" | "cancellation_fee";
+  mode?: StripePaymentMode;
 }) {
-  const stripe = getStripe();
-  const paymentMethod = await getSavedCardPaymentMethod(params.customerId);
+  const stripe = getStripe(params.mode);
+  const paymentMethod = await getSavedCardPaymentMethod(params.customerId, params.mode);
   return stripe.paymentIntents.create({
     amount: params.amountInCents,
     currency: "usd",
@@ -89,8 +106,8 @@ export async function chargeSavedCard(params: {
   }, { idempotencyKey: `valisse_booking_${params.bookingId}_${params.kind}` });
 }
 
-export async function createTipPaymentIntent(params: { bookingId: number; customerId: string; amountInCents: number }) {
-  const stripe = getStripe();
+export async function createTipPaymentIntent(params: { bookingId: number; customerId: string; amountInCents: number; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   return stripe.paymentIntents.create({
     amount: params.amountInCents,
     currency: "usd",
@@ -105,8 +122,9 @@ export async function verifyTipPaymentIntent(params: {
   bookingId: number;
   customerId: string;
   amountInCents: number;
+  mode?: StripePaymentMode;
 }) {
-  const stripe = getStripe();
+  const stripe = getStripe(params.mode);
   const intent = await stripe.paymentIntents.retrieve(params.paymentIntentId);
   const customerId = typeof intent.customer === "string" ? intent.customer : intent.customer?.id;
   if (
@@ -121,16 +139,15 @@ export async function verifyTipPaymentIntent(params: {
   return intent;
 }
 
-/** Refunds a captured appointment or tip payment. The caller supplies a unique,
- * business-meaningful idempotency key so a retried administrator action cannot
- * issue the same refund twice. */
+/** Refunds a captured appointment or tip payment without crossing Stripe environments. */
 export async function refundPaymentIntent(params: {
   paymentIntentId: string;
   amountInCents: number;
   bookingId: number;
   kind: "service_issue_refund" | "tip_issue_refund";
+  mode?: StripePaymentMode;
 }) {
-  const stripe = getStripe();
+  const stripe = getStripe(params.mode);
   return stripe.refunds.create({
     payment_intent: params.paymentIntentId,
     amount: params.amountInCents,
@@ -143,24 +160,24 @@ export async function refundPaymentIntent(params: {
  * Valisse's separate-charge-and-transfer marketplace model, while the Express
  * dashboard keeps Stripe-hosted identity and bank onboarding with the tech.
  */
-export async function createRecipientConnectedAccount(params: { techId: number; email?: string | null; displayName?: string | null }) {
-  const stripe = getStripe();
+export async function createRecipientConnectedAccount(params: { techId: number; email?: string | null; displayName?: string | null; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   return stripe.v2.core.accounts.create(
     createRecipientAccountRequest(params),
     { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION, idempotencyKey: `valisse_recipient_${params.techId}` }
   );
 }
 
-export async function createRecipientOnboardingLink(params: { accountId: string; refreshUrl: string; returnUrl: string }) {
-  const stripe = getStripe();
+export async function createRecipientOnboardingLink(params: { accountId: string; refreshUrl: string; returnUrl: string; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
   return stripe.v2.core.accountLinks.create(
     createRecipientOnboardingLinkRequest(params),
     { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION }
   );
 }
 
-export async function getConnectedAccountReadiness(accountId: string) {
-  const stripe = getStripe();
+export async function getConnectedAccountReadiness(accountId: string, mode?: StripePaymentMode) {
+  const stripe = getStripe(mode);
   const account = await stripe.v2.core.accounts.retrieve(accountId, {
     include: ["configuration.recipient", "requirements"],
   }, { apiVersion: STRIPE_ACCOUNTS_V2_API_VERSION });
@@ -178,8 +195,9 @@ export async function releaseBookingPayout(params: {
   servicePaymentIntentId: string;
   serviceTotalInCents: number;
   tipPaymentIntentId?: string | null;
+  mode?: StripePaymentMode;
 }) {
-  const stripe = getStripe();
+  const stripe = getStripe(params.mode);
   const servicePayment = await stripe.paymentIntents.retrieve(params.servicePaymentIntentId);
   const serviceChargeId = typeof servicePayment.latest_charge === "string"
     ? servicePayment.latest_charge

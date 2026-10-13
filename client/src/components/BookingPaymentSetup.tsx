@@ -7,7 +7,12 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { completePaymentMethodSetup } from "../../../shared/paymentSetup";
 
-const stripePromise = loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+type StripeMode = "test" | "live";
+
+const stripePromises: Record<StripeMode, ReturnType<typeof loadStripe>> = {
+  test: loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY),
+  live: loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY),
+};
 
 function PaymentSetupForm({ bookingId, onComplete }: { bookingId: number; onComplete: () => void }) {
   const stripe = useStripe();
@@ -57,9 +62,9 @@ function PaymentSetupForm({ bookingId, onComplete }: { bookingId: number; onComp
   );
 }
 
-export function BookingPaymentSetup({ bookingId, clientSecret, onComplete }: { bookingId: number; clientSecret: string; onComplete: () => void }) {
+export function BookingPaymentSetup({ bookingId, clientSecret, stripeMode = "live", onComplete }: { bookingId: number; clientSecret: string; stripeMode?: StripeMode; onComplete: () => void }) {
   return (
-    <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#008f62", borderRadius: "12px" } } }}>
+    <Elements stripe={stripePromises[stripeMode]} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#008f62", borderRadius: "12px" } } }}>
       <PaymentSetupForm bookingId={bookingId} onComplete={onComplete} />
     </Elements>
   );

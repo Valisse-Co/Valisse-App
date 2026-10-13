@@ -1328,6 +1328,8 @@ export async function updateUserStripeReferences(
     stripeConnectedAccountId?: string;
     stripeConnectedAccountMode?: "test" | "live";
     stripeConnectedAccountReady?: boolean;
+    stripeTestConnectedAccountId?: string;
+    stripeTestConnectedAccountReady?: boolean;
   }
 ) {
   const db = await getDb();
@@ -1430,7 +1432,8 @@ export async function getPayoutEligibleBookings(now: Date) {
     .where(and(
       eq(bookings.paymentStatus, "paid"),
       eq(bookings.payoutStatus, "pending_dispute_window"),
-      lte(bookings.payoutEligibleAt, now)
+      lte(bookings.payoutEligibleAt, now),
+      eq(bookings.isQaTest, false),
     ));
 }
 

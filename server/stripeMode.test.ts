@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getStripeEnvironmentMode,
   isStripeObjectInConfiguredEnvironment,
+  resolveStripeModeForBooking,
   shouldProcessStripeEvent,
   stripeModeLabel,
 } from "../shared/stripeMode";
@@ -41,5 +42,16 @@ describe("Stripe environment safeguards", () => {
     expect(isStripeObjectInConfiguredEnvironment("test", "live")).toBe(false);
     expect(isStripeObjectInConfiguredEnvironment("live", "test")).toBe(false);
     expect(isStripeObjectInConfiguredEnvironment(null, "live")).toBe(false);
+  });
+
+  it("routes a preview QA booking to test Stripe while normal bookings remain Live", () => {
+    const shared = { configuredMode: "live" as const, testSecretKey: "sk_test_sandbox", isProduction: false };
+    expect(resolveStripeModeForBooking({ ...shared, isQaTest: true })).toBe("test");
+    expect(resolveStripeModeForBooking({ ...shared, isQaTest: false })).toBe("live");
+  });
+
+  it("does not allow a QA booking to reach Live Stripe in production or without test keys", () => {
+    expect(() => resolveStripeModeForBooking({ isQaTest: true, configuredMode: "live", testSecretKey: "sk_test_sandbox", isProduction: true })).toThrow("QA appointment requires Stripe test-mode credentials");
+    expect(() => resolveStripeModeForBooking({ isQaTest: true, configuredMode: "live", testSecretKey: "sk_live_not_sandbox", isProduction: false })).toThrow("QA appointment requires Stripe test-mode credentials");
   });
 });

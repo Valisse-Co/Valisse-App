@@ -3,15 +3,15 @@ export const QA_APPOINTMENT_DURATION_MINUTES = 30;
 export const QA_RUN_TTL_HOURS = 24;
 
 /**
- * The appointment lab is deliberately available only on preview/development
- * infrastructure backed by a Stripe test secret. This check is enforced on the
- * server; the client never decides whether a QA workflow is available.
+ * The lab is restricted to preview/development infrastructure. It deliberately
+ * uses the separately configured Stripe test credential even if normal preview
+ * booking traffic is validating Valisse's Live Stripe account.
  */
 export function isQaAppointmentLabEnabled(params: {
   isProduction: boolean;
-  stripeSecretKey: string;
+  stripeTestSecretKey: string;
 }): boolean {
-  return !params.isProduction && params.stripeSecretKey.startsWith("sk_test_");
+  return !params.isProduction && params.stripeTestSecretKey.startsWith("sk_test_");
 }
 
 /**

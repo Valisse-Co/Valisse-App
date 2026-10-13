@@ -697,3 +697,9 @@
 ## Live Stripe Platform Activation Blocker
 - [x] Complete Stripe’s Live account activation before creating the first Valisse Express recipient account
 - [x] Retry Live technician Express onboarding and verify recipient payout readiness after platform activation
+
+## Stripe QA Test-Mode Isolation
+- [x] Diagnose and preserve test-card booking flows after Live Stripe activation
+- [x] Route preview-only QA SetupIntents, card confirmations, appointment charges, and payouts to Stripe test mode only
+- [x] Keep Live and test connected-account references separate for the same technician
+- [x] Add regression coverage, validate the QA test-card flow, and save a checkpoint

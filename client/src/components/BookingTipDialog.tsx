@@ -5,7 +5,12 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 
-const stripePromise = loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+type StripeMode = "test" | "live";
+
+const stripePromises: Record<StripeMode, ReturnType<typeof loadStripe>> = {
+  test: loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY),
+  live: loadStripe(import.meta.env.VITE_VALISSE_STRIPE_LIVE_PUBLISHABLE_KEY || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY),
+};
 
 function TipPaymentForm({ bookingId, paymentIntentId, amountInCents, onComplete }: { bookingId: number; paymentIntentId: string; amountInCents: number; onComplete: () => void }) {
   const stripe = useStripe();
@@ -28,6 +33,6 @@ function TipPaymentForm({ bookingId, paymentIntentId, amountInCents, onComplete 
   return <div className="space-y-4"><PaymentElement options={{ layout: "tabs" }} /><Button className="w-full" disabled={!stripe || !elements || complete.isPending} onClick={submit}>{complete.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Send tip</Button></div>;
 }
 
-export function BookingTipDialog({ bookingId, clientSecret, paymentIntentId, amountInCents, onComplete }: { bookingId: number; clientSecret: string; paymentIntentId: string; amountInCents: number; onComplete: () => void }) {
-  return <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#008f62", borderRadius: "12px" } } }}><TipPaymentForm bookingId={bookingId} paymentIntentId={paymentIntentId} amountInCents={amountInCents} onComplete={onComplete} /></Elements>;
+export function BookingTipDialog({ bookingId, clientSecret, paymentIntentId, amountInCents, stripeMode = "live", onComplete }: { bookingId: number; clientSecret: string; paymentIntentId: string; amountInCents: number; stripeMode?: StripeMode; onComplete: () => void }) {
+  return <Elements stripe={stripePromises[stripeMode]} options={{ clientSecret, appearance: { theme: "stripe", variables: { colorPrimary: "#008f62", borderRadius: "12px" } } }}><TipPaymentForm bookingId={bookingId} paymentIntentId={paymentIntentId} amountInCents={amountInCents} onComplete={onComplete} /></Elements>;
 }
