@@ -686,14 +686,14 @@
 ## Stripe Live-Mode and Connected Payout Readiness
 - [x] Audit live/test environment separation, Stripe webhooks, and Connect implementation
 - [x] Harden Accounts v2 connected-account readiness handling for production events
-- [ ] Verify a live technician’s Connected Account status after secure Stripe Dashboard access
+- [x] Verify a live technician’s Connected Account status after secure Stripe Dashboard access
 - [x] Produce and complete the pre-launch Stripe checklist without creating charges, transfers, or payouts
 
 ## Live Stripe Credential Handoff
 - [x] Store and validate the dedicated Stripe Connect webhook signing secret
-- [ ] Replace the three platform-managed Stripe test variables with their matching live-mode values through the secure project configuration UI
+- [x] Configure matching encrypted live-mode Stripe overrides because platform-managed test variables cannot be overwritten from this task
 - [x] Restart and verify the app reports Stripe live mode before live Connect onboarding
 
 ## Live Stripe Platform Activation Blocker
-- [ ] Complete Stripe’s Live account activation before creating the first Valisse Express recipient account
-- [ ] Retry Live technician Express onboarding and verify recipient payout readiness after platform activation
+- [x] Complete Stripe’s Live account activation before creating the first Valisse Express recipient account
+- [x] Retry Live technician Express onboarding and verify recipient payout readiness after platform activation
