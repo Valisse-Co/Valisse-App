@@ -709,3 +709,8 @@
 - [x] Change normal bookings so server-side appointment creation occurs only after the live payment method is successfully verified
 - [x] Add clear single-click loading, card-error, and confirmed-booking outcomes without duplicate booking requests
 - [x] Add regression coverage, validate production-safe flows, checkpoint, and deploy the repair
+
+## Dashboard Control Cleanup and Profile Actions
+- [x] Remove the unwanted native number-stepper control from the technician dashboard service editor
+- [x] Position Subscribe, Book a Look, and Message directly below the technician bio and above Services
+- [x] Validate the responsive profile layout, run tests, and save a checkpoint

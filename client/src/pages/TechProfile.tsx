@@ -193,6 +193,33 @@ export default function TechProfile({ techId }: Props) {
           <p className="mt-4 text-sm text-foreground leading-relaxed">{tech.bio}</p>
         )}
 
+        {/* Primary profile actions */}
+        <div className="flex gap-2 mt-5">
+          {user?.id !== techId && (
+            <button
+              onClick={handleToggleFollow}
+              disabled={followMutation.isPending || unfollowMutation.isPending}
+              className={cn(
+                "flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-3 rounded-xl text-sm font-medium transition-all",
+                isFollowing
+                  ? "bg-primary/10 text-primary border border-primary/30 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              )}
+            >
+              {isFollowing ? <BellOff size={16} /> : <Bell size={16} />}
+              {isFollowing ? "Subscribed" : "Subscribe"}
+            </button>
+          )}
+          <button onClick={() => handleBook()} className="flex-1 min-w-0 btn-valisse py-3 flex items-center justify-center gap-1.5 text-sm">
+            <Calendar size={16} />
+            Book a Look
+          </button>
+          <button onClick={handleMessage} className="flex-1 min-w-0 btn-valisse-outline py-3 flex items-center justify-center gap-1.5 text-sm">
+            <MessageCircle size={16} />
+            Message
+          </button>
+        </div>
+
         {/* Services offered */}
         {techServices.length > 0 && (
           <div className="mt-5">
@@ -239,33 +266,6 @@ export default function TechProfile({ techId }: Props) {
           </div>
         )}
 
-        {/* CTA Buttons */}
-        <div className="flex gap-3 mt-5">
-          {/* Subscribe / Unsubscribe */}
-          {user?.id !== techId && (
-            <button
-              onClick={handleToggleFollow}
-              disabled={followMutation.isPending || unfollowMutation.isPending}
-              className={cn(
-                "flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                isFollowing
-                  ? "bg-primary/10 text-primary border border-primary/30 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                  : "bg-primary text-primary-foreground hover:bg-primary/90"
-              )}
-            >
-              {isFollowing ? <BellOff size={16} /> : <Bell size={16} />}
-              {isFollowing ? "Subscribed" : "Subscribe"}
-            </button>
-          )}
-          <button onClick={handleMessage} className="flex-1 btn-valisse-outline py-3 flex items-center justify-center gap-2">
-            <MessageCircle size={16} />
-            Message
-          </button>
-          <button onClick={() => handleBook()} className="flex-1 btn-valisse py-3 flex items-center justify-center gap-2">
-            <Calendar size={16} />
-            Book a Look
-          </button>
-        </div>
       </div>
 
       {/* Tabs */}

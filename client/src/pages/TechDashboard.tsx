@@ -158,7 +158,7 @@ function DashServiceDialog({ open, initial, onSave, onClose, isLoading }: {
             <Label className="text-xs mb-1.5 block">Price</Label>
             <div className="relative">
               <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input type="number" min={0} placeholder="55" className="pl-8" value={priceDisplay}
+              <Input type="text" inputMode="decimal" placeholder="55.00" className="pl-8" value={priceDisplay}
                 onChange={(e) => setForm((f) => ({ ...f, priceInCents: Math.round(parseFloat(e.target.value || "0") * 100) }))} />
             </div>
           </div>
