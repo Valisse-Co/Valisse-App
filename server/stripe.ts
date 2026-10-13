@@ -8,6 +8,7 @@ import {
   STRIPE_ACCOUNTS_V2_API_VERSION,
 } from "../shared/stripeConnectV2";
 import { getStripeEnvironmentMode, type StripePaymentMode } from "../shared/stripeMode";
+import { assertVerifiedBookingCardSetupIntent } from "../shared/bookingPaymentAuthorization";
 
 const stripeClients = new Map<StripePaymentMode, Stripe>();
 
@@ -62,6 +63,17 @@ export async function createBookingSetupIntent(params: { bookingId: number; cust
   });
 }
 
+/** Saves a client's card before an appointment record exists. */
+export async function createBookingCardSetupIntent(params: { clientId: number; customerId: string; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
+  return stripe.setupIntents.create({
+    customer: params.customerId,
+    usage: "off_session",
+    payment_method_types: ["card"],
+    metadata: { client_id: String(params.clientId), kind: "booking_payment_method" },
+  });
+}
+
 export async function verifyBookingSetupIntent(params: { setupIntentId: string; customerId: string; bookingId: number; mode?: StripePaymentMode }) {
   const stripe = getStripe(params.mode);
   const setupIntent = await stripe.setupIntents.retrieve(params.setupIntentId);
@@ -75,6 +87,14 @@ export async function verifyBookingSetupIntent(params: { setupIntentId: string; 
   ) {
     throw new Error("The payment method setup has not been completed for this booking.");
   }
+  return setupIntent;
+}
+
+/** Verifies a successful card save before a normal booking is persisted. */
+export async function verifyBookingCardSetupIntent(params: { setupIntentId: string; customerId: string; clientId: number; mode?: StripePaymentMode }) {
+  const stripe = getStripe(params.mode);
+  const setupIntent = await stripe.setupIntents.retrieve(params.setupIntentId);
+  assertVerifiedBookingCardSetupIntent({ setupIntent, customerId: params.customerId, clientId: params.clientId });
   return setupIntent;
 }
 

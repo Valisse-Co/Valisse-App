@@ -156,7 +156,6 @@ export default function BookingFlow() {
   const [notes, setNotes]                 = useState("");
   const [appointmentInspirationImage, setAppointmentInspirationImage] = useState<string | null>(requestedInspirationImage);
   const [booked, setBooked]               = useState(false);
-  const [pendingPaymentBookingId, setPendingPaymentBookingId] = useState<number | null>(null);
   const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
   const [paymentSetupStripeMode, setPaymentSetupStripeMode] = useState<"test" | "live">("live");
 
@@ -330,12 +329,8 @@ export default function BookingFlow() {
   }, [postData, techServicesQuery.data, autoSelected, preselectedServiceId]);
 
   const utils = trpc.useUtils();
-  const createBooking = trpc.bookings.createWithServiceLines.useMutation({
-    onError: (err) => {
-      toast.error(err.message ?? "Could not create booking. Please try again.");
-    },
-  });
-  const beginPaymentSetup = trpc.appointment.paymentSetup.useMutation();
+  const createBooking = trpc.bookings.createWithServiceLines.useMutation();
+  const prepareNewBookingCard = trpc.appointment.prepareNewBookingCard.useMutation();
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const today = new Date();
@@ -391,11 +386,10 @@ export default function BookingFlow() {
     setStep(2);
   }
 
-  async function handleConfirm() {
-    if (!isAuthenticated) { toast.error("Please sign in to book."); return; }
+  async function createVerifiedBooking(setupIntentId: string) {
     if (!selectedDate || !selectedTime || !selectedService) return;
     const [y, mo, d] = selectedDate.split("-").map(Number);
-    const [h, min]   = selectedTime.split(":").map(Number);
+    const [h, min] = selectedTime.split(":").map(Number);
     try {
       const photoUrls = smSkipped || smPhotoFiles.length === 0
         ? []
@@ -414,25 +408,41 @@ export default function BookingFlow() {
       if (serviceLines.some((line) => Number.isNaN(line.techServiceId))) {
         throw new Error("This nail tech needs to finish setting up their services before you can request a booking.");
       }
-      const created = await createBooking.mutateAsync({
+      await createBooking.mutateAsync({
         techId,
         postId: postId ? Number(postId) : undefined,
         inspirationImageUrl: appointmentInspirationImage ?? undefined,
         scheduledAt: new Date(y, mo - 1, d, h, min).getTime(),
         notes: notes || undefined,
+        setupIntentId,
         serviceLines,
         smartServiceMatches: smSkipped || smAssessments.length === 0 ? undefined : smAssessments.map((assessment, index) => ({
           ...assessment,
           photoUrls: index === 0 ? [...assessment.photoUrls, ...photoUrls] : assessment.photoUrls,
         })),
       });
-      const setup = await beginPaymentSetup.mutateAsync({ bookingId: created.bookingId });
+      setPaymentSetupClientSecret(null);
+      setBooked(true);
+      utils.bookings.clientBookings.invalidate();
+    } catch (error) {
+      setPaymentSetupClientSecret(null);
+      setStep(3);
+      setSelectedTime(null);
+      await utils.bookings.availableSlots.invalidate();
+      throw error;
+    }
+  }
+
+  async function handleConfirm() {
+    if (!isAuthenticated) { toast.error("Please sign in to book."); return; }
+    if (!selectedDate || !selectedTime || !selectedService) return;
+    try {
+      const setup = await prepareNewBookingCard.mutateAsync();
       if (!setup.clientSecret) throw new Error("We could not prepare secure payment setup for this appointment.");
-      setPendingPaymentBookingId(created.bookingId);
       setPaymentSetupClientSecret(setup.clientSecret);
       setPaymentSetupStripeMode(setup.stripeMode);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create booking. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Could not prepare secure card verification. Please try again.");
     }
   }
 
@@ -507,23 +517,22 @@ export default function BookingFlow() {
   useEffect(() => { if (!techId) navigate("/discover"); }, [techId]);
 
   // ── Success screen ───────────────────────────────────────────────────────
-  if (pendingPaymentBookingId && paymentSetupClientSecret) {
+  if (paymentSetupClientSecret) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
         <div className="w-full max-w-md space-y-5">
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10"><Shield className="h-7 w-7 text-primary" /></div>
             <h1 className="text-2xl font-serif font-semibold text-foreground">Secure your booking</h1>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Your booking request is ready. Save a card to reserve the appointment—there is no charge today.</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Save your card to continue. Your booking request is not sent until Stripe verifies your payment method—there is no charge today.</p>
           </div>
           <Card className="rounded-2xl border-border p-5">
             <BookingPaymentSetup
-              bookingId={pendingPaymentBookingId}
               clientSecret={paymentSetupClientSecret}
               stripeMode={paymentSetupStripeMode}
-              onComplete={() => {
-                setBooked(true);
-                utils.bookings.clientBookings.invalidate();
+              onComplete={async (setupIntentId) => {
+                if (!setupIntentId) throw new Error("Stripe did not return a verified payment method. Please try again.");
+                await createVerifiedBooking(setupIntentId);
               }}
             />
           </Card>
@@ -1298,12 +1307,12 @@ export default function BookingFlow() {
         <div className="max-w-lg mx-auto">
           <Button
             className="w-full h-12 text-sm font-semibold rounded-xl"
-            disabled={!canAdvance() || createBooking.isPending || beginPaymentSetup.isPending}
+            disabled={!canAdvance() || createBooking.isPending || prepareNewBookingCard.isPending}
             onClick={advance}
           >
-            {createBooking.isPending || beginPaymentSetup.isPending ? (
-              <><Loader2 className="w-4 h-4 animate-spin mr-2" />Requesting…</>
-            ) : step === 4 ? "Confirm & Request"
+            {createBooking.isPending || prepareNewBookingCard.isPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin mr-2" />Preparing secure card form…</>
+            ) : step === 4 ? "Continue to secure card"
               : step === 3 ? "Review Booking"
               : "Continue"}
           </Button>

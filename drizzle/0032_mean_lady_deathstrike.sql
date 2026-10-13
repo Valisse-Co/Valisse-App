@@ -1,0 +1,1 @@
+ALTER TABLE `bookings` ADD CONSTRAINT `bookings_stripeSetupIntentId_unique` UNIQUE(`stripeSetupIntentId`);

@@ -225,6 +225,13 @@
       "when": 1791865470913,
       "tag": "0031_gorgeous_martin_li",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1791866999585,
+      "tag": "0032_mean_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }

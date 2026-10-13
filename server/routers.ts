@@ -195,6 +195,7 @@ import {
 } from "../shared/qaAppointment";
 import {
   chargeSavedCard,
+  createBookingCardSetupIntent,
   createTipPaymentIntent,
   createBookingSetupIntent,
   createRecipientOnboardingLink,
@@ -204,6 +205,7 @@ import {
   getStripeIntegrationStatus,
   releaseBookingPayout,
   refundPaymentIntent,
+  verifyBookingCardSetupIntent,
   verifyBookingSetupIntent,
   verifyTipPaymentIntent,
 } from "./stripe";
@@ -919,6 +921,7 @@ const bookingsRouter = router({
       }).optional(),
       scheduledAt: z.number(),
       notes: z.string().max(2000).optional(),
+      setupIntentId: z.string().min(1, "Save a payment method before requesting this booking."),
       serviceLines: z.array(z.object({
         techServiceId: z.number(),
         lineType: z.enum(["primary", "addon", "upgrade"]),
@@ -936,6 +939,20 @@ const bookingsRouter = router({
     .mutation(async ({ ctx, input }) => {
       if (await hasOutstandingAppointmentPayment(ctx.user.id)) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Resolve your outstanding appointment payment before creating another booking request." });
+      }
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Save a payment method for the active Stripe environment before requesting this booking." });
+      }
+      try {
+        await verifyBookingCardSetupIntent({
+          setupIntentId: input.setupIntentId,
+          customerId: ctx.user.stripeCustomerId,
+          clientId: ctx.user.id,
+          mode: stripeMode,
+        });
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Your card could not be verified for this booking." });
       }
       const offeredServices = await getTechServices(input.techId);
       const serviceIds = new Set(input.serviceLines.map((line) => line.techServiceId));
@@ -967,6 +984,7 @@ const bookingsRouter = router({
         duration: totalDuration,
         notes: input.notes ?? null,
       } as any, lines.map((line) => line.techServiceId));
+      await setBookingPaymentMethodState(bookingId, { stripeSetupIntentId: input.setupIntentId, paymentMethodStatus: "saved" });
       await replaceBookingServiceLines(bookingId, lines);
       if (input.smartServiceMatches?.length) {
         await Promise.all(input.smartServiceMatches.map((assessment) => saveBookingMatchAssessment({ bookingId, ...assessment })));
@@ -1255,6 +1273,21 @@ function getBookingStripeModeOrThrow(booking: { isQaTest: boolean }): StripePaym
   }
 }
 const appointmentRouter = router({
+  prepareNewBookingCard: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (!ctx.user.email) throw new TRPCError({ code: "BAD_REQUEST", message: "Add an email address before saving a payment method." });
+      const stripeMode = getConfiguredStripeModeOrThrow();
+      let customerId = ctx.user.stripeCustomerId;
+      if (!customerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
+        const customer = await createStripeCustomer({ userId: ctx.user.id, name: ctx.user.name, email: ctx.user.email, mode: stripeMode });
+        customerId = customer.id;
+        await updateUserStripeReferences(ctx.user.id, { stripeCustomerId: customerId, stripeCustomerMode: stripeMode });
+      }
+      const setupIntent = await createBookingCardSetupIntent({ clientId: ctx.user.id, customerId, mode: stripeMode });
+      if (!setupIntent.client_secret) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stripe could not prepare secure card verification. Please try again." });
+      return { clientSecret: setupIntent.client_secret, stripeMode };
+    }),
+
   paymentSetup: protectedProcedure
     .input(z.object({ bookingId: z.number() }))
     .mutation(async ({ ctx, input }) => {

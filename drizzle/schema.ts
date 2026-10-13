@@ -329,7 +329,7 @@ export const bookings = mysqlTable("bookings", {
   startedAt: timestamp("startedAt"),
   completedAt: timestamp("completedAt"),
   // Stripe identifiers plus business workflow state. No card data, payment amount, or Stripe status is duplicated locally.
-  stripeSetupIntentId: varchar("stripeSetupIntentId", { length: 255 }),
+  stripeSetupIntentId: varchar("stripeSetupIntentId", { length: 255 }).unique(),
   stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }),
   stripeCancellationPaymentIntentId: varchar("stripeCancellationPaymentIntentId", { length: 255 }),
   stripeTipPaymentIntentId: varchar("stripeTipPaymentIntentId", { length: 255 }),

@@ -703,3 +703,9 @@
 - [x] Route preview-only QA SetupIntents, card confirmations, appointment charges, and payouts to Stripe test mode only
 - [x] Keep Live and test connected-account references separate for the same technician
 - [x] Add regression coverage, validate the QA test-card flow, and save a checkpoint
+
+## Live Booking Card Authorization and Creation Order
+- [x] Trace the current live card-save processing error and identify whether it occurs in Stripe confirmation or server verification
+- [x] Change normal bookings so server-side appointment creation occurs only after the live payment method is successfully verified
+- [x] Add clear single-click loading, card-error, and confirmed-booking outcomes without duplicate booking requests
+- [x] Add regression coverage, validate production-safe flows, checkpoint, and deploy the repair
