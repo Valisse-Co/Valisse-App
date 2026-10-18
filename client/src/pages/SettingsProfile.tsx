@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   ChevronLeft,
   ChevronDown,
@@ -639,19 +640,7 @@ export default function SettingsProfile() {
                     <p className="text-xs text-muted-foreground mt-0.5">Ask clients questions before booking to ensure the right service</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSmGlobal.mutate({ enabled: !(smGlobalEnabled ?? true) })}
-                  disabled={setSmGlobal.isPending}
-                  className={cn(
-                    "relative w-10 h-5 rounded-full transition-colors flex-shrink-0",
-                    (smGlobalEnabled ?? true) ? "bg-primary" : "bg-muted"
-                  )}
-                >
-                  <span className={cn(
-                    "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-                    (smGlobalEnabled ?? true) ? "translate-x-5" : "translate-x-0.5"
-                  )} />
-                </button>
+                <ToggleSwitch checked={smGlobalEnabled ?? true} onCheckedChange={(enabled) => setSmGlobal.mutate({ enabled })} disabled={setSmGlobal.isPending} aria-label="Enable Smart Service Match" />
               </div>
 
               {/* Per-service config list */}
@@ -678,18 +667,7 @@ export default function SettingsProfile() {
                             <ChevronDown size={14} className={cn("text-muted-foreground transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
                             <p className="text-sm font-medium text-foreground">{cfg.serviceCategory}</p>
                           </button>
-                          <button
-                            onClick={() => upsertSmConfig.mutate({ serviceCategory: cfg.serviceCategory, isEnabled: !isEnabled })}
-                            className={cn(
-                              "relative w-9 h-5 rounded-full transition-colors flex-shrink-0",
-                              isEnabled ? "bg-primary" : "bg-muted"
-                            )}
-                          >
-                            <span className={cn(
-                              "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform",
-                              isEnabled ? "translate-x-4" : "translate-x-0.5"
-                            )} />
-                          </button>
+                          <ToggleSwitch checked={isEnabled} onCheckedChange={(enabled) => upsertSmConfig.mutate({ serviceCategory: cfg.serviceCategory, isEnabled: enabled })} size="sm" aria-label={`Enable Smart Service Match for ${cfg.serviceCategory}`} />
                         </div>
 
                         {/* Expanded questions + rules */}

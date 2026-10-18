@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
 import { getBrowserTimeZone } from "@shared/lastMinuteBooking";
 import { formatUsdCents, formatUsdDollars } from "@shared/money";
@@ -852,18 +853,12 @@ function DayRow({
     )}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3">
-        <button
-          onClick={() => onChange({ ...day, isActive: !day.isActive })}
-          className={cn(
-            "w-11 h-6 rounded-full transition-all flex items-center px-0.5 flex-shrink-0",
-            day.isActive ? "bg-primary" : "bg-muted"
-          )}
-        >
-          <div className={cn(
-            "w-5 h-5 rounded-full bg-white shadow-sm transition-all",
-            day.isActive ? "translate-x-5" : "translate-x-0"
-          )} />
-        </button>
+        <ToggleSwitch
+          checked={day.isActive}
+          onCheckedChange={(isActive) => onChange({ ...day, isActive })}
+          aria-label={`${DAYS[day.dayOfWeek]} availability`}
+          className="flex-shrink-0"
+        />
 
         <span className={cn("text-sm font-medium w-10 flex-shrink-0", day.isActive ? "text-foreground" : "text-muted-foreground")}>
           {DAYS[day.dayOfWeek]}
@@ -918,18 +913,12 @@ function DayRow({
               {/* Break toggle */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Lunch break</span>
-                <button
-                  onClick={() => onChange({ ...day, hasBreak: !day.hasBreak })}
-                  className={cn(
-                    "w-9 h-5 rounded-full transition-all flex items-center px-0.5",
-                    day.hasBreak ? "bg-primary" : "bg-muted"
-                  )}
-                >
-                  <div className={cn(
-                    "w-4 h-4 rounded-full bg-white shadow-sm transition-all",
-                    day.hasBreak ? "translate-x-4" : "translate-x-0"
-                  )} />
-                </button>
+                <ToggleSwitch
+                  checked={day.hasBreak}
+                  onCheckedChange={(hasBreak) => onChange({ ...day, hasBreak })}
+                  size="sm"
+                  aria-label="Lunch break"
+                />
               </div>
 
               <AnimatePresence>
@@ -1436,9 +1425,13 @@ function AppointmentFeePolicyPanel() {
           const feeValue = rule.feeType === "flat" ? (rule.flatFeeInCents / 100).toFixed(2) : (rule.feePercentBasisPoints / 100).toFixed(2);
           return <div key={rule.ruleType} className={cn("rounded-xl border p-3 transition-colors", rule.enabled ? "border-primary/35 bg-primary/[0.03]" : "border-border bg-muted/20")}>
             <div className="flex items-start gap-3">
-              <button type="button" aria-pressed={rule.enabled} onClick={() => updateRule(rule.ruleType, { enabled: !rule.enabled })} className={cn("relative mt-0.5 h-6 w-11 rounded-full transition-colors", rule.enabled ? "bg-primary" : "bg-muted-foreground/30")}>
-                <span className={cn("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform", rule.enabled ? "translate-x-6" : "translate-x-1")} />
-              </button>
+              <ToggleSwitch
+                checked={rule.enabled}
+                onCheckedChange={(enabled) => updateRule(rule.ruleType, { enabled })}
+                size="sm"
+                aria-label={`Enable ${copy.title}`}
+                className="mt-0.5"
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-foreground">{copy.title}</p><span className={cn("text-[10px] font-semibold uppercase tracking-wide", rule.enabled ? "text-primary" : "text-muted-foreground")}>{rule.enabled ? "On" : "Off"}</span></div>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{copy.subtitle}</p>

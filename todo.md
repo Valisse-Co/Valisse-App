@@ -725,3 +725,8 @@
 
 ## Dashboard Scrollbar Cleanup
 - [x] Hide the visible native scrollbar arrows on the technician dashboard tab strip
+
+## Shared Toggle Geometry
+- [x] Replace visible custom switches with one accessible toggle component whose thumb starts left when off and stays within its track when on
+- [x] Standardize the shared privacy and notification switches to the same geometry
+- [x] Validate toggle behavior visually, run regression checks, and save a checkpoint
