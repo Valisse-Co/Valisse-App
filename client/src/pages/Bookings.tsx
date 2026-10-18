@@ -406,6 +406,14 @@ export default function Bookings() {
                   </div>
                 )}
 
+                {booking.status === "cancelled" && (booking as any).cancelledBy === "tech" && (booking as any).calendarOverrideEventId && (
+                  <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-xs font-semibold text-foreground">Your technician became unavailable for this time.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{(booking as any).cancellationReason ? `Reason: ${(booking as any).cancellationReason}` : "Choose another available time with this technician."}</p>
+                    <button onClick={() => navigate(`/book/${booking.techId}?rescheduleFrom=${booking.id}`)} className="mt-2 text-xs font-semibold text-primary underline underline-offset-2">Book another time</button>
+                  </div>
+                )}
+
                 {booking.status === "disputed" && (booking as any).issueReason && (
                   <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5">
                     <p className="text-xs font-semibold text-destructive">Appointment issue reported</p>

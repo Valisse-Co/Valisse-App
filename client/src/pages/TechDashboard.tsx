@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload, Sparkles } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload, Sparkles, CalendarDays } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -513,12 +513,10 @@ export default function TechDashboard() {
               </div>
             </div>
 
-            <button
-              onClick={() => setShowSlotDialog(true)}
-              className="w-full btn-valisse py-3 flex items-center justify-center gap-2"
-            >
-              <Plus size={16} /> Add Last-Minute Slot
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => navigate("/tech-calendar")} className="w-full rounded-xl border border-border bg-card py-3 text-sm font-semibold text-foreground hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2"><CalendarDays size={16} /> Calendar</button>
+              <button onClick={() => setShowSlotDialog(true)} className="w-full btn-valisse py-3 flex items-center justify-center gap-2"><Plus size={16} /> Add Last-Minute Slot</button>
+            </div>
 
             {!slots || slots.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-sm">

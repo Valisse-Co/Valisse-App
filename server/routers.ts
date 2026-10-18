@@ -71,6 +71,11 @@ import {
   getScheduleBlocks,
   createScheduleBlock,
   deleteScheduleBlock,
+  getTechnicianCalendar,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  getAvailabilityOverrideConflicts,
+  applyCalendarAvailabilityOverride,
   toggleFollow,
   toggleLike,
   toggleSave,
@@ -1767,6 +1772,22 @@ const appointmentRouter = router({
 });
 
 // ─── Availability ─────────────────────────────────────────────────────────────
+const calendarEventInputSchema = z.object({
+  kind: z.enum(["available", "unavailable"]),
+  recurrence: z.enum(["once", "weekly"]),
+  localDate: z.string().nullable().optional(),
+  dayOfWeek: z.number().int().min(0).max(6).nullable().optional(),
+  startTime: z.string(),
+  endTime: z.string(),
+  clientTier: z.enum(["open", "returning_only"]).default("open"),
+  title: z.string().trim().max(160).nullable().optional(),
+  timeZone: z.string().min(1).max(64),
+});
+
+function assertTechnicianCalendarAccess(user: Parameters<typeof isTechCapable>[0]) {
+  if (!isTechCapable(user)) throw new TRPCError({ code: "FORBIDDEN", message: "Technician access is required." });
+}
+
 const availabilityRouter = router({
   get: publicProcedure
     .input(z.object({ techId: z.number() }))
@@ -1841,6 +1862,96 @@ const availabilityRouter = router({
     .mutation(async ({ ctx, input }) => {
       await deleteScheduleBlock(input.blockId, ctx.user.id);
       return { success: true };
+    }),
+
+  calendar: protectedProcedure
+    .input(z.object({ fromLocalDate: z.string(), toLocalDate: z.string() }))
+    .query(async ({ ctx, input }) => {
+      assertTechnicianCalendarAccess(ctx.user);
+      return getTechnicianCalendar(ctx.user.id, input);
+    }),
+
+  createCalendarEvent: protectedProcedure
+    .input(calendarEventInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      assertTechnicianCalendarAccess(ctx.user);
+      const id = await createCalendarEvent(ctx.user.id, input);
+      return { id };
+    }),
+
+  removeCalendarEvent: protectedProcedure
+    .input(z.object({ eventId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTechnicianCalendarAccess(ctx.user);
+      await deleteCalendarEvent(input.eventId, ctx.user.id);
+      return { success: true };
+    }),
+
+  previewOverride: protectedProcedure
+    .input(calendarEventInputSchema.extend({ kind: z.literal("unavailable"), recurrence: z.literal("once"), localDate: z.string().min(10) }))
+    .query(async ({ ctx, input }) => {
+      assertTechnicianCalendarAccess(ctx.user);
+      const conflicts = await getAvailabilityOverrideConflicts(ctx.user.id, input);
+      return conflicts.map(({ booking, client, addonService }) => ({
+        booking: {
+          id: booking.id,
+          status: booking.status,
+          scheduledAt: booking.scheduledAt,
+          duration: booking.duration,
+          serviceType: booking.serviceType,
+        },
+        client: client ? { name: client.name, avatarUrl: client.avatarUrl } : null,
+        addonService: addonService ? { category: addonService.category, customName: addonService.customName } : null,
+      }));
+    }),
+
+  applyOverride: protectedProcedure
+    .input(calendarEventInputSchema.extend({
+      kind: z.literal("unavailable"),
+      recurrence: z.literal("once"),
+      localDate: z.string().min(10),
+      expectedBookingIds: z.array(z.number().int().positive()).max(100),
+      cancellationReason: z.string().trim().max(500).optional(),
+      confirmCancellation: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTechnicianCalendarAccess(ctx.user);
+      if (input.expectedBookingIds.length > 0 && !input.confirmCancellation) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Confirm the affected appointment cancellations before applying this override." });
+      }
+      try {
+        const result = await applyCalendarAvailabilityOverride({
+          techId: ctx.user.id,
+          event: input,
+          expectedBookingIds: input.expectedBookingIds,
+          cancellationReason: input.cancellationReason,
+        });
+        const publicDate = new Date(`${input.localDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        const timeLabel = `${input.startTime}–${input.endTime}`;
+        const cancellationReason = input.cancellationReason?.trim() || "Your nail tech is unavailable for this time.";
+        for (const { booking } of result.conflicts) {
+          if (booking.isQaTest) continue;
+          await createNotification({
+            userId: booking.clientId,
+            type: "booking_cancelled_for_availability_override",
+            title: "Your appointment needs to be rescheduled",
+            body: `Your nail tech is unavailable ${publicDate}, ${timeLabel}. Reason: ${cancellationReason} Choose another time to book again.`,
+            relatedId: booking.id,
+          });
+          const rescheduleUrl = `${ENV.publicAppUrl}/book/${booking.techId}?rescheduleFrom=${booking.id}`;
+          void sendValisseTransactionalSms({
+            userId: booking.clientId,
+            category: "availability_override",
+            text: `Valisse: your ${publicDate} appointment was cancelled. Reason: ${cancellationReason} Book another time: ${rescheduleUrl} Reply STOP to opt out.`,
+          }).catch((error) => console.warn("[Telnyx] Availability-override SMS failed", error));
+        }
+        return { eventId: result.eventId, cancelledBookingIds: result.conflicts.map(({ booking }) => booking.id) };
+      } catch (error) {
+        if ((error as { code?: string }).code === "CONFLICT_SET_CHANGED") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: (error as Error).message });
+        }
+        throw error;
+      }
     }),
 
   // ── Day-level client tier ──────────────────────────────────────────────────

@@ -23,6 +23,7 @@ export const BOOKING_NOTIFICATION_TYPES = new Set([
   "booking_confirmed",
   "booking_declined",
   "booking_cancelled_by_tech",
+  "booking_cancelled_for_availability_override",
   "booking_revision",
   "booking_revision_response",
   "appointment_started",
@@ -132,6 +133,7 @@ export function presentNotification(
     booking_confirmed: `Booking confirmed by ${counterpart.name}`,
     booking_declined: `Booking declined by ${counterpart.name}`,
     booking_cancelled_by_tech: `${counterpart.name} cancelled this booking`,
+    booking_cancelled_for_availability_override: `Your appointment with ${counterpart.name} needs to be rescheduled`,
     booking_revision: `${counterpart.name} updated your booking request`,
     booking_revision_response: `${counterpart.name} responded to the revised booking`,
     appointment_started: `Appointment with ${counterpart.name} started`,
@@ -152,7 +154,7 @@ export function presentNotification(
     title: titleOverrides[notification.type] || notification.title,
     body: notification.body ? `${serviceSummary} · ${notification.body}` : serviceSummary,
     destination,
-    actionLabel: notification.type === "booking_revision" ? "Review update" : "View appointment",
+    actionLabel: notification.type === "booking_revision" ? "Review update" : notification.type === "booking_cancelled_for_availability_override" ? "View cancellation" : "View appointment",
     details,
   };
 }

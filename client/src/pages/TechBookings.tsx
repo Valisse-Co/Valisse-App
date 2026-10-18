@@ -14,6 +14,7 @@ import { getLocalDateInputRange } from "../../../shared/localDateInput";
 import { getBrowserTimeZone } from "@shared/lastMinuteBooking";
 import { formatUsdCents, formatUsdDollars } from "@shared/money";
 import { APPOINTMENT_FEE_TYPES, type AppointmentFeeRuleInput, type AppointmentFeeType } from "@shared/appointmentFeePolicy";
+import { useLocation } from "wouter";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1483,6 +1484,7 @@ const DEFAULT_SCHEDULE: DaySchedule[] = DAYS.map((_, i) => ({
 
 export function ScheduleTab() {
   const { isAuthenticated } = useAuth();
+  const [, navigate] = useLocation();
   const { data: savedSchedule, isLoading: schedLoading } = trpc.availability.weeklySchedule.useQuery(
     undefined, { enabled: isAuthenticated }
   );
@@ -1734,16 +1736,16 @@ export function ScheduleTab() {
       {/* ── Blocked-off time ── */}
       <div className="mb-2">
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Blocked Time</p>
-            <p className="text-xs text-muted-foreground">Dates you're unavailable</p>
-          </div>
-          <button
-            onClick={() => setShowBlockForm(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
-          >
-            <Plus size={13} /> Block Off
-          </button>
+            <div>
+              <p className="text-sm font-medium text-foreground">Blocked Time</p>
+              <p className="text-xs text-muted-foreground">Use Calendar to review affected appointments before blocking time.</p>
+            </div>
+            <button
+              onClick={() => navigate("/tech-calendar")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent text-accent-foreground text-xs font-medium"
+            >
+              <Calendar size={13} /> Open Calendar
+            </button>
         </div>
 
         {/* Add block form */}
@@ -1877,6 +1879,7 @@ export function ScheduleTab() {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function TechBookings() {
   const { isAuthenticated } = useAuth();
+  const [, navigate] = useLocation();
   const [mainTab, setMainTab] = useState<"upcoming" | "past">("upcoming");
   const [showSlotDialog, setShowSlotDialog] = useState(false);
   const [slotDate, setSlotDate] = useState("");
@@ -1926,13 +1929,10 @@ export default function TechBookings() {
         <div className="px-4 pt-12 pb-0">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-2xl font-display font-light">Bookings</h1>
-            {/* Last-minute slot shortcut */}
-            <button
-              onClick={() => setShowSlotDialog(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-white text-xs font-medium shadow-sm hover:bg-primary/90 transition-colors"
-            >
-              <Zap size={13} /> Last-Minute Slot
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => navigate("/tech-calendar")} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:border-primary hover:text-primary transition-colors"><Calendar size={13} /> Calendar</button>
+              <button onClick={() => setShowSlotDialog(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-white text-xs font-medium shadow-sm hover:bg-primary/90 transition-colors"><Zap size={13} /> Last-Minute Slot</button>
+            </div>
           </div>
           <div className="flex gap-1">
             {(["upcoming", "past"] as const).map(tab => (

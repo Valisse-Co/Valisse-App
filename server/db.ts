@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
@@ -36,6 +36,7 @@ import {
   notificationPreferences,
   privacySettings,
   blockedUsers,
+  calendarEvents,
   appointmentFeeRules,
   bookingFeeEvents,
   TechService,
@@ -55,6 +56,12 @@ import {
   mergeAvailabilityWindows,
   timeToMinutes,
 } from "../shared/lastMinuteBooking";
+import {
+  assertCalendarEventInput,
+  eventAppliesOnDate,
+  intervalsOverlap,
+  type CalendarEventInput,
+} from "../shared/techCalendar";
 import { canDiscoverAccount, getConversationPartner, getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
 import { filterVisibleLastMinuteNotifications, isBookingNotification, presentNotification } from "../shared/notificationPresentation";
@@ -1309,6 +1316,181 @@ export async function deleteScheduleBlock(blockId: number, techId: number) {
     .where(and(eq(scheduleBlocks.id, blockId), eq(scheduleBlocks.techId, techId)));
 }
 
+type CalendarRange = { fromLocalDate: string; toLocalDate: string };
+
+function getCalendarRangeBounds(range: CalendarRange, timeZone: string) {
+  const start = new Date(getZonedDateTimeEpoch(range.fromLocalDate, "00:00", timeZone));
+  const end = new Date(getZonedDateTimeEpoch(addLocalDays(range.toLocalDate, 1), "00:00", timeZone));
+  return { start, end };
+}
+
+function assertCalendarRange(range: CalendarRange) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(range.fromLocalDate) || !/^\d{4}-\d{2}-\d{2}$/.test(range.toLocalDate) || range.fromLocalDate > range.toLocalDate) {
+    throw new Error("Choose a valid calendar date range.");
+  }
+  if (addLocalDays(range.fromLocalDate, 93) < range.toLocalDate) {
+    throw new Error("Calendar ranges can be at most 93 days.");
+  }
+}
+
+export async function getCalendarEventsForRange(techId: number, range: CalendarRange) {
+  assertCalendarRange(range);
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(calendarEvents)
+    .where(and(
+      eq(calendarEvents.techId, techId),
+      or(
+        and(
+          eq(calendarEvents.recurrence, "once"),
+          gte(calendarEvents.localDate, range.fromLocalDate),
+          lte(calendarEvents.localDate, range.toLocalDate),
+        ),
+        eq(calendarEvents.recurrence, "weekly"),
+      ),
+    ))
+    .orderBy(calendarEvents.localDate, calendarEvents.dayOfWeek, calendarEvents.startTime);
+}
+
+async function getCalendarEventsForLocalDate(techId: number, localDate: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const events = await db
+    .select()
+    .from(calendarEvents)
+    .where(and(
+      eq(calendarEvents.techId, techId),
+      or(eq(calendarEvents.localDate, localDate), eq(calendarEvents.recurrence, "weekly")),
+    ));
+  return events.filter((event) => eventAppliesOnDate(event, localDate));
+}
+
+export async function createCalendarEvent(techId: number, input: CalendarEventInput) {
+  assertCalendarEventInput(input);
+  const db = await getDb();
+  if (!db) throw new Error("Database connection is unavailable");
+  const techTimeZone = await getTechTimeZone(db, techId);
+  const [result] = await db.insert(calendarEvents).values({
+    techId,
+    kind: input.kind,
+    recurrence: input.recurrence,
+    localDate: input.recurrence === "once" ? input.localDate! : null,
+    dayOfWeek: input.recurrence === "weekly" ? input.dayOfWeek! : null,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    clientTier: input.clientTier ?? "open",
+    title: input.title?.trim() || null,
+    timeZone: techTimeZone,
+  });
+  return Number((result as { insertId: number }).insertId);
+}
+
+export async function deleteCalendarEvent(eventId: number, techId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(calendarEvents).where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.techId, techId)));
+}
+
+export async function getTechnicianCalendar(techId: number, range: CalendarRange) {
+  assertCalendarRange(range);
+  const db = await getDb();
+  if (!db) return { timeZone: "UTC", bookings: [], events: [], blocks: [], lastMinuteSlots: [], weeklySchedule: [] };
+  const timeZone = await getTechTimeZone(db, techId);
+  const { start, end } = getCalendarRangeBounds(range, timeZone);
+  const [bookingsInRange, events, blocks, lastMinuteInRange, weeklySchedule] = await Promise.all([
+    db.select({ booking: bookings, client: users, addonService: techServices })
+      .from(bookings)
+      .leftJoin(users, eq(bookings.clientId, users.id))
+      .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
+      .where(and(
+        eq(bookings.techId, techId),
+        gte(bookings.scheduledAt, start),
+        lt(bookings.scheduledAt, end),
+        inArray(bookings.status, ["pending", "confirmed", "in_progress", "completed", "payment_due", "disputed", "declined", "cancelled", "no_show"]),
+      ))
+      .orderBy(bookings.scheduledAt),
+    getCalendarEventsForRange(techId, range),
+    db.select().from(scheduleBlocks).where(and(eq(scheduleBlocks.techId, techId), gte(scheduleBlocks.blockDate, start), lt(scheduleBlocks.blockDate, end))).orderBy(scheduleBlocks.blockDate),
+    db.select().from(lastMinuteSlots).where(and(eq(lastMinuteSlots.techId, techId), gte(lastMinuteSlots.slotDate, range.fromLocalDate), lte(lastMinuteSlots.slotDate, range.toLocalDate))).orderBy(lastMinuteSlots.slotDate),
+    getWeeklySchedule(techId),
+  ]);
+  return { timeZone, bookings: bookingsInRange, events, blocks, lastMinuteSlots: lastMinuteInRange, weeklySchedule };
+}
+
+export async function getAvailabilityOverrideConflicts(techId: number, input: Pick<CalendarEventInput, "localDate" | "startTime" | "endTime" | "timeZone">) {
+  if (!input.localDate) throw new Error("Availability overrides need a date.");
+  const db = await getDb();
+  if (!db) return [];
+  const timeZone = await getTechTimeZone(db, techId);
+  const start = getZonedDateTimeEpoch(input.localDate, input.startTime, timeZone);
+  const end = getZonedDateTimeEpoch(input.localDate, input.endTime, timeZone);
+  const candidates = await db
+    .select({ booking: bookings, client: users, addonService: techServices })
+    .from(bookings)
+    .leftJoin(users, eq(bookings.clientId, users.id))
+    .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
+    .where(and(
+      eq(bookings.techId, techId),
+      inArray(bookings.status, ["pending", "confirmed"]),
+      lt(bookings.scheduledAt, new Date(end)),
+    ));
+  return candidates.filter(({ booking }) => intervalsOverlap(
+    booking.scheduledAt.getTime(), booking.scheduledAt.getTime() + booking.duration * 60_000,
+    start, end,
+  ));
+}
+
+export async function applyCalendarAvailabilityOverride(input: {
+  techId: number;
+  event: CalendarEventInput;
+  expectedBookingIds: number[];
+  cancellationReason?: string;
+}) {
+  if (input.event.kind !== "unavailable" || input.event.recurrence !== "once" || !input.event.localDate) {
+    throw new Error("Availability overrides must be one-time unavailable events.");
+  }
+  const conflicts = await getAvailabilityOverrideConflicts(input.techId, input.event);
+  const actualIds = conflicts.map(({ booking }) => booking.id).sort((a, b) => a - b);
+  const expectedIds = Array.from(new Set(input.expectedBookingIds)).sort((a, b) => a - b);
+  if (actualIds.length !== expectedIds.length || actualIds.some((id, index) => id !== expectedIds[index])) {
+    const error = new Error("Schedule changed. Review the updated conflicts before applying this override.");
+    (error as Error & { code?: string }).code = "CONFLICT_SET_CHANGED";
+    throw error;
+  }
+  if (actualIds.length > 0 && (!input.cancellationReason || input.cancellationReason.trim().length < 10)) {
+    throw new Error("Add a brief reason before cancelling affected appointments.");
+  }
+  const eventId = await createCalendarEvent(input.techId, input.event);
+  // Once the blackout exists, normal booking creation sees it immediately. Do
+  // one final conflict read before any cancellation so a request that was
+  // already in flight cannot be silently left inside the new unavailable time.
+  const finalConflicts = await getAvailabilityOverrideConflicts(input.techId, input.event);
+  const finalIds = finalConflicts.map(({ booking }) => booking.id).sort((a, b) => a - b);
+  if (finalIds.length !== expectedIds.length || finalIds.some((id, index) => id !== expectedIds[index])) {
+    await deleteCalendarEvent(eventId, input.techId);
+    const error = new Error("Schedule changed. Review the updated conflicts before applying this override.");
+    (error as Error & { code?: string }).code = "CONFLICT_SET_CHANGED";
+    throw error;
+  }
+  const db = await getDb();
+  if (!db) throw new Error("Database connection is unavailable");
+  const cancelledAt = new Date();
+  if (finalIds.length > 0) {
+    await db.update(bookings).set({
+      status: "cancelled",
+      cancelledBy: "tech",
+      cancelledAt,
+      cancellationReason: input.cancellationReason!.trim(),
+      calendarOverrideEventId: eventId,
+      cancellationFeeStatus: "none",
+      cancellationFeeAmount: null,
+    }).where(and(eq(bookings.techId, input.techId), inArray(bookings.id, finalIds), inArray(bookings.status, ["pending", "confirmed"])));
+  }
+  return { eventId, conflicts: finalConflicts };
+}
+
 export async function updateBookingStatus(
   bookingId: number,
   status: "confirmed" | "declined" | "cancelled" | "completed",
@@ -1979,8 +2161,12 @@ export async function getAvailableSlots(
       gt(lastMinuteSlots.expiresAt, Date.now()),
     ));
 
+  const calendarEventsForDate = await getCalendarEventsForLocalDate(techId, dateStr);
+  const calendarAvailableEvents = calendarEventsForDate.filter((event) => event.kind === "available");
+  const calendarUnavailableEvents = calendarEventsForDate.filter((event) => event.kind === "unavailable");
+
   const av = avRows[0];
-  if (!av && lastMinuteRows.length === 0) return [];
+  if (!av && lastMinuteRows.length === 0 && calendarAvailableEvents.length === 0) return [];
 
   const bufferMins = av?.bufferMinutes ?? 0;
   const selectedServiceRows = av
@@ -1989,7 +2175,7 @@ export async function getAvailableSlots(
       .from(availabilityServiceSelections)
       .where(eq(availabilityServiceSelections.availabilityId, av.id))
     : [];
-  const isServiceEligible = !av || areServicesAvailableForDay(
+  const isRecurringServiceEligible = !av || areServicesAvailableForDay(
     selectedServiceRows.map((selection) => selection.techServiceId),
     requestedServiceIds,
   );
@@ -2003,6 +2189,7 @@ export async function getAvailableSlots(
   const availabilityWindows = mergeAvailabilityWindows([
     ...(av ? [{ start: timeToMinutes(av.startTime), end: timeToMinutes(av.endTime) }] : []),
     ...lastMinuteRows.map((slot) => ({ start: timeToMinutes(slot.startTime), end: timeToMinutes(slot.endTime) })),
+    ...calendarAvailableEvents.map((event) => ({ start: timeToMinutes(event.startTime), end: timeToMinutes(event.endTime) })),
   ]);
   const workStart = Math.min(...availabilityWindows.map((window) => window.start));
   const workEnd = Math.max(...availabilityWindows.map((window) => window.end));
@@ -2050,6 +2237,10 @@ export async function getAvailableSlots(
 
   for (const bl of blocks) {
     blocked.push({ start: timeToMinutes(bl.startTime), end: timeToMinutes(bl.endTime), reason: "blocked" });
+  }
+
+  for (const event of calendarUnavailableEvents) {
+    blocked.push({ start: timeToMinutes(event.startTime), end: timeToMinutes(event.endTime), reason: "blocked" });
   }
 
   // Add break as a blocked interval
@@ -2100,7 +2291,10 @@ export async function getAvailableSlots(
     // meets the tier requirement for this specific time window.
     let tierReason: string | undefined;
     if (!doesntFit && !isBlocked && !isPast && clientId !== undefined) {
-      const tier = await getClientTierForSlot(techId, dateStr, toTime(t));
+      const calendarTier = calendarAvailableEvents
+        .filter((event) => t >= timeToMinutes(event.startTime) && t < timeToMinutes(event.endTime))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.clientTier;
+      const tier = calendarTier ?? await getClientTierForSlot(techId, dateStr, toTime(t));
       if (tier === "returning_only") {
         const isReturning = await isReturningClient(clientId, techId);
         if (!isReturning) {
@@ -2109,7 +2303,10 @@ export async function getAvailableSlots(
       }
     }
 
-    const serviceReason = isServiceEligible ? undefined : "service_unavailable";
+    // Service selection remains a day-wide recurring setting. Calendar work
+    // hours extend time availability only; they never bypass a technician's
+    // chosen services for that weekday.
+    const serviceReason = isRecurringServiceEligible ? undefined : "service_unavailable";
     const finalReason = reason ?? tierReason ?? serviceReason;
     slots.push({
       time: toTime(t),
@@ -2157,7 +2354,9 @@ export async function getMonthBookableStatus(
       sql`${lastMinuteSlots.slotDate} <= ${monthEndDateStr}`,
     ));
 
-  if (avRows.length === 0 && activeLastMinuteRows.length === 0) return {};
+  const calendarEventRows = await getCalendarEventsForRange(techId, { fromLocalDate: monthStartDateStr, toLocalDate: monthEndDateStr });
+  const hasCalendarAvailability = calendarEventRows.some((event) => event.kind === "available");
+  if (avRows.length === 0 && activeLastMinuteRows.length === 0 && !hasCalendarAvailability) return {};
 
   const selectionRows = await db
     .select({ availabilityId: availabilityServiceSelections.availabilityId, techServiceId: availabilityServiceSelections.techServiceId })
@@ -2182,7 +2381,8 @@ export async function getMonthBookableStatus(
     const date = new Date(year, month - 1, d);
     const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     if (dateStr < todayStr) continue;
-    if (workingDowSet.has(date.getDay())) workingDates.push(dateStr);
+    const hasCalendarAvailabilityForDate = calendarEventRows.some((event) => event.kind === "available" && eventAppliesOnDate(event, dateStr));
+    if (workingDowSet.has(date.getDay()) || hasCalendarAvailabilityForDate) workingDates.push(dateStr);
   }
 
   const lastMinuteWindowsByDate = new Map<string, Array<{ start: number; end: number }>>();
@@ -2233,6 +2433,13 @@ export async function getMonthBookableStatus(
     const [y, mo, day] = dateStr.split("-").map(Number);
     const dow = new Date(y, mo - 1, day).getDay();
     const av = avRows.find(a => a.dayOfWeek === dow);
+    const calendarEventsForDate = calendarEventRows.filter((event) => eventAppliesOnDate(event, dateStr));
+    const calendarAvailableEvents = calendarEventsForDate.filter((event) => event.kind === "available");
+    const calendarUnavailableEvents = calendarEventsForDate.filter((event) => event.kind === "unavailable");
+    if (!av && !lastMinuteWindowsByDate.has(dateStr) && calendarAvailableEvents.length === 0) {
+      result[dateStr] = false;
+      continue;
+    }
     if (av && !areServicesAvailableForDay(selectedServiceIdsByAvailabilityId.get(av.id) ?? [], requestedServiceIds)) {
       result[dateStr] = false;
       continue;
@@ -2242,6 +2449,7 @@ export async function getMonthBookableStatus(
     const availabilityWindows = mergeAvailabilityWindows([
       ...(av ? [{ start: timeToMinutes(av.startTime), end: timeToMinutes(av.endTime) }] : []),
       ...(lastMinuteWindowsByDate.get(dateStr) ?? []),
+      ...calendarAvailableEvents.map((event) => ({ start: timeToMinutes(event.startTime), end: timeToMinutes(event.endTime) })),
     ]);
     const workStart = Math.min(...availabilityWindows.map((window) => window.start));
     const workEnd = Math.max(...availabilityWindows.map((window) => window.end));
@@ -2264,6 +2472,9 @@ export async function getMonthBookableStatus(
       if (bDate.year === y && bDate.month === mo && bDate.day === day) {
         blocked.push({ start: toMins(bl.startTime), end: toMins(bl.endTime) });
       }
+    }
+    for (const event of calendarUnavailableEvents) {
+      blocked.push({ start: toMins(event.startTime), end: toMins(event.endTime) });
     }
 
     if (breakStart !== null && breakEnd !== null) {

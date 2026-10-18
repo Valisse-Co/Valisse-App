@@ -730,3 +730,11 @@
 - [x] Replace visible custom switches with one accessible toggle component whose thumb starts left when off and stays within its track when on
 - [x] Standardize the shared privacy and notification switches to the same geometry
 - [x] Validate toggle behavior visually, run regression checks, and save a checkpoint
+
+## Unified Technician Calendar Workspace
+- [x] Build one private Calendar workspace linked from both technician Schedule and Bookings, defaulting to Sunday-first Week view with Day and Month controls
+- [x] Aggregate work hours/client tiers, unavailable time and days, pending and confirmed appointments, last-minute openings, and historical completed appointments
+- [x] Add calendar event details with client, services, inspiration, notes, messaging, and relevant appointment actions
+- [x] Support one-time and recurring work-hour/unavailable-time edits, full-day closures, and client-tier controls from the calendar
+- [x] Require a technician reason and explicit confirmation before an availability override cancels conflicting client appointments; notify clients in-app and by SMS with a rescheduling link
+- [x] Add calendar data contracts, availability validation, regression coverage, responsive UI validation, and a checkpoint

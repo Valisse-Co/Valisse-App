@@ -20,4 +20,7 @@ export const ENV = {
   telnyxMessagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID ?? "",
   telnyxSenderNumber: process.env.TELNYX_SENDER_NUMBER ?? "",
   telnyxPublicKey: process.env.TELNYX_PUBLIC_KEY ?? "",
+  // Never derive SMS deep links from a browser-provided origin. This canonical
+  // production base can be overridden by secure deployment configuration.
+  publicAppUrl: (process.env.VALISSE_PUBLIC_APP_URL ?? "https://www.valisseco.com").replace(/\/+$/, ""),
 };

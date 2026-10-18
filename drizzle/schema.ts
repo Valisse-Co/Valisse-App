@@ -278,6 +278,27 @@ export const scheduleBlocks = mysqlTable("schedule_blocks", {
 
 export type ScheduleBlock = typeof scheduleBlocks.$inferSelect;
 
+// ─── Calendar Events ─────────────────────────────────────────────────────────
+// Local date/time values are intentional: technicians create schedule events in
+// their own IANA time zone, while booking instants remain UTC timestamps.
+export const calendarEvents = mysqlTable("calendar_events", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull(),
+  kind: mysqlEnum("kind", ["available", "unavailable"]).notNull(),
+  recurrence: mysqlEnum("recurrence", ["once", "weekly"]).notNull(),
+  localDate: varchar("localDate", { length: 10 }), // one-time YYYY-MM-DD
+  dayOfWeek: int("dayOfWeek"), // weekly 0=Sun … 6=Sat
+  startTime: varchar("startTime", { length: 5 }).notNull(),
+  endTime: varchar("endTime", { length: 5 }).notNull(),
+  clientTier: mysqlEnum("clientTier", ["open", "returning_only"]).default("open").notNull(),
+  title: varchar("title", { length: 160 }),
+  timeZone: varchar("timeZone", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CalendarEvent = typeof calendarEvents.$inferSelect;
+
 // ─── Last-Minute Slots ────────────────────────────────────────────────────────
 export const lastMinuteSlots = mysqlTable("last_minute_slots", {
   id: int("id").autoincrement().primaryKey(),
@@ -312,6 +333,8 @@ export const bookings = mysqlTable("bookings", {
   // Cancellation tracking
   cancelledBy: mysqlEnum("cancelledBy", ["client", "tech"]),
   cancelledAt: timestamp("cancelledAt"),
+  cancellationReason: text("cancellationReason"),
+  calendarOverrideEventId: int("calendarOverrideEventId"),
   cancellationFeeStatus: mysqlEnum("cancellationFeeStatus", ["none", "pending", "waived", "charged"]).default("none").notNull(),
   cancellationFeeAmount: float("cancellationFeeAmount"), // resolved fee in dollars at time of cancel
   // Smart Service Match

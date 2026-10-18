@@ -18,6 +18,7 @@ import Chat from "./pages/Chat";
 import TechDashboard from "./pages/TechDashboard";
 import CreatePost from "./pages/CreatePost";
 import TechBookings from "./pages/TechBookings";
+import TechCalendar from "./pages/TechCalendar";
 import Subscription from "./pages/Subscription";
 import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
@@ -204,6 +205,9 @@ function Router() {
         </Route>
         <Route path="/tech-bookings">
           <AppLayout><TechBookings /></AppLayout>
+        </Route>
+        <Route path="/tech-calendar">
+          <AppLayout><TechCalendar /></AppLayout>
         </Route>
         <Route path="/subscription">
           <AppLayout><Subscription /></AppLayout>
