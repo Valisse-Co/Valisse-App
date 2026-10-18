@@ -126,6 +126,34 @@ export async function chargeSavedCard(params: {
   }, { idempotencyKey: `valisse_booking_${params.bookingId}_${params.kind}` });
 }
 
+/** Charges one technician-confirmed fee case. The immutable event ID is the retry boundary. */
+export async function chargeAppointmentFee(params: {
+  feeEventId: number;
+  bookingId: number;
+  customerId: string;
+  amountInCents: number;
+  feeType: "cancellation" | "late_arrival" | "no_show";
+  mode?: StripePaymentMode;
+}) {
+  const stripe = getStripe(params.mode);
+  const paymentMethod = await getSavedCardPaymentMethod(params.customerId, params.mode);
+  return stripe.paymentIntents.create({
+    amount: params.amountInCents,
+    currency: "usd",
+    customer: params.customerId,
+    payment_method: paymentMethod,
+    payment_method_types: ["card"],
+    off_session: true,
+    confirm: true,
+    metadata: {
+      booking_id: String(params.bookingId),
+      fee_event_id: String(params.feeEventId),
+      fee_type: params.feeType,
+      kind: "appointment_fee",
+    },
+  }, { idempotencyKey: `valisse_fee_event_${params.feeEventId}_charge` });
+}
+
 export async function createTipPaymentIntent(params: { bookingId: number; customerId: string; amountInCents: number; mode?: StripePaymentMode }) {
   const stripe = getStripe(params.mode);
   return stripe.paymentIntents.create({
@@ -159,20 +187,27 @@ export async function verifyTipPaymentIntent(params: {
   return intent;
 }
 
-/** Refunds a captured appointment or tip payment without crossing Stripe environments. */
+/** Refunds a captured appointment, tip, or confirmed fee without crossing Stripe environments. */
 export async function refundPaymentIntent(params: {
   paymentIntentId: string;
   amountInCents: number;
   bookingId: number;
-  kind: "service_issue_refund" | "tip_issue_refund";
+  kind: "service_issue_refund" | "tip_issue_refund" | "appointment_fee_refund";
+  feeEventId?: number;
   mode?: StripePaymentMode;
 }) {
   const stripe = getStripe(params.mode);
   return stripe.refunds.create({
     payment_intent: params.paymentIntentId,
     amount: params.amountInCents,
-    metadata: { booking_id: String(params.bookingId), kind: params.kind },
-  }, { idempotencyKey: `valisse_booking_${params.bookingId}_${params.kind}_${params.amountInCents}` });
+    metadata: {
+      booking_id: String(params.bookingId),
+      ...(params.feeEventId ? { fee_event_id: String(params.feeEventId) } : {}),
+      kind: params.kind,
+    },
+  }, { idempotencyKey: params.feeEventId
+    ? `valisse_fee_event_${params.feeEventId}_refund`
+    : `valisse_booking_${params.bookingId}_${params.kind}_${params.amountInCents}` });
 }
 
 /**
@@ -250,4 +285,36 @@ export async function releaseBookingPayout(params: {
   }
 
   return transfer;
+}
+
+/**
+ * Releases the exact confirmed fee after its 24-hour review window. Appointment
+ * fees are not service revenue, so they are transferred in full to the tech.
+ */
+export async function releaseAppointmentFeePayout(params: {
+  feeEventId: number;
+  bookingId: number;
+  techAccountId: string;
+  paymentIntentId: string;
+  amountInCents: number;
+  mode?: StripePaymentMode;
+}) {
+  const stripe = getStripe(params.mode);
+  const payment = await stripe.paymentIntents.retrieve(params.paymentIntentId);
+  const chargeId = typeof payment.latest_charge === "string" ? payment.latest_charge : payment.latest_charge?.id;
+  if (payment.status !== "succeeded" || !chargeId) {
+    throw new Error("The appointment fee does not have a transferable successful charge.");
+  }
+  return stripe.transfers.create({
+    amount: params.amountInCents,
+    currency: "usd",
+    destination: params.techAccountId,
+    source_transaction: chargeId,
+    transfer_group: `valisse_fee_event_${params.feeEventId}`,
+    metadata: {
+      booking_id: String(params.bookingId),
+      fee_event_id: String(params.feeEventId),
+      kind: "appointment_fee_payout",
+    },
+  }, { idempotencyKey: `valisse_fee_event_${params.feeEventId}_payout` });
 }

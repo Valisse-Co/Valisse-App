@@ -714,3 +714,14 @@
 - [x] Remove the unwanted native number-stepper control from the technician dashboard service editor
 - [x] Position Subscribe, Book a Look, and Message directly below the technician bio and above Services
 - [x] Validate the responsive profile layout, run tests, and save a checkpoint
+
+## Custom Cancellation, Late Arrival, and No-Show Fees
+- [x] Add separate technician-controlled cancellation, late-arrival, and no-show rules, all disabled by default
+- [x] Support minutes or rounded percent-of-final-duration eligibility thresholds and flat or percent-of-final-total fee amounts
+- [x] Snapshot the accepted policy and acknowledgment on booking requests, then show the summary and required agreement before submission
+- [x] Record arrival through the client code, surface tech-confirmed fee eligibility, and send client in-app/SMS notices
+- [x] Charge eligible fees idempotently using saved-card safeguards, preserve client dispute and administrator refund/uphold resolution
+- [x] Cover policy calculations and lifecycle safeguards with regression tests, validate without live charges, and save a checkpoint
+
+## Dashboard Scrollbar Cleanup
+- [x] Hide the visible native scrollbar arrows on the technician dashboard tab strip

@@ -325,7 +325,7 @@ export default function TechDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border px-4 overflow-x-auto">
+      <div className="flex border-b border-border px-4 overflow-x-auto scrollbar-hide">
         {(["overview", "posts", "slots"] as const).map(tab => (
           <button
             key={tab}

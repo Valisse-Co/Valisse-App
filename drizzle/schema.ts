@@ -305,7 +305,7 @@ export const bookings = mysqlTable("bookings", {
   addonServiceId: int("addonServiceId"),
   scheduledAt: timestamp("scheduledAt").notNull(),
   duration: int("duration").default(60).notNull(), // minutes
-  status: mysqlEnum("status", ["pending", "confirmed", "in_progress", "completed", "payment_due", "disputed", "declined", "cancelled"]).default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "confirmed", "in_progress", "completed", "payment_due", "disputed", "declined", "cancelled", "no_show"]).default("pending").notNull(),
   depositPaid: boolean("depositPaid").default(false).notNull(),
   notes: text("notes"),
   techNotes: text("techNotes"),
@@ -326,8 +326,17 @@ export const bookings = mysqlTable("bookings", {
   appointmentCodeSmsSentAt: timestamp("appointmentCodeSmsSentAt"),
   appointmentCodeFailures: int("appointmentCodeFailures").default(0).notNull(),
   appointmentCodeLockedUntil: timestamp("appointmentCodeLockedUntil"),
+  // Client-code verification is the server-authoritative arrival signal for
+  // late-arrival and no-show fee eligibility.
+  arrivedAt: timestamp("arrivedAt"),
+  arrivalMethod: mysqlEnum("arrivalMethod", ["client_code"]),
   startedAt: timestamp("startedAt"),
   completedAt: timestamp("completedAt"),
+  // The fee rules and acknowledgement visible when the client requested this
+  // booking. Later technician settings changes must not rewrite accepted terms.
+  feePolicyVersion: varchar("feePolicyVersion", { length: 1024 }),
+  feePolicySnapshot: json("feePolicySnapshot").$type<Record<string, unknown>>(),
+  feePolicyAcknowledgedAt: timestamp("feePolicyAcknowledgedAt"),
   // Stripe identifiers plus business workflow state. No card data, payment amount, or Stripe status is duplicated locally.
   stripeSetupIntentId: varchar("stripeSetupIntentId", { length: 255 }).unique(),
   stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }),
@@ -562,6 +571,69 @@ export const cancellationPolicies = mysqlTable("cancellation_policies", {
 
 export type CancellationPolicy = typeof cancellationPolicies.$inferSelect;
 export type InsertCancellationPolicy = typeof cancellationPolicies.$inferInsert;
+
+// ─── Appointment Fee Rules ────────────────────────────────────────────────────
+// New policy model. Each rule is independently enabled and starts disabled for
+// every technician, including brand-new accounts.
+export const appointmentFeeRules = mysqlTable("appointment_fee_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  techId: int("techId").notNull(),
+  ruleType: mysqlEnum("ruleType", ["cancellation", "late_arrival", "no_show"]).notNull(),
+  enabled: boolean("enabled").default(false).notNull(),
+  // Cancellation uses noticeHours; late arrival and no-show use the threshold fields.
+  noticeHours: int("noticeHours").default(24).notNull(),
+  gracePeriodMinutes: int("gracePeriodMinutes").default(60).notNull(),
+  thresholdMode: mysqlEnum("thresholdMode", ["fixed_minutes", "percent_of_final_duration"]).default("fixed_minutes").notNull(),
+  thresholdValue: int("thresholdValue").default(15).notNull(),
+  feeType: mysqlEnum("feeType", ["flat", "percent_service_total"]).default("flat").notNull(),
+  flatFeeInCents: int("flatFeeInCents").default(0).notNull(),
+  feePercentBasisPoints: int("feePercentBasisPoints").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueTechRule: unique().on(t.techId, t.ruleType),
+}));
+
+export type AppointmentFeeRule = typeof appointmentFeeRules.$inferSelect;
+
+// One immutable case per booking/rule type. This deliberately stays separate
+// from the service-payment dispute state on `bookings`.
+export const bookingFeeEvents = mysqlTable("booking_fee_events", {
+  id: int("id").autoincrement().primaryKey(),
+  bookingId: int("bookingId").notNull(),
+  clientId: int("clientId").notNull(),
+  techId: int("techId").notNull(),
+  feeType: mysqlEnum("feeType", ["cancellation", "late_arrival", "no_show"]).notNull(),
+  status: mysqlEnum("status", ["eligible_pending_tech", "voided_arrived", "waived", "charging", "charged", "charge_failed", "disputed", "upheld", "refunded"]).default("eligible_pending_tech").notNull(),
+  amountInCents: int("amountInCents").notNull(),
+  policySnapshot: json("policySnapshot").$type<Record<string, unknown>>().notNull(),
+  eligibleAt: timestamp("eligibleAt").notNull(),
+  eligibilityReason: text("eligibilityReason"),
+  notifiedAt: timestamp("notifiedAt"),
+  smsNotifiedAt: timestamp("smsNotifiedAt"),
+  techConfirmedAt: timestamp("techConfirmedAt"),
+  techConfirmedBy: int("techConfirmedBy"),
+  waivedAt: timestamp("waivedAt"),
+  waivedBy: int("waivedBy"),
+  chargedAt: timestamp("chargedAt"),
+  chargeFailureReason: text("chargeFailureReason"),
+  stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 255 }).unique(),
+  payoutEligibleAt: timestamp("payoutEligibleAt"),
+  payoutStatus: mysqlEnum("payoutStatus", ["not_ready", "pending_dispute_window", "on_hold", "released", "failed"]).default("not_ready").notNull(),
+  stripeTransferId: varchar("stripeTransferId", { length: 255 }),
+  clientDisputedAt: timestamp("clientDisputedAt"),
+  clientDisputeReason: text("clientDisputeReason"),
+  adminResolvedAt: timestamp("adminResolvedAt"),
+  adminResolvedBy: int("adminResolvedBy"),
+  adminResolutionNote: text("adminResolutionNote"),
+  stripeRefundId: varchar("stripeRefundId", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  uniqueBookingFee: unique().on(t.bookingId, t.feeType),
+}));
+
+export type BookingFeeEvent = typeof bookingFeeEvents.$inferSelect;
 
 // ─── Tech Services ────────────────────────────────────────────────────────────
 // Each nail tech can define their offered services with price, duration, and photo.

@@ -26,6 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
   declined: "bg-muted text-muted-foreground border border-border",
   cancelled: "bg-muted text-muted-foreground border border-border",
   completed: "bg-accent text-accent-foreground border border-border",
+  no_show: "bg-red-100 text-red-700 border border-red-200",
 };
 
 // ─── Cancel Confirmation Dialog ───────────────────────────────────────────────
@@ -39,7 +40,6 @@ interface CancelDialogProps {
 function CancelDialog({ bookingId, techId, onClose, onConfirmed }: CancelDialogProps) {
   const { data: preview, isLoading } = trpc.cancellation.previewFee.useQuery({
     bookingId,
-    servicePrice: null,
   });
 
   const cancel = trpc.cancellation.cancel.useMutation({
@@ -56,7 +56,7 @@ function CancelDialog({ bookingId, techId, onClose, onConfirmed }: CancelDialogP
     onError: () => toast.error("Failed to cancel booking. Please try again."),
   });
 
-  const handleConfirm = () => cancel.mutate({ bookingId, servicePrice: null });
+  const handleConfirm = () => cancel.mutate({ bookingId });
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
@@ -166,7 +166,9 @@ function ClientAppointmentTools({ bookingId, status, scheduledAt, paymentStatus,
   const utils = trpc.useUtils();
   const { data: code } = trpc.appointment.clientCode.useQuery({ bookingId }, { enabled: status === "confirmed" });
   const tipSummary = trpc.appointment.tipSummary.useQuery({ bookingId }, { enabled: paymentStatus === "paid" && payoutStatus === "pending_dispute_window" });
+  const { data: feeContext } = trpc.appointmentFees.forBooking.useQuery({ bookingId });
   const [issueOpen, setIssueOpen] = useState(false);
+  const [feeIssueEvent, setFeeIssueEvent] = useState<any | null>(null);
   const [reason, setReason] = useState("");
   const [tipOpen, setTipOpen] = useState(false);
   const [tipClientSecret, setTipClientSecret] = useState<string | null>(null);
@@ -194,14 +196,20 @@ function ClientAppointmentTools({ bookingId, status, scheduledAt, paymentStatus,
     onSuccess: () => { toast.success("Issue reported. The payout is paused for review."); setIssueOpen(false); setReason(""); onChanged(); },
     onError: (error) => toast.error(error.message || "Could not report this issue."),
   });
+  const reportFeeIssue = trpc.appointmentFees.dispute.useMutation({
+    onSuccess: () => { toast.success("Appointment fee issue reported for administrator review."); setFeeIssueEvent(null); setReason(""); utils.appointmentFees.forBooking.invalidate({ bookingId }); onChanged(); },
+    onError: (error) => toast.error(error.message || "Could not report this appointment fee issue."),
+  });
 
   return <>
     {status === "confirmed" && !code?.available && <div className="mt-3 rounded-xl border border-border bg-muted/40 p-3"><p className="text-xs font-semibold text-foreground">Appointment check-in</p><p className="mt-0.5 text-xs text-muted-foreground">Your six-digit check-in code will appear here 24 hours before {new Date(scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Share it only with your nail tech when they are ready to begin.</p></div>}
     {code?.available && code.code && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3"><div className="flex items-start gap-2"><Shield size={15} className="mt-0.5 text-primary" /><div><p className="text-xs font-semibold text-foreground">Your appointment check-in code</p><p className="mt-0.5 text-xs text-muted-foreground">Show this code to your nail tech when your service begins. Do not share it before you are together.</p><p className="mt-2 font-mono text-2xl font-bold tracking-[0.35em] text-primary">{code.code}</p></div></div></div>}
     {status === "in_progress" && <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5"><p className="text-xs font-semibold text-violet-800">Your appointment is in progress</p><p className="mt-0.5 text-xs text-violet-700">Your tech verified your code. When the service is complete, your approved total will be charged and you can choose to add a tip.</p></div>}
     {status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-800">Payment needed</p><p className="mt-1 text-xs text-amber-700">Update your saved card to settle this completed appointment before making another booking request.</p><button onClick={() => startPaymentSetup.mutate({ bookingId })} disabled={startPaymentSetup.isPending} className="mt-2 w-full rounded-full bg-amber-700 py-2 text-xs font-semibold text-white disabled:opacity-50">{startPaymentSetup.isPending ? "Preparing…" : "Update payment method"}</button></div>}
+    {(feeContext?.events ?? []).map((event: any) => <div key={event.id} className={cn("mt-3 rounded-xl border p-3", event.status === "eligible_pending_tech" ? "border-amber-300 bg-amber-50" : event.status === "disputed" ? "border-destructive/30 bg-destructive/5" : "border-primary/20 bg-primary/5")}><p className="text-xs font-semibold text-foreground">{formatUsdCents(event.amountInCents)} {String(event.feeType).replace("_", " ")} fee</p>{event.status === "eligible_pending_tech" && <p className="mt-1 text-xs text-muted-foreground">This fee is eligible, but your nail tech must confirm or waive it before any charge is attempted.</p>}{event.status === "charged" && <><p className="mt-1 text-xs text-muted-foreground">This fee was confirmed by your nail tech and charged to your saved card. You can report an issue while the payout is on hold.</p><button onClick={() => { setReason(""); setFeeIssueEvent(event); }} className="mt-2 w-full rounded-full border border-destructive/30 py-2 text-xs font-medium text-destructive hover:bg-destructive/5">Report an issue with this fee</button></>}{event.status === "disputed" && <p className="mt-1 text-xs text-destructive/85">Your fee issue is under administrator review{event.clientDisputeReason ? `: ${event.clientDisputeReason}` : "."}</p>}{event.status === "refunded" && <p className="mt-1 text-xs text-primary">This appointment fee was refunded.</p>}{event.status === "waived" && <p className="mt-1 text-xs text-primary">Your nail tech waived this fee. No charge was made.</p>}</div>)}
     {paymentStatus === "paid" && payoutStatus === "pending_dispute_window" && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3"><p className="text-xs font-semibold text-foreground">Appointment complete</p><p className="mt-0.5 text-xs text-muted-foreground">Your service payment has been processed. You can choose a tip or report an issue within 24 hours.</p>{tipSummary.data?.canChooseTip && <div className="mt-3"><p className="text-xs font-medium text-foreground">Add a tip for your nail tech</p><div className="mt-2 grid grid-cols-3 gap-1.5">{tipSummary.data.standardOptions.map((option) => <button key={option.percent} onClick={() => createTip.mutate({ bookingId, amountInCents: option.amountInCents })} disabled={createTip.isPending} className="rounded-xl border border-primary/20 bg-background px-1.5 py-2 text-center text-xs font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"><span className="block">{option.percent}%</span><span className="block text-[10px] font-normal text-muted-foreground">{formatUsdCents(option.amountInCents)}</span></button>)}</div><div className="mt-1.5 grid grid-cols-2 gap-1.5"><button onClick={() => setCustomTipOpen(true)} disabled={createTip.isPending} className="rounded-xl border border-primary/30 bg-background py-2 text-xs font-semibold text-primary hover:bg-primary/10">Custom amount</button><button onClick={() => declineTip.mutate({ bookingId })} disabled={declineTip.isPending || createTip.isPending} className="rounded-xl border border-border bg-background py-2 text-xs font-medium text-muted-foreground hover:bg-muted">{declineTip.isPending ? "Saving…" : "No tip"}</button></div></div>}{(tipSummary.data?.tipStatus ?? tipStatus) === "paid" && <div className="mt-3 rounded-xl border border-primary/20 bg-background px-3 py-2"><p className="text-xs font-semibold text-primary">Tip sent</p><p className="mt-0.5 text-xs text-muted-foreground">{formatUsdCents(tipSummary.data?.tipAmountInCents ?? tipAmountInCents ?? 0)} goes entirely to your nail tech.</p></div>}{(tipSummary.data?.tipStatus ?? tipStatus) === "declined" && <p className="mt-3 text-xs text-muted-foreground">No tip was added for this appointment.</p>}<button onClick={() => setIssueOpen(true)} className="mt-3 w-full rounded-full border border-destructive/30 py-2 text-xs font-medium text-destructive hover:bg-destructive/5">Report an issue</button></div>}
     <Dialog open={issueOpen} onOpenChange={setIssueOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Report an appointment issue</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Tell us what happened. This pauses the nail tech’s payout while an administrator reviews the report.</p><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Describe the issue" className="min-h-28" /><Button variant="destructive" disabled={reason.trim().length < 10 || reportIssue.isPending} onClick={() => reportIssue.mutate({ bookingId, reason: reason.trim() })}>{reportIssue.isPending ? "Submitting…" : "Submit issue report"}</Button></DialogContent></Dialog>
+    <Dialog open={!!feeIssueEvent} onOpenChange={(open) => !open && setFeeIssueEvent(null)}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Report an appointment fee issue</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Tell us what happened. The fee payout stays on hold while an administrator reviews the decision with both parties.</p><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Describe the issue" className="min-h-28" /><Button variant="destructive" disabled={reason.trim().length < 5 || reportFeeIssue.isPending} onClick={() => feeIssueEvent && reportFeeIssue.mutate({ feeEventId: feeIssueEvent.id, reason: reason.trim() })}>{reportFeeIssue.isPending ? "Submitting…" : "Submit fee issue"}</Button></DialogContent></Dialog>
     <Dialog open={customTipOpen} onOpenChange={setCustomTipOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Choose a custom tip</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Enter an amount from $0.50 to $1,000.00. Every tip goes entirely to your nail tech.</p><div className="relative"><span className="absolute left-3 top-2.5 text-sm text-muted-foreground">$</span><Input inputMode="decimal" type="number" min="0.50" max="1000" step="0.01" className="pl-7" value={customTipAmount} onChange={(event) => setCustomTipAmount(event.target.value)} placeholder="0.00" /></div><Button disabled={createTip.isPending || !Number.isFinite(Number(customTipAmount)) || Number(customTipAmount) < 0.5 || Number(customTipAmount) > 1000} onClick={() => { const amountInCents = Math.round(Number(customTipAmount) * 100); setCustomTipOpen(false); createTip.mutate({ bookingId, amountInCents }); }}>{createTip.isPending ? "Preparing…" : "Continue to secure tip payment"}</Button></DialogContent></Dialog>
     <Dialog open={tipOpen} onOpenChange={setTipOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Send {formatUsdCents(selectedTipAmountInCents)} tip</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">This tip goes entirely to your nail tech and is released with their payout after the issue window.</p>{tipClientSecret && tipPaymentIntentId && selectedTipAmountInCents && <BookingTipDialog bookingId={bookingId} clientSecret={tipClientSecret} paymentIntentId={tipPaymentIntentId} amountInCents={selectedTipAmountInCents} stripeMode={tipStripeMode} onComplete={() => { setTipOpen(false); utils.appointment.tipSummary.invalidate({ bookingId }); onChanged(); }} />}</DialogContent></Dialog>
     <Dialog open={paymentSetupOpen} onOpenChange={setPaymentSetupOpen}><DialogContent className="max-w-md rounded-2xl"><DialogHeader><DialogTitle>Update payment method</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Save a different card to retry the outstanding appointment charge.</p>{paymentSetupClientSecret && <BookingPaymentSetup bookingId={bookingId} clientSecret={paymentSetupClientSecret} stripeMode={paymentSetupStripeMode} onComplete={() => { setPaymentSetupOpen(false); onChanged(); }} />}</DialogContent></Dialog>
@@ -255,7 +263,7 @@ export default function Bookings() {
   }) ?? [];
   const past = bookingsData?.filter(b => {
     const d = new Date((b.booking.scheduledAt as any));
-    return d < now || b.booking.status === "cancelled" || b.booking.status === "completed" || b.booking.status === "declined";
+    return d < now || b.booking.status === "cancelled" || b.booking.status === "completed" || b.booking.status === "declined" || b.booking.status === "no_show";
   }) ?? [];
 
   const displayed = tab === "upcoming" ? upcoming : past;
@@ -264,7 +272,7 @@ export default function Bookings() {
     if (!focusedBookingId || !bookingsData) return;
     const focused = bookingsData.find((row) => row.booking.id === focusedBookingId)?.booking;
     if (!focused) return;
-    const isPastBooking = new Date(focused.scheduledAt as any) < new Date() || ["cancelled", "completed", "declined"].includes(focused.status);
+    const isPastBooking = new Date(focused.scheduledAt as any) < new Date() || ["cancelled", "completed", "declined", "no_show"].includes(focused.status);
     setTab(isPastBooking ? "past" : "upcoming");
   }, [bookingsData, focusedBookingId]);
 

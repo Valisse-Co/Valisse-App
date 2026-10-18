@@ -232,6 +232,20 @@
       "when": 1791866999585,
       "tag": "0032_mean_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1792284731311,
+      "tag": "0033_hesitant_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1792285815809,
+      "tag": "0034_tranquil_maestro",
+      "breakpoints": true
     }
   ]
 }

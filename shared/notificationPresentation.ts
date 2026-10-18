@@ -33,6 +33,11 @@ export const BOOKING_NOTIFICATION_TYPES = new Set([
   "issue_resolved",
   "tip_received",
   "payout_released",
+  "appointment_fee_eligible",
+  "appointment_fee_charged",
+  "appointment_fee_waived",
+  "appointment_fee_disputed",
+  "appointment_fee_resolved",
 ]);
 
 export function isBookingNotification(type: string): boolean {
@@ -136,6 +141,11 @@ export function presentNotification(
     issue_resolved: `Appointment issue resolved for ${counterpart.name}`,
     tip_received: `${counterpart.name} added a tip`,
     payout_released: `Payout released for ${counterpart.name}'s appointment`,
+    appointment_fee_eligible: `Appointment fee awaiting review with ${counterpart.name}`,
+    appointment_fee_charged: `Appointment fee confirmed for ${counterpart.name}`,
+    appointment_fee_waived: `Appointment fee waived by ${counterpart.name}`,
+    appointment_fee_disputed: `Appointment fee issue reported by ${counterpart.name}`,
+    appointment_fee_resolved: `Appointment fee review complete for ${counterpart.name}`,
   };
 
   return {

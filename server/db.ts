@@ -36,6 +36,8 @@ import {
   notificationPreferences,
   privacySettings,
   blockedUsers,
+  appointmentFeeRules,
+  bookingFeeEvents,
   TechService,
   NotificationPreference,
   PrivacySettings,
@@ -56,6 +58,13 @@ import {
 import { canDiscoverAccount, getConversationPartner, getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
 import { filterVisibleLastMinuteNotifications, isBookingNotification, presentNotification } from "../shared/notificationPresentation";
+import {
+  APPOINTMENT_FEE_TYPES,
+  buildAppointmentFeePolicySnapshot,
+  getAppointmentFeePolicyVersion,
+  type AppointmentFeeRuleInput,
+  type AppointmentFeeType,
+} from "../shared/appointmentFeePolicy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1146,7 +1155,7 @@ export async function getTechPastBookings(techId: number) {
     .where(
       and(
         eq(bookings.techId, techId),
-        inArray(bookings.status, ["completed", "declined", "cancelled"])
+        inArray(bookings.status, ["completed", "declined", "cancelled", "no_show"])
       )
     )
     .orderBy(desc(bookings.scheduledAt));
@@ -2386,6 +2395,15 @@ export async function getBookingServiceTotalInCents(bookingId: number): Promise<
   return lines.reduce((total, line) => total + line.priceInCents, 0);
 }
 
+/** Uses immutable service snapshots; falls back to the persisted booking duration for legacy rows. */
+export async function getBookingServiceDurationMinutes(bookingId: number): Promise<number> {
+  const lines = await getBookingServiceLines(bookingId);
+  const fromLines = lines.reduce((total, line) => total + line.durationMinutes, 0);
+  if (fromLines > 0) return fromLines;
+  const booking = await getBookingById(bookingId);
+  return booking?.duration ?? 0;
+}
+
 export async function createBookingRevision(params: {
   bookingId: number;
   techId: number;
@@ -3001,6 +3019,230 @@ export async function waiveCancellationFee(bookingId: number, techId: number) {
     .update(bookings)
     .set({ cancellationFeeStatus: "waived" })
     .where(and(eq(bookings.id, bookingId), eq(bookings.techId, techId)));
+}
+
+// ─── Appointment Fee Policy + Events ─────────────────────────────────────────
+
+const DEFAULT_APPOINTMENT_FEE_RULES: AppointmentFeeRuleInput[] = APPOINTMENT_FEE_TYPES.map((ruleType) => ({
+  ruleType,
+  enabled: false,
+  noticeHours: 24,
+  gracePeriodMinutes: 60,
+  thresholdMode: "fixed_minutes",
+  thresholdValue: ruleType === "no_show" ? 30 : 15,
+  feeType: "flat",
+  flatFeeInCents: 0,
+  feePercentBasisPoints: 0,
+}));
+
+function toAppointmentFeeRuleInput(rule: typeof appointmentFeeRules.$inferSelect): AppointmentFeeRuleInput {
+  return {
+    ruleType: rule.ruleType as AppointmentFeeType,
+    enabled: rule.enabled,
+    noticeHours: rule.noticeHours,
+    gracePeriodMinutes: rule.gracePeriodMinutes,
+    thresholdMode: rule.thresholdMode,
+    thresholdValue: rule.thresholdValue,
+    feeType: rule.feeType,
+    flatFeeInCents: rule.flatFeeInCents,
+    feePercentBasisPoints: rule.feePercentBasisPoints,
+    updatedAt: rule.updatedAt,
+  };
+}
+
+/**
+ * Returns three independent rules. Existing paid legacy cancellation policies
+ * remain visible until a technician saves the new controls, while every new
+ * rule starts disabled.
+ */
+export async function getAppointmentFeePolicy(techId: number) {
+  const db = await getDb();
+  if (!db) return buildAppointmentFeePolicySnapshot(DEFAULT_APPOINTMENT_FEE_RULES);
+  const rows = await db.select().from(appointmentFeeRules).where(eq(appointmentFeeRules.techId, techId));
+  const configured = new Map(rows.map((rule) => [rule.ruleType, toAppointmentFeeRuleInput(rule)]));
+  const rules = DEFAULT_APPOINTMENT_FEE_RULES.map((defaultRule) => configured.get(defaultRule.ruleType) ?? { ...defaultRule });
+
+  // Preserve a legacy cancellation setting only until it is explicitly saved
+  // into the new independently toggleable model.
+  if (!configured.has("cancellation")) {
+    const legacy = await getCancellationPolicy(techId);
+    if (legacy?.feeAmount && legacy.feeAmount > 0) {
+      const cancellation = rules.find((rule) => rule.ruleType === "cancellation");
+      if (cancellation) {
+        cancellation.enabled = true;
+        cancellation.noticeHours = legacy.windowHours;
+        cancellation.gracePeriodMinutes = legacy.gracePeriodHours * 60;
+        cancellation.feeType = legacy.feeType === "percent" ? "percent_service_total" : "flat";
+        cancellation.flatFeeInCents = legacy.feeType === "flat" ? Math.round(legacy.feeAmount * 100) : 0;
+        cancellation.feePercentBasisPoints = legacy.feeType === "percent" ? Math.round(legacy.feeAmount * 100) : 0;
+        cancellation.updatedAt = legacy.updatedAt;
+      }
+    }
+  }
+  return buildAppointmentFeePolicySnapshot(rules);
+}
+
+export async function upsertAppointmentFeeRules(techId: number, rules: AppointmentFeeRuleInput[]) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const byType = new Map(rules.map((rule) => [rule.ruleType, rule]));
+  await Promise.all(APPOINTMENT_FEE_TYPES.map(async (ruleType) => {
+    const rule = byType.get(ruleType) ?? DEFAULT_APPOINTMENT_FEE_RULES.find((item) => item.ruleType === ruleType)!;
+    await db.insert(appointmentFeeRules).values({
+      techId,
+      ruleType,
+      enabled: rule.enabled,
+      noticeHours: rule.noticeHours,
+      gracePeriodMinutes: rule.gracePeriodMinutes,
+      thresholdMode: rule.thresholdMode,
+      thresholdValue: rule.thresholdValue,
+      feeType: rule.feeType,
+      flatFeeInCents: rule.flatFeeInCents,
+      feePercentBasisPoints: rule.feePercentBasisPoints,
+    }).onDuplicateKeyUpdate({
+      set: {
+        enabled: rule.enabled,
+        noticeHours: rule.noticeHours,
+        gracePeriodMinutes: rule.gracePeriodMinutes,
+        thresholdMode: rule.thresholdMode,
+        thresholdValue: rule.thresholdValue,
+        feeType: rule.feeType,
+        flatFeeInCents: rule.flatFeeInCents,
+        feePercentBasisPoints: rule.feePercentBasisPoints,
+      },
+    });
+  }));
+  return getAppointmentFeePolicy(techId);
+}
+
+export async function setBookingFeePolicyAcknowledgement(bookingId: number, snapshot: ReturnType<typeof buildAppointmentFeePolicySnapshot>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({
+    feePolicyVersion: snapshot.version,
+    feePolicySnapshot: snapshot as unknown as Record<string, unknown>,
+    feePolicyAcknowledgedAt: new Date(),
+  }).where(eq(bookings.id, bookingId));
+}
+
+export async function getBookingFeeEvents(bookingId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(bookingFeeEvents).where(eq(bookingFeeEvents.bookingId, bookingId)).orderBy(desc(bookingFeeEvents.createdAt));
+}
+
+export async function getBookingFeeEvent(eventId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [event] = await db.select().from(bookingFeeEvents).where(eq(bookingFeeEvents.id, eventId)).limit(1);
+  return event;
+}
+
+export async function createBookingFeeEvent(params: {
+  bookingId: number;
+  clientId: number;
+  techId: number;
+  feeType: AppointmentFeeType;
+  amountInCents: number;
+  policySnapshot: Record<string, unknown>;
+  eligibleAt: Date;
+  eligibilityReason: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const existing = await db.select().from(bookingFeeEvents).where(and(
+    eq(bookingFeeEvents.bookingId, params.bookingId),
+    eq(bookingFeeEvents.feeType, params.feeType),
+  )).limit(1);
+  if (existing[0]) return { event: existing[0], created: false };
+
+  try {
+    const [result] = await db.insert(bookingFeeEvents).values({
+      ...params,
+      status: "eligible_pending_tech",
+    });
+    const id = (result as any).insertId as number;
+    const [event] = await db.select().from(bookingFeeEvents).where(eq(bookingFeeEvents.id, id)).limit(1);
+    if (!event) throw new Error("Could not load the newly created fee event.");
+    return { event, created: true };
+  } catch (error) {
+    const [event] = await db.select().from(bookingFeeEvents).where(and(
+      eq(bookingFeeEvents.bookingId, params.bookingId),
+      eq(bookingFeeEvents.feeType, params.feeType),
+    )).limit(1);
+    if (event) return { event, created: false };
+    throw error;
+  }
+}
+
+export async function markBookingFeeEventNotified(eventId: number, channel: "in_app" | "sms") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(bookingFeeEvents).set(channel === "sms" ? { smsNotifiedAt: new Date() } : { notifiedAt: new Date() })
+    .where(eq(bookingFeeEvents.id, eventId));
+}
+
+export async function markBookingArrivedAndVoidPendingFees(bookingId: number, arrivedAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ status: "in_progress", startedAt: arrivedAt, arrivedAt, arrivalMethod: "client_code" })
+    .where(eq(bookings.id, bookingId));
+  await db.update(bookingFeeEvents).set({ status: "voided_arrived" }).where(and(
+    eq(bookingFeeEvents.bookingId, bookingId),
+    eq(bookingFeeEvents.status, "eligible_pending_tech"),
+    eq(bookingFeeEvents.feeType, "no_show"),
+  ));
+}
+
+export async function updateBookingFeeEvent(eventId: number, values: Partial<typeof bookingFeeEvents.$inferInsert>) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookingFeeEvents).set(values).where(eq(bookingFeeEvents.id, eventId));
+}
+
+export async function getFeeEventsReadyForPayout(now: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ event: bookingFeeEvents, tech: users }).from(bookingFeeEvents)
+    .leftJoin(users, eq(bookingFeeEvents.techId, users.id))
+    .where(and(
+      inArray(bookingFeeEvents.status, ["charged", "upheld"]),
+      eq(bookingFeeEvents.payoutStatus, "pending_dispute_window"),
+      lte(bookingFeeEvents.payoutEligibleAt, now),
+    ));
+}
+
+export async function getDisputedFeeEventsForAdmin() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ event: bookingFeeEvents, booking: bookings, client: users })
+    .from(bookingFeeEvents)
+    .leftJoin(bookings, eq(bookingFeeEvents.bookingId, bookings.id))
+    .leftJoin(users, eq(bookingFeeEvents.clientId, users.id))
+    .where(eq(bookingFeeEvents.status, "disputed"))
+    .orderBy(desc(bookingFeeEvents.clientDisputedAt));
+}
+
+/** Confirmed appointments that may cross a late/no-show threshold. */
+export async function getAttendanceFeeEligibilityCandidates(now: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(bookings).where(and(
+    eq(bookings.status, "confirmed"),
+    lte(bookings.scheduledAt, now),
+    isNull(bookings.arrivedAt),
+  ));
+}
+
+export async function markBookingNoShow(bookingId: number, techId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(bookings).set({ status: "no_show" }).where(and(
+    eq(bookings.id, bookingId),
+    eq(bookings.techId, techId),
+    eq(bookings.status, "confirmed"),
+    isNull(bookings.arrivedAt),
+  ));
 }
 
 /**

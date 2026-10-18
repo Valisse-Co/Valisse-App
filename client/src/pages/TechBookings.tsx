@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { getLocalDateInputRange } from "../../../shared/localDateInput";
 import { getBrowserTimeZone } from "@shared/lastMinuteBooking";
 import { formatUsdCents, formatUsdDollars } from "@shared/money";
+import { APPOINTMENT_FEE_TYPES, type AppointmentFeeRuleInput, type AppointmentFeeType } from "@shared/appointmentFeePolicy";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -41,6 +42,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string }> = {
   completed: { label: "Completed", bg: "bg-muted text-foreground" },
   declined:  { label: "Declined",  bg: "bg-muted text-muted-foreground" },
   cancelled: { label: "Cancelled", bg: "bg-muted text-muted-foreground" },
+  no_show: { label: "No-show", bg: "bg-red-100 text-red-700" },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -152,10 +154,26 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
   const [reviewExpanded, setReviewExpanded] = useState(false);
   const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
   const [startDialogOpen, setStartDialogOpen] = useState(false);
+  const [feeDecisionEvent, setFeeDecisionEvent] = useState<any | null>(null);
+  const [noShowReviewOpen, setNoShowReviewOpen] = useState(false);
   const [appointmentCode, setAppointmentCode] = useState("");
+  const { data: feeContext } = trpc.appointmentFees.forBooking.useQuery({ bookingId: booking.id });
+  const confirmFee = trpc.appointmentFees.confirm.useMutation({
+    onSuccess: () => { utils.appointmentFees.forBooking.invalidate({ bookingId: booking.id }); utils.bookings.timeline.invalidate(); utils.bookings.pastBookings.invalidate(); toast.success("Appointment fee charged and held for the 24-hour review window."); setFeeDecisionEvent(null); },
+    onError: (error) => toast.error(error.message || "The fee was not charged."),
+  });
+  const waiveFee = trpc.appointmentFees.waive.useMutation({
+    onSuccess: () => { utils.appointmentFees.forBooking.invalidate({ bookingId: booking.id }); toast.success("Appointment fee waived. No card charge was made."); setFeeDecisionEvent(null); },
+    onError: (error) => toast.error(error.message || "Could not waive this fee."),
+  });
+  const markNoShow = trpc.appointmentFees.markNoShow.useMutation({
+    onSuccess: () => { utils.appointmentFees.forBooking.invalidate({ bookingId: booking.id }); utils.bookings.timeline.invalidate(); utils.bookings.pastBookings.invalidate(); toast.success("No-show recorded. Review the eligible fee below before charging."); setNoShowReviewOpen(false); },
+    onError: (error) => toast.error(error.message || "Could not record the no-show."),
+  });
   const startAppointment = trpc.appointment.start.useMutation({
     onSuccess: () => {
       utils.bookings.timeline.invalidate();
+      utils.appointmentFees.forBooking.invalidate({ bookingId: booking.id });
       toast.success("Appointment started");
       setAppointmentCode("");
       setStartDialogOpen(false);
@@ -183,7 +201,7 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
         : booking.status === "pending"
           ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/30 dark:bg-amber-900/10"
           : "border-border",
-      isPast && booking.status !== "completed" && "opacity-60",
+      isPast && !["completed", "no_show"].includes(booking.status) && "opacity-60",
       highlighted && "ring-2 ring-primary ring-offset-2"
     )} id={`booking-${booking.id}`}>
       {/* Needs Review banner */}
@@ -290,9 +308,10 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           </button>
         </div>
       )}
-      {booking.status === "confirmed" && (isToday || !isPast) && (
+      {booking.status === "confirmed" && (
         <div className="mt-3 space-y-2">
           <div className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-2"><p className="text-xs font-semibold text-foreground">In-person check-in</p><p className="mt-0.5 text-xs text-muted-foreground">Ask the client for their six-digit Valisse code when they arrive. Code verification is available 30 minutes before the appointment.</p></div>
+          {feeContext?.attendance?.noShowEligible && <button onClick={() => setNoShowReviewOpen(true)} className="w-full rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-left text-xs"><span className="font-semibold text-destructive">Client has not checked in</span><span className="mt-0.5 block text-destructive/80">Mark as no-show to create an eligible fee for your review. No card will be charged yet.</span></button>}
           <div className="flex gap-2">
           <button
             onClick={() => setStartDialogOpen(true)}
@@ -324,6 +343,17 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           </div>
         </div>
       )}
+      {(feeContext?.events ?? []).filter((event: any) => ["eligible_pending_tech", "charge_failed"].includes(event.status)).map((event: any) => (
+        <div key={event.id} className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <p className="text-xs font-semibold text-amber-900">{formatUsdCents(event.amountInCents)} {String(event.feeType).replace("_", " ")} fee awaiting your decision</p>
+          <p className="mt-1 text-xs text-amber-800">{event.eligibilityReason || "The client was notified. Confirming attempts one saved-card charge; waiving makes no charge."}</p>
+          <div className="mt-2 flex gap-2"><button onClick={() => setFeeDecisionEvent(event)} className="flex-1 rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white">Review & confirm</button><button onClick={() => waiveFee.mutate({ feeEventId: event.id })} disabled={waiveFee.isPending} className="rounded-lg border border-amber-400 px-3 py-2 text-xs font-semibold text-amber-900">Waive</button></div>
+          {event.status === "charge_failed" && event.chargeFailureReason && <p className="mt-2 text-[11px] text-destructive">Last attempt: {event.chargeFailureReason}</p>}
+        </div>
+      ))}
+      {(feeContext?.events ?? []).filter((event: any) => event.status === "charged" || event.status === "upheld").map((event: any) => (
+        <div key={event.id} className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs"><p className="font-semibold text-primary">{formatUsdCents(event.amountInCents)} {String(event.feeType).replace("_", " ")} fee charged</p><p className="mt-1 text-muted-foreground">Payout is held through the client issue-review window{event.payoutStatus === "released" ? " and has been released." : "."}</p></div>
+      ))}
       {booking.status === "completed" && booking.payoutStatus === "pending_dispute_window" && <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2"><p className="text-xs font-semibold text-primary">Payout review window</p><p className="mt-0.5 text-xs text-muted-foreground">The client’s payment is captured. Your payout releases after the 24-hour issue window unless an issue is reported.</p></div>}
       {booking.status === "payment_due" && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2"><p className="text-xs font-semibold text-amber-800">Client payment needed</p><p className="mt-0.5 text-xs text-amber-700">The appointment is completed. The client must update their payment method before payout can begin.</p></div>}
       {booking.status === "disputed" && <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2"><p className="text-xs font-semibold text-destructive">Client reported an issue</p>{booking.issueReason && <p className="mt-1 text-xs text-destructive/90"><span className="font-semibold">Reported issue:</span> {booking.issueReason}</p>}<p className="mt-1 text-xs text-destructive/80">Payout is on hold while an administrator reviews the appointment.</p></div>}
@@ -334,6 +364,12 @@ function BookingCard({ booking, client, addonService, onConfirm, onDecline, onCa
           <Input inputMode="numeric" maxLength={6} value={appointmentCode} onChange={(event) => setAppointmentCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="text-center text-lg tracking-[0.35em]" />
           <Button disabled={appointmentCode.length !== 6 || startAppointment.isPending} onClick={() => startAppointment.mutate({ bookingId: booking.id, code: appointmentCode })}>{startAppointment.isPending ? "Verifying…" : "Start appointment"}</Button>
         </DialogContent>
+      </Dialog>
+      <Dialog open={noShowReviewOpen} onOpenChange={setNoShowReviewOpen}>
+        <DialogContent className="max-w-sm rounded-2xl"><DialogHeader><DialogTitle>Mark client as a no-show?</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">This records that the client did not verify their arrival after your configured threshold. It creates an eligible fee for your review, but it does not charge the client yet.</p><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setNoShowReviewOpen(false)}>Back</Button><Button variant="destructive" disabled={markNoShow.isPending} onClick={() => markNoShow.mutate({ bookingId: booking.id })}>{markNoShow.isPending ? "Recording…" : "Mark no-show"}</Button></div></DialogContent>
+      </Dialog>
+      <Dialog open={!!feeDecisionEvent} onOpenChange={(open) => !open && setFeeDecisionEvent(null)}>
+        <DialogContent className="max-w-sm rounded-2xl"><DialogHeader><DialogTitle>Confirm appointment fee</DialogTitle></DialogHeader>{feeDecisionEvent && <><div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm"><p className="font-semibold text-amber-900">Charge {formatUsdCents(feeDecisionEvent.amountInCents)}?</p><p className="mt-1 text-xs leading-relaxed text-amber-800">This attempts one off-session charge on the client’s saved card. The client was notified when this fee became eligible and can report an issue. The payout stays held for 24 hours.</p></div><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setFeeDecisionEvent(null)}>Back</Button><Button disabled={confirmFee.isPending} onClick={() => confirmFee.mutate({ feeEventId: feeDecisionEvent.id })}>{confirmFee.isPending ? "Charging…" : "Confirm & charge"}</Button></div></>}</DialogContent>
       </Dialog>
       <RevisionQuoteDialog bookingId={booking.id} open={revisionDialogOpen} onClose={() => setRevisionDialogOpen(false)} onSaved={() => setRevisionDialogOpen(false)} />
     </div>
@@ -1311,7 +1347,7 @@ function DayRow({
 }
 
 // ─── Schedule Tab ─────────────────────────────────────────────────────────────
-// ─── Cancellation Policy Panel ───────────────────────────────────────────────
+// ─── Appointment Fee Policy Panel ────────────────────────────────────────────
 const WINDOW_OPTIONS = [
   { label: "24 hours", value: 24 },
   { label: "48 hours", value: 48 },
@@ -1322,137 +1358,108 @@ const WINDOW_OPTIONS = [
   { label: "1 week", value: 168 },
 ];
 
-function CancellationPolicyPanel() {
+const FEE_RULE_COPY: Record<AppointmentFeeType, { title: string; subtitle: string; trigger: string }> = {
+  cancellation: {
+    title: "Cancellation fee",
+    subtitle: "Applies only when a client cancels inside your notice window.",
+    trigger: "Notice window",
+  },
+  late_arrival: {
+    title: "Late arrival fee",
+    subtitle: "A client-code check-in after your threshold makes a fee eligible.",
+    trigger: "Late threshold",
+  },
+  no_show: {
+    title: "No-show fee",
+    subtitle: "Use when a client has not checked in after your threshold.",
+    trigger: "No-show threshold",
+  },
+};
+
+function AppointmentFeePolicyPanel() {
   const { isAuthenticated, user } = useAuth();
   const utils = trpc.useUtils();
-  const { data: policy } = trpc.cancellation.getPolicy.useQuery(
+  const { data: policy } = trpc.appointmentFees.policy.useQuery(
     { techId: user?.id ?? 0 },
     { enabled: isAuthenticated && !!user?.id }
   );
-
-  const [windowHours, setWindowHours] = useState(48);
-  const [feeType, setFeeType] = useState<"flat" | "percent">("flat");
-  const [feeAmount, setFeeAmount] = useState("");
+  const [rules, setRules] = useState<AppointmentFeeRuleInput[]>([]);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    if (policy) {
-      setWindowHours(policy.windowHours);
-      setFeeType(policy.feeType);
-      setFeeAmount(policy.feeAmount > 0 ? String(policy.feeAmount) : "");
+    if (policy?.rules) {
+      setRules(policy.rules as AppointmentFeeRuleInput[]);
       setDirty(false);
     }
   }, [policy]);
 
-  const setPolicy = trpc.cancellation.setPolicy.useMutation({
+  const savePolicy = trpc.appointmentFees.savePolicy.useMutation({
     onSuccess: () => {
-      toast.success("Cancellation policy saved");
-      utils.cancellation.getPolicy.invalidate();
+      toast.success("Appointment fee policy saved");
+      utils.appointmentFees.policy.invalidate();
       setDirty(false);
     },
-    onError: () => toast.error("Failed to save policy"),
+    onError: (error) => toast.error(error.message || "Failed to save policy"),
   });
 
-  const handleSave = () => {
-    const amount = parseFloat(feeAmount) || 0;
-    if (feeType === "percent" && amount > 100) {
-      toast.error("Percentage cannot exceed 100%");
-      return;
-    }
-    setPolicy.mutate({ windowHours, feeType, feeAmount: amount, gracePeriodHours: 1 });
+  const updateRule = (ruleType: AppointmentFeeType, patch: Partial<AppointmentFeeRuleInput>) => {
+    setRules((current) => current.map((rule) => rule.ruleType === ruleType ? { ...rule, ...patch } : rule));
+    setDirty(true);
   };
 
-  const feeLabel = feeType === "flat" ? formatUsdDollars(parseFloat(feeAmount) || 0) : `${parseFloat(feeAmount) || 0}%`;
-  const hasFee = parseFloat(feeAmount) > 0;
+  const handleSave = () => {
+    if (rules.length !== APPOINTMENT_FEE_TYPES.length) return;
+    const invalid = rules.some((rule) => rule.enabled && (
+      (rule.thresholdMode === "fixed_minutes" && rule.ruleType !== "cancellation" && rule.thresholdValue % 5 !== 0) ||
+      (rule.feeType === "percent_service_total" && rule.feePercentBasisPoints > 10_000)
+    ));
+    if (invalid) {
+      toast.error("Use 5-minute thresholds and fees no higher than 100%.");
+      return;
+    }
+    savePolicy.mutate({ rules });
+  };
 
   return (
     <div className="mb-6 bg-card border border-border rounded-2xl p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <p className="text-sm font-medium text-foreground">Cancellation Policy</p>
-          <p className="text-xs text-muted-foreground">Shown to clients before they book</p>
+          <p className="text-sm font-medium text-foreground">Appointment fee policy</p>
+          <p className="text-xs text-muted-foreground">Each rule is off by default. Clients agree to active rules before requesting a booking.</p>
         </div>
         <Shield size={16} className="text-muted-foreground" />
       </div>
 
-      <div className="mb-4">
-        <p className="text-xs text-muted-foreground mb-2">Free cancellation window</p>
-        <div className="flex flex-wrap gap-2">
-          {WINDOW_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => { setWindowHours(opt.value); setDirty(true); }}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
-                windowHours === opt.value
-                  ? "bg-primary text-white border-primary"
-                  : "bg-background border-border text-muted-foreground hover:border-primary hover:text-primary"
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Clients can cancel for free up to {windowHours}h before the appointment. Cancellations within 1 hour of booking are always free.
-        </p>
-      </div>
-
-      <div className="mb-3">
-        <p className="text-xs text-muted-foreground mb-2">Late cancellation fee</p>
-        <div className="flex gap-2 mb-3">
-          <button
-            onClick={() => { setFeeType("flat"); setDirty(true); }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
-              feeType === "flat" ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground"
-            )}
-          >
-            <DollarSign size={12} /> Flat amount
-          </button>
-          <button
-            onClick={() => { setFeeType("percent"); setDirty(true); }}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all",
-              feeType === "percent" ? "bg-primary text-white border-primary" : "bg-background border-border text-muted-foreground"
-            )}
-          >
-            <Percent size={12} /> % of service
-          </button>
-        </div>
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-            {feeType === "flat" ? "$" : "%"}
-          </span>
-          <input
-            type="number"
-            min="0"
-            max={feeType === "percent" ? 100 : undefined}
-            placeholder={feeType === "flat" ? "e.g. 30" : "e.g. 50"}
-            value={feeAmount}
-            onChange={e => { setFeeAmount(e.target.value); setDirty(true); }}
-            className="w-full pl-7 pr-4 py-2.5 rounded-xl border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
-        </div>
-        {hasFee ? (
-          <p className="text-xs text-muted-foreground mt-2">
-            A {feeLabel} fee will be recorded as pending when a client cancels within the {windowHours}h window.
-            {feeType === "percent" && " Calculated as a percentage of the service price."}
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground mt-2">
-            No fee — clients can cancel at any time without charge.
-          </p>
-        )}
+      <div className="space-y-3">
+        {rules.map((rule) => {
+          const copy = FEE_RULE_COPY[rule.ruleType];
+          const feeValue = rule.feeType === "flat" ? (rule.flatFeeInCents / 100).toFixed(2) : (rule.feePercentBasisPoints / 100).toFixed(2);
+          return <div key={rule.ruleType} className={cn("rounded-xl border p-3 transition-colors", rule.enabled ? "border-primary/35 bg-primary/[0.03]" : "border-border bg-muted/20")}>
+            <div className="flex items-start gap-3">
+              <button type="button" aria-pressed={rule.enabled} onClick={() => updateRule(rule.ruleType, { enabled: !rule.enabled })} className={cn("relative mt-0.5 h-6 w-11 rounded-full transition-colors", rule.enabled ? "bg-primary" : "bg-muted-foreground/30")}>
+                <span className={cn("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform", rule.enabled ? "translate-x-6" : "translate-x-1")} />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-foreground">{copy.title}</p><span className={cn("text-[10px] font-semibold uppercase tracking-wide", rule.enabled ? "text-primary" : "text-muted-foreground")}>{rule.enabled ? "On" : "Off"}</span></div>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{copy.subtitle}</p>
+              </div>
+            </div>
+            {rule.enabled && <div className="mt-3 space-y-3 border-t border-border/70 pt-3">
+              {rule.ruleType === "cancellation" ? <div><p className="mb-2 text-[11px] font-medium text-muted-foreground">{copy.trigger}</p><div className="flex flex-wrap gap-1.5">{WINDOW_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => updateRule(rule.ruleType, { noticeHours: option.value })} className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", rule.noticeHours === option.value ? "border-primary bg-primary text-white" : "border-border bg-background text-muted-foreground")}>{option.label}</button>)}</div><p className="mt-2 text-[11px] text-muted-foreground">The first hour after booking stays free. A fee becomes eligible only after the client cancels; you still confirm or waive it.</p></div> : <div><p className="mb-2 text-[11px] font-medium text-muted-foreground">{copy.trigger}</p><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => updateRule(rule.ruleType, { thresholdMode: "fixed_minutes" })} className={cn("rounded-lg border px-2 py-2 text-left text-xs", rule.thresholdMode === "fixed_minutes" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground")}>Fixed minutes</button><button type="button" onClick={() => updateRule(rule.ruleType, { thresholdMode: "percent_of_final_duration" })} className={cn("rounded-lg border px-2 py-2 text-left text-xs", rule.thresholdMode === "percent_of_final_duration" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground")}>% of appointment</button></div><div className="relative mt-2"><input type="number" inputMode="numeric" min={rule.thresholdMode === "fixed_minutes" ? 5 : 1} max={rule.thresholdMode === "fixed_minutes" ? 720 : 100} step={rule.thresholdMode === "fixed_minutes" ? 5 : 1} value={rule.thresholdValue} onChange={(event) => updateRule(rule.ruleType, { thresholdValue: Math.max(0, Number(event.target.value) || 0) })} className="w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-14 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"/><span className="absolute right-3 top-2 text-xs text-muted-foreground">{rule.thresholdMode === "fixed_minutes" ? "minutes" : "% total"}</span></div><p className="mt-1 text-[11px] text-muted-foreground">Percentage thresholds are rounded to the nearest 5 minutes from the final combined service duration.</p></div>}
+              <div><p className="mb-2 text-[11px] font-medium text-muted-foreground">Fee amount</p><div className="flex gap-2"><button type="button" onClick={() => updateRule(rule.ruleType, { feeType: "flat" })} className={cn("flex-1 rounded-lg border px-2 py-2 text-xs", rule.feeType === "flat" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground")}><DollarSign className="mr-1 inline" size={12} />Flat</button><button type="button" onClick={() => updateRule(rule.ruleType, { feeType: "percent_service_total" })} className={cn("flex-1 rounded-lg border px-2 py-2 text-xs", rule.feeType === "percent_service_total" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground")}><Percent className="mr-1 inline" size={12} />% of final total</button></div><div className="relative mt-2"><span className="absolute left-3 top-2 text-sm text-muted-foreground">{rule.feeType === "flat" ? "$" : "%"}</span><input type="number" inputMode="decimal" min="0" max={rule.feeType === "flat" ? 1000 : 100} step="0.01" value={feeValue} onChange={(event) => { const value = Math.max(0, Number(event.target.value) || 0); updateRule(rule.ruleType, rule.feeType === "flat" ? { flatFeeInCents: Math.round(value * 100) } : { feePercentBasisPoints: Math.round(value * 100) }); }} className="w-full appearance-none rounded-lg border border-border bg-background py-2 pl-7 pr-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"/></div></div>
+              <p className="rounded-lg bg-muted/50 p-2 text-[11px] leading-relaxed text-muted-foreground">Eligible fees are never automatic. Valisse notifies the client, then you choose to confirm the one-time card charge or waive it. A client can report an issue and payout is held for review.</p>
+            </div>}
+          </div>;
+        })}
       </div>
 
       {dirty && (
         <button
           onClick={handleSave}
-          disabled={setPolicy.isPending}
+          disabled={savePolicy.isPending}
           className="w-full btn-valisse py-3 text-sm mt-2"
         >
-          {setPolicy.isPending ? "Saving..." : "Save Policy"}
+          {savePolicy.isPending ? "Saving..." : "Save fee policy"}
         </button>
       )}
     </div>
@@ -1849,7 +1856,7 @@ export function ScheduleTab() {
       </div>
 
       {/* ── Cancellation Policy ── */}
-      <CancellationPolicyPanel />
+      <AppointmentFeePolicyPanel />
 
       {/* Floating save button */}
       <AnimatePresence>

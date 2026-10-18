@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { getUnansweredQuestions } from "../../../shared/bookingComposition";
 import { timeToMinutes } from "../../../shared/lastMinuteBooking";
 import { formatUsdDollars } from "@shared/money";
+import { formatRuleFee, resolveAttendanceThresholdMinutes, type AppointmentFeeRuleInput } from "@shared/appointmentFeePolicy";
 import { MediaCarousel } from "@/components/MediaCarousel";
 import { BookingPaymentSetup } from "@/components/BookingPaymentSetup";
 import {
@@ -158,6 +159,7 @@ export default function BookingFlow() {
   const [booked, setBooked]               = useState(false);
   const [paymentSetupClientSecret, setPaymentSetupClientSecret] = useState<string | null>(null);
   const [paymentSetupStripeMode, setPaymentSetupStripeMode] = useState<"test" | "live">("live");
+  const [feePolicyAcknowledged, setFeePolicyAcknowledged] = useState(false);
 
   useEffect(() => {
     if (!preferredLastMinuteOpening) return;
@@ -270,12 +272,20 @@ export default function BookingFlow() {
   }, [techServicesQuery.data]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
-  // Fetch cancellation policy for the tech
-  const policyQuery = trpc.cancellation.getPolicy.useQuery(
+  // Active fee rules must be shown and acknowledged before the booking request.
+  const policyQuery = trpc.appointmentFees.policy.useQuery(
     { techId },
     { enabled: techId > 0 }
   );
-  const cancellationPolicy = policyQuery.data;
+  const appointmentFeePolicy = policyQuery.data;
+  const activeFeeRules = useMemo(
+    () => ((appointmentFeePolicy?.rules ?? []) as AppointmentFeeRuleInput[]).filter((rule) => rule.enabled),
+    [appointmentFeePolicy?.rules],
+  );
+
+  useEffect(() => {
+    setFeePolicyAcknowledged(false);
+  }, [appointmentFeePolicy?.version, selectedDate, selectedTime, bookingServiceIds.join(",")]);
 
   // Fetch post data when booking from a post
   const postQuery = trpc.posts.getById.useQuery(
@@ -415,6 +425,7 @@ export default function BookingFlow() {
         scheduledAt: new Date(y, mo - 1, d, h, min).getTime(),
         notes: notes || undefined,
         setupIntentId,
+        feePolicyAcknowledgementVersion: activeFeeRules.length > 0 ? appointmentFeePolicy?.version : undefined,
         serviceLines,
         smartServiceMatches: smSkipped || smAssessments.length === 0 ? undefined : smAssessments.map((assessment, index) => ({
           ...assessment,
@@ -436,6 +447,10 @@ export default function BookingFlow() {
   async function handleConfirm() {
     if (!isAuthenticated) { toast.error("Please sign in to book."); return; }
     if (!selectedDate || !selectedTime || !selectedService) return;
+    if (activeFeeRules.length > 0 && !feePolicyAcknowledged) {
+      toast.error("Review and acknowledge the appointment fee policy before continuing.");
+      return;
+    }
     try {
       const setup = await prepareNewBookingCard.mutateAsync();
       if (!setup.clientSecret) throw new Error("We could not prepare secure payment setup for this appointment.");
@@ -451,7 +466,7 @@ export default function BookingFlow() {
     if (step === 1) return true; // Smart Match — always can continue (skip allowed)
     if (step === 2) return !!selectedDate;
     if (step === 3) return !!selectedTime;
-    if (step === 4) return true;
+    if (step === 4) return activeFeeRules.length === 0 || feePolicyAcknowledged;
     return false;
   }
 
@@ -1262,27 +1277,26 @@ export default function BookingFlow() {
                   </div>
                 </div>
               </Card>
-              {/* Cancellation Policy Summary */}
-              {cancellationPolicy && (
-                <div className="rounded-2xl border border-border bg-card p-4">
+              {/* Active appointment fee policy */}
+              {activeFeeRules.length > 0 && (
+                <div className="rounded-2xl border border-amber-300/70 bg-amber-50/60 p-4 dark:bg-amber-950/15">
                   <div className="flex items-center gap-2 mb-2">
-                    <Shield size={14} className="text-muted-foreground" />
-                    <p className="text-xs font-medium text-foreground">Cancellation Policy</p>
+                    <Shield size={14} className="text-amber-700 dark:text-amber-300" />
+                    <p className="text-xs font-semibold text-foreground">Appointment fee policy</p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Free cancellation up to {cancellationPolicy.windowHours}h before your appointment
-                    {cancellationPolicy.feeAmount > 0 && (
-                      <> or within 1 hour of booking. After that, a{" "}
-                        <span className="text-foreground font-medium">
-                          {cancellationPolicy.feeType === "flat"
-                            ? formatUsdDollars(cancellationPolicy.feeAmount)
-                            : `${cancellationPolicy.feeAmount}%`}
-                        </span>{" "}
-                        late cancellation fee applies.
-                      </>
-                    )}
-                    {cancellationPolicy.feeAmount === 0 && " (no fee for late cancellations)."}
-                  </p>
+                  <div className="space-y-2">
+                    {activeFeeRules.map((rule) => {
+                      const threshold = rule.ruleType === "cancellation"
+                        ? `Canceling within ${rule.noticeHours} hours of the appointment`
+                        : `${rule.ruleType === "late_arrival" ? "Checking in" : "Not checking in"} after ${resolveAttendanceThresholdMinutes(rule, bookingDuration) ?? rule.thresholdValue} minutes`;
+                      const label = rule.ruleType === "cancellation" ? "Cancellation" : rule.ruleType === "late_arrival" ? "Late arrival" : "No-show";
+                      return <p key={rule.ruleType} className="text-xs leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">{label}:</span> {threshold} may make a {formatRuleFee(rule)} fee eligible. Your tech must confirm or waive it before any saved-card charge is attempted.</p>;
+                    })}
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-amber-300/70 bg-background/70 p-3 text-xs">
+                    <input type="checkbox" checked={feePolicyAcknowledged} onChange={(event) => setFeePolicyAcknowledged(event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
+                    <span className="leading-relaxed text-muted-foreground">I have reviewed and agree to these appointment fee terms. I understand that any eligible fee requires my nail tech’s confirmation, that I will be notified before it is charged, and that I can report an issue from my booking.</span>
+                  </label>
                 </div>
               )}
               <div>

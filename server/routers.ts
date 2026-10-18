@@ -116,6 +116,19 @@ import {
   resolveCancellationFee,
   cancelBooking,
   waiveCancellationFee,
+  createBookingFeeEvent,
+  getAppointmentFeePolicy,
+  getBookingFeeEvent,
+  getBookingFeeEvents,
+  getBookingServiceDurationMinutes,
+  getDisputedFeeEventsForAdmin,
+  getAttendanceFeeEligibilityCandidates,
+  markBookingArrivedAndVoidPendingFees,
+  markBookingNoShow,
+  markBookingFeeEventNotified,
+  setBookingFeePolicyAcknowledgement,
+  updateBookingFeeEvent,
+  upsertAppointmentFeeRules,
   getAlternativeTechs,
   // Settings helpers
   softDeactivateUser,
@@ -187,6 +200,15 @@ import {
 } from "../shared/paymentResolution";
 import { isStripeObjectInConfiguredEnvironment, resolveStripeModeForBooking, type StripePaymentMode } from "../shared/stripeMode";
 import {
+  buildAppointmentFeePolicySnapshot,
+  formatRuleFee,
+  isCancellationFeeEligible,
+  resolveAppointmentFeeAmountInCents,
+  resolveAttendanceThresholdMinutes,
+  type AppointmentFeeRuleInput,
+  type AppointmentFeeType,
+} from "../shared/appointmentFeePolicy";
+import {
   QA_APPOINTMENT_DURATION_MINUTES,
   QA_APPOINTMENT_LABEL,
   createQaRunExpiry,
@@ -195,6 +217,7 @@ import {
 } from "../shared/qaAppointment";
 import {
   chargeSavedCard,
+  chargeAppointmentFee,
   createBookingCardSetupIntent,
   createTipPaymentIntent,
   createBookingSetupIntent,
@@ -226,6 +249,7 @@ import {
   getSmartMatchGlobalEnabled,
   setSmartMatchGlobalEnabled,
 } from "./smartMatch";
+import { createEligibleAttendanceFee, createEligibleCancellationFee } from "./appointmentFees";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 const authRouter = router({
@@ -922,6 +946,7 @@ const bookingsRouter = router({
       scheduledAt: z.number(),
       notes: z.string().max(2000).optional(),
       setupIntentId: z.string().min(1, "Save a payment method before requesting this booking."),
+      feePolicyAcknowledgementVersion: z.string().max(1024).optional(),
       serviceLines: z.array(z.object({
         techServiceId: z.number(),
         lineType: z.enum(["primary", "addon", "upgrade"]),
@@ -974,6 +999,11 @@ const bookingsRouter = router({
       const primary = lines.find((line) => line.lineType === "primary");
       if (!primary) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose one primary service for this booking." });
       const totalDuration = lines.reduce((sum, line) => sum + line.durationMinutes, 0);
+      const feePolicy = await getAppointmentFeePolicy(input.techId);
+      const hasActiveFeeRules = feePolicy.rules.some((rule) => rule.enabled);
+      if (hasActiveFeeRules && input.feePolicyAcknowledgementVersion !== feePolicy.version) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Review and acknowledge the current appointment fee policy before requesting this booking." });
+      }
       const bookingId = await createBookingWithConflictCheck({
         clientId: ctx.user.id,
         techId: input.techId,
@@ -986,6 +1016,9 @@ const bookingsRouter = router({
       } as any, lines.map((line) => line.techServiceId));
       await setBookingPaymentMethodState(bookingId, { stripeSetupIntentId: input.setupIntentId, paymentMethodStatus: "saved" });
       await replaceBookingServiceLines(bookingId, lines);
+      // Even an all-disabled policy is frozen so a later settings change cannot
+      // add fees to an appointment the client already requested.
+      await setBookingFeePolicyAcknowledgement(bookingId, feePolicy);
       if (input.smartServiceMatches?.length) {
         await Promise.all(input.smartServiceMatches.map((assessment) => saveBookingMatchAssessment({ bookingId, ...assessment })));
       }
@@ -1381,7 +1414,13 @@ const appointmentRouter = router({
         await recordAppointmentCodeFailure(booking.id, failures, lockedUntil);
         throw new TRPCError({ code: "BAD_REQUEST", message: lockedUntil ? "Too many incorrect attempts. Try again in 15 minutes." : "That appointment code does not match." });
       }
-      await startVerifiedAppointment(booking.id, new Date());
+      const arrivedAt = new Date();
+      await markBookingArrivedAndVoidPendingFees(booking.id, arrivedAt);
+      // This only creates an eligible, client-notified case after the verified
+      // arrival timestamp is stored. It never charges; the tech makes a
+      // separate deliberate confirm-or-waive decision.
+      const arrivedBooking = await getBookingById(booking.id);
+      if (arrivedBooking) await createEligibleAttendanceFee({ booking: arrivedBooking, feeType: "late_arrival", now: arrivedAt });
       if (!booking.isQaTest) {
         await createNotification({ userId: booking.clientId, type: "appointment_started", title: "Appointment started", body: "Your nail appointment is now in progress.", relatedId: booking.id });
         void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_started", text: "Valisse: your nail appointment is now in progress. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Appointment-start SMS failed", error));
@@ -2296,131 +2335,81 @@ const reportsRouter = router({
 });
 
 // ─── Cancellation Policy ─────────────────────────────────────────────────────
+// Kept as a compatibility namespace for existing cancellation screens. The
+// actual source of truth is the independently toggleable appointment fee policy.
 const cancellationRouter = router({
-  // Get a tech's cancellation policy (public — shown on profile + booking flow)
   getPolicy: publicProcedure
     .input(z.object({ techId: z.number() }))
-    .query(async ({ input }) => getCancellationPolicy(input.techId)),
+    .query(async ({ input }) => getAppointmentFeePolicy(input.techId)),
 
-  // Set/update the current tech's cancellation policy
   setPolicy: protectedProcedure
-    .input(
-      z.object({
-        windowHours: z.number().int().min(24).max(168),
-        feeType: z.enum(["flat", "percent"]),
-        feeAmount: z.number().min(0),
-        gracePeriodHours: z.number().int().min(0).max(24).default(1),
-      })
-    )
+    .input(z.object({
+      windowHours: z.number().int().min(1).max(168),
+      feeType: z.enum(["flat", "percent"]),
+      feeAmount: z.number().min(0).max(10000),
+      gracePeriodHours: z.number().int().min(0).max(24).default(1),
+    }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech")
-        throw new TRPCError({ code: "FORBIDDEN" });
-      await upsertCancellationPolicy({ techId: ctx.user.id, ...input });
-      return { success: true };
+      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const current = await getAppointmentFeePolicy(ctx.user.id);
+      const rules = current.rules.map((rule) => rule.ruleType === "cancellation" ? {
+        ...rule,
+        enabled: input.feeAmount > 0,
+        noticeHours: input.windowHours,
+        gracePeriodMinutes: input.gracePeriodHours * 60,
+        feeType: input.feeType === "percent" ? "percent_service_total" as const : "flat" as const,
+        flatFeeInCents: input.feeType === "flat" ? Math.round(input.feeAmount * 100) : 0,
+        feePercentBasisPoints: input.feeType === "percent" ? Math.round(input.feeAmount * 100) : 0,
+      } : rule);
+      const policy = await upsertAppointmentFeeRules(ctx.user.id, rules);
+      return { success: true, policy };
     }),
 
-  // Preview the fee for a specific booking before cancelling
   previewFee: protectedProcedure
-    .input(
-      z.object({
-        bookingId: z.number(),
-        servicePrice: z.number().nullable().optional(),
-      })
-    )
+    .input(z.object({ bookingId: z.number() }))
     .query(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
-      if (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id)
-        throw new TRPCError({ code: "FORBIDDEN" });
-      const policy = await getCancellationPolicy(booking.techId);
-      if (!policy) return { isGrace: true, isLateCancellation: false, feeAmountDollars: 0, policy: null };
-      const result = resolveCancellationFee(
-        { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
-        policy,
-        input.servicePrice ?? null
-      );
-      return { ...result, policy };
+      if (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      const snapshot = (booking.feePolicySnapshot as any)?.rules ? booking.feePolicySnapshot as any : await getAppointmentFeePolicy(booking.techId);
+      const rule = snapshot.rules?.find((item: AppointmentFeeRuleInput) => item.ruleType === "cancellation") as AppointmentFeeRuleInput | undefined;
+      const totalInCents = await getBookingServiceTotalInCents(booking.id);
+      const isLateCancellation = Boolean(rule && isCancellationFeeEligible({ rule, scheduledAt: booking.scheduledAt, bookedAt: booking.createdAt }));
+      const amountInCents = isLateCancellation && rule ? resolveAppointmentFeeAmountInCents(rule, totalInCents) : 0;
+      return {
+        isGrace: !isLateCancellation,
+        isLateCancellation,
+        feeAmountInCents: amountInCents,
+        feeAmountDollars: amountInCents / 100,
+        policy: snapshot,
+      };
     }),
 
-  // Cancel a booking (client or tech), applying policy
   cancel: protectedProcedure
-    .input(
-      z.object({
-        bookingId: z.number(),
-        servicePrice: z.number().nullable().optional(),
-      })
-    )
+    .input(z.object({ bookingId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
-
       const isClient = booking.clientId === ctx.user.id;
       const isTech = booking.techId === ctx.user.id;
       if (!isClient && !isTech) throw new TRPCError({ code: "FORBIDDEN" });
-      if (booking.status === "cancelled" || booking.status === "completed")
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Booking cannot be cancelled." });
+      if (["cancelled", "completed", "no_show"].includes(booking.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "Booking cannot be cancelled." });
 
-      const cancelledBy: "client" | "tech" = isClient ? "client" : "tech";
-
-      let feeStatus: "none" | "pending" | "waived" | "charged" = "none";
-      let feeAmountDollars = 0;
-      let stripeCancellationPaymentIntentId: string | undefined;
-
-      if (isClient) {
-        const policy = await getCancellationPolicy(booking.techId);
-        if (policy) {
-          const resolved = resolveCancellationFee(
-            { scheduledAt: booking.scheduledAt, createdAt: booking.createdAt },
-            policy,
-            input.servicePrice ?? null
-          );
-          if (resolved.isLateCancellation && resolved.feeAmountDollars > 0) {
-            feeAmountDollars = resolved.feeAmountDollars;
-            const client = await getUserById(booking.clientId);
-            const stripeMode = getConfiguredStripeModeOrThrow();
-            if (client?.stripeCustomerId && isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, stripeMode) && booking.paymentMethodStatus === "saved") {
-              try {
-                const payment = await chargeSavedCard({
-                  bookingId: booking.id,
-                  customerId: client.stripeCustomerId,
-                  amountInCents: Math.round(resolved.feeAmountDollars * 100),
-                  kind: "cancellation_fee",
-                });
-                if (payment.status === "succeeded") {
-                  feeStatus = "charged";
-                  stripeCancellationPaymentIntentId = payment.id;
-                } else {
-                  feeStatus = "pending";
-                }
-              } catch {
-                feeStatus = "pending";
-              }
-            } else {
-              feeStatus = "pending";
-            }
-          }
-        }
-      } else {
-        // Tech cancelled — notify client
-        await createNotification({
-          userId: booking.clientId,
-          type: "booking_cancelled_by_tech",
-          title: "Booking Cancelled",
-          body: `Your appointment has been cancelled by the nail tech. We've found some alternatives for you.`,
-          relatedId: booking.id,
-        });
+      const event = isClient ? await createEligibleCancellationFee({ booking }) : null;
+      if (!isClient && !booking.isQaTest) {
+        await createNotification({ userId: booking.clientId, type: "booking_cancelled_by_tech", title: "Booking Cancelled", body: "Your appointment has been cancelled by the nail tech. We've found some alternatives for you.", relatedId: booking.id });
       }
-
-      await cancelBooking(booking.id, cancelledBy, feeStatus, feeAmountDollars, stripeCancellationPaymentIntentId);
-      return { success: true, feeStatus, feeAmountDollars };
+      await cancelBooking(booking.id, isClient ? "client" : "tech", event ? "pending" : "none", event ? event.amountInCents / 100 : 0);
+      return { success: true, feeStatus: event ? "pending" as const : "none" as const, feeAmountDollars: event ? event.amountInCents / 100 : 0, feeEventId: event?.id ?? null };
     }),
 
-  // Tech waives the pending cancellation fee for a booking
   waiveFee: protectedProcedure
     .input(z.object({ bookingId: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech")
-        throw new TRPCError({ code: "FORBIDDEN" });
+      const events = await getBookingFeeEvents(input.bookingId);
+      const event = events.find((item) => item.feeType === "cancellation" && item.status === "eligible_pending_tech");
+      if (!event || event.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      await updateBookingFeeEvent(event.id, { status: "waived", waivedAt: new Date(), waivedBy: ctx.user.id });
       await waiveCancellationFee(input.bookingId, ctx.user.id);
       return { success: true };
     }),
@@ -2445,6 +2434,201 @@ const cancellationRouter = router({
         clientLat: input.clientLat,
         clientLng: input.clientLng,
       });
+    }),
+});
+
+const appointmentFeeRuleInputSchema = z.object({
+  ruleType: z.enum(["cancellation", "late_arrival", "no_show"]),
+  enabled: z.boolean(),
+  noticeHours: z.number().int().min(1).max(168),
+  gracePeriodMinutes: z.number().int().min(0).max(1_440),
+  thresholdMode: z.enum(["fixed_minutes", "percent_of_final_duration"]),
+  thresholdValue: z.number().int().min(1).max(1_000),
+  feeType: z.enum(["flat", "percent_service_total"]),
+  flatFeeInCents: z.number().int().min(0).max(100_000),
+  feePercentBasisPoints: z.number().int().min(0).max(10_000),
+});
+
+function readBookingFeePolicy(booking: { feePolicySnapshot: unknown; techId: number }) {
+  const snapshot = booking.feePolicySnapshot as { version?: unknown; rules?: unknown } | null;
+  if (snapshot && typeof snapshot.version === "string" && Array.isArray(snapshot.rules)) {
+    return snapshot as { version: string; rules: AppointmentFeeRuleInput[] };
+  }
+  return null;
+}
+
+async function getEffectiveBookingFeePolicy(booking: { feePolicySnapshot: unknown; techId: number }) {
+  return readBookingFeePolicy(booking) ?? getAppointmentFeePolicy(booking.techId);
+}
+
+async function getAttendanceFeeEligibilityForBooking(booking: Awaited<ReturnType<typeof getBookingById>>) {
+  if (!booking) return { lateArrivalEligible: false, noShowEligible: false, lateThresholdMinutes: null, noShowThresholdMinutes: null };
+  const [policy, duration] = await Promise.all([getEffectiveBookingFeePolicy(booking), getBookingServiceDurationMinutes(booking.id)]);
+  const lateRule = policy.rules.find((rule) => rule.ruleType === "late_arrival");
+  const noShowRule = policy.rules.find((rule) => rule.ruleType === "no_show");
+  const totalDuration = duration || booking.duration;
+  const lateThresholdMinutes = lateRule ? resolveAttendanceThresholdMinutes(lateRule, totalDuration) : null;
+  const noShowThresholdMinutes = noShowRule ? resolveAttendanceThresholdMinutes(noShowRule, totalDuration) : null;
+  const now = Date.now();
+  return {
+    lateArrivalEligible: Boolean(booking.status === "confirmed" && lateThresholdMinutes && now >= booking.scheduledAt.getTime() + lateThresholdMinutes * 60_000),
+    noShowEligible: Boolean(booking.status === "confirmed" && noShowThresholdMinutes && now >= booking.scheduledAt.getTime() + noShowThresholdMinutes * 60_000),
+    lateThresholdMinutes,
+    noShowThresholdMinutes,
+  };
+}
+
+// ─── Appointment Fee Rules + Cases ───────────────────────────────────────────
+const appointmentFeesRouter = router({
+  policy: publicProcedure
+    .input(z.object({ techId: z.number() }))
+    .query(async ({ input }) => getAppointmentFeePolicy(input.techId)),
+
+  savePolicy: protectedProcedure
+    .input(z.object({ rules: z.array(appointmentFeeRuleInputSchema).length(3) }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.userType !== "nail_tech" && ctx.user.activeMode !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
+      const types = new Set(input.rules.map((rule) => rule.ruleType));
+      if (types.size !== 3) throw new TRPCError({ code: "BAD_REQUEST", message: "Save one rule for cancellation, late arrival, and no-show." });
+      for (const rule of input.rules) {
+        if (rule.thresholdMode === "fixed_minutes" && rule.thresholdValue % 5 !== 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Minute thresholds must use 5-minute increments." });
+        }
+        if (rule.feeType === "percent_service_total" && rule.feePercentBasisPoints > 10_000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A fee cannot exceed 100% of the final service total." });
+        }
+      }
+      const policy = await upsertAppointmentFeeRules(ctx.user.id, input.rules);
+      return { success: true, policy };
+    }),
+
+  forBooking: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || (booking.clientId !== ctx.user.id && booking.techId !== ctx.user.id && ctx.user.role !== "admin")) throw new TRPCError({ code: "FORBIDDEN" });
+      const [events, policy, attendance] = await Promise.all([
+        getBookingFeeEvents(booking.id),
+        getEffectiveBookingFeePolicy(booking),
+        getAttendanceFeeEligibilityForBooking(booking),
+      ]);
+      return { events, policy, attendance };
+    }),
+
+  markNoShow: protectedProcedure
+    .input(z.object({ bookingId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const booking = await getBookingById(input.bookingId);
+      if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      const eligibility = await getAttendanceFeeEligibilityForBooking(booking);
+      if (!eligibility.noShowEligible) throw new TRPCError({ code: "BAD_REQUEST", message: "The no-show threshold has not been reached, or the client already checked in." });
+      const event = await createEligibleAttendanceFee({ booking, feeType: "no_show" });
+      await markBookingNoShow(booking.id, ctx.user.id);
+      return { success: true, eventId: event?.id ?? null };
+    }),
+
+  confirm: protectedProcedure
+    .input(z.object({ feeEventId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const event = await getBookingFeeEvent(input.feeEventId);
+      if (!event || event.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      if (event.status !== "eligible_pending_tech" && event.status !== "charge_failed") throw new TRPCError({ code: "BAD_REQUEST", message: "This fee is no longer awaiting a technician decision." });
+      const booking = await getBookingById(event.bookingId);
+      const client = booking ? await getUserById(booking.clientId) : null;
+      if (!booking || !client) throw new TRPCError({ code: "NOT_FOUND" });
+      const mode = getBookingStripeModeOrThrow(booking);
+      if (!client.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, mode) || booking.paymentMethodStatus !== "saved") {
+        await updateBookingFeeEvent(event.id, { status: "charge_failed", chargeFailureReason: "No verified saved card is available for this payment environment." });
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "The client has no verified saved card available for this fee." });
+      }
+
+      await updateBookingFeeEvent(event.id, { status: "charging", techConfirmedAt: new Date(), techConfirmedBy: ctx.user.id, chargeFailureReason: null });
+      try {
+        const payment = await chargeAppointmentFee({
+          feeEventId: event.id,
+          bookingId: booking.id,
+          customerId: client.stripeCustomerId,
+          amountInCents: event.amountInCents,
+          feeType: event.feeType,
+          mode,
+        });
+        if (payment.status !== "succeeded") throw new Error("The card requires additional action or was declined.");
+        const chargedAt = new Date();
+        await updateBookingFeeEvent(event.id, {
+          status: "charged",
+          stripePaymentIntentId: payment.id,
+          chargedAt,
+          payoutStatus: "pending_dispute_window",
+          payoutEligibleAt: payoutEligibleAt(chargedAt),
+        });
+        if (!booking.isQaTest) {
+          await createNotification({ userId: booking.clientId, type: "appointment_fee_charged", title: "Appointment fee charged", body: `${formatRuleFee((event.policySnapshot as any).rule ?? { feeType: "flat", flatFeeInCents: event.amountInCents })} was confirmed by your nail tech. You can report an issue from your booking details.`, relatedId: booking.id });
+          await createNotification({ userId: booking.techId, type: "appointment_fee_charged", title: "Appointment fee charged", body: "The fee is held for 24 hours for a possible client issue before payout.", relatedId: booking.id });
+          void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_fee_charged", text: `Valisse: your ${event.feeType.replace("_", " ")} fee of $${(event.amountInCents / 100).toFixed(2)} was confirmed and charged. Report an issue from your booking in Valisse. Reply STOP to opt out.` }).catch((error) => console.warn("[Telnyx] Appointment-fee SMS failed", error));
+        }
+        return { success: true, status: "charged" as const };
+      } catch (error) {
+        await updateBookingFeeEvent(event.id, { status: "charge_failed", chargeFailureReason: error instanceof Error ? error.message.slice(0, 500) : "The saved card could not be charged." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The fee was not charged. The client may need to update their payment method." });
+      }
+    }),
+
+  waive: protectedProcedure
+    .input(z.object({ feeEventId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const event = await getBookingFeeEvent(input.feeEventId);
+      if (!event || event.techId !== ctx.user.id || !["eligible_pending_tech", "charge_failed"].includes(event.status)) throw new TRPCError({ code: "FORBIDDEN" });
+      await updateBookingFeeEvent(event.id, { status: "waived", waivedAt: new Date(), waivedBy: ctx.user.id });
+      const booking = await getBookingById(event.bookingId);
+      if (booking && !booking.isQaTest) await createNotification({ userId: booking.clientId, type: "appointment_fee_waived", title: "Appointment fee waived", body: "Your nail tech waived the pending appointment fee. No card charge was made.", relatedId: booking.id });
+      return { success: true };
+    }),
+
+  dispute: protectedProcedure
+    .input(z.object({ feeEventId: z.number(), reason: z.string().trim().min(5).max(2_000) }))
+    .mutation(async ({ ctx, input }) => {
+      const event = await getBookingFeeEvent(input.feeEventId);
+      if (!event || event.clientId !== ctx.user.id || event.status !== "charged") throw new TRPCError({ code: "FORBIDDEN" });
+      await updateBookingFeeEvent(event.id, { status: "disputed", payoutStatus: "on_hold", clientDisputedAt: new Date(), clientDisputeReason: input.reason });
+      const booking = await getBookingById(event.bookingId);
+      if (booking && !booking.isQaTest) {
+        const admins = await getAdminUserIds();
+        await Promise.all([
+          createNotification({ userId: booking.techId, type: "appointment_fee_disputed", title: "Client reported an issue with an appointment fee", body: input.reason, relatedId: booking.id }),
+          ...admins.map((userId) => createNotification({ userId, type: "appointment_fee_disputed", title: "Appointment fee dispute", body: input.reason, relatedId: booking.id })),
+        ]);
+      }
+      return { success: true };
+    }),
+
+  disputedForAdmin: protectedProcedure.query(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+    return getDisputedFeeEventsForAdmin();
+  }),
+
+  resolveDispute: protectedProcedure
+    .input(z.object({ feeEventId: z.number(), action: z.enum(["uphold", "refund"]), resolutionNote: z.string().trim().min(10).max(2_000) }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      const event = await getBookingFeeEvent(input.feeEventId);
+      if (!event || event.status !== "disputed") throw new TRPCError({ code: "BAD_REQUEST", message: "This fee dispute is no longer awaiting review." });
+      const booking = await getBookingById(event.bookingId);
+      if (!booking) throw new TRPCError({ code: "NOT_FOUND" });
+      if (input.action === "refund") {
+        if (!event.stripePaymentIntentId) throw new TRPCError({ code: "BAD_REQUEST", message: "No payment is available to refund." });
+        const refund = await refundPaymentIntent({ paymentIntentId: event.stripePaymentIntentId, amountInCents: event.amountInCents, bookingId: booking.id, feeEventId: event.id, kind: "appointment_fee_refund", mode: getBookingStripeModeOrThrow(booking) });
+        await updateBookingFeeEvent(event.id, { status: "refunded", payoutStatus: "not_ready", stripeRefundId: refund.id, adminResolvedAt: new Date(), adminResolvedBy: ctx.user.id, adminResolutionNote: input.resolutionNote });
+      } else {
+        await updateBookingFeeEvent(event.id, { status: "upheld", payoutStatus: "pending_dispute_window", payoutEligibleAt: new Date(), adminResolvedAt: new Date(), adminResolvedBy: ctx.user.id, adminResolutionNote: input.resolutionNote });
+      }
+      if (!booking.isQaTest) {
+        const summary = input.action === "refund" ? "The appointment fee was refunded to the client." : "The appointment fee was upheld and is eligible for technician payout.";
+        await Promise.all([
+          createNotification({ userId: booking.clientId, type: "appointment_fee_resolved", title: "Appointment fee review complete", body: summary, relatedId: booking.id }),
+          createNotification({ userId: booking.techId, type: "appointment_fee_resolved", title: "Appointment fee review complete", body: summary, relatedId: booking.id }),
+        ]);
+      }
+      return { success: true, resolution: input.action };
     }),
 });
 
@@ -3000,6 +3184,7 @@ export const appRouter = router({
   techFollows: techFollowsRouter,
   reports: reportsRouter,
   cancellation: cancellationRouter,
+  appointmentFees: appointmentFeesRouter,
   qaAppointment: qaAppointmentRouter,
   appointment: appointmentRouter,
   settings: settingsRouter,
