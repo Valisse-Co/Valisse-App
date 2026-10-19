@@ -188,7 +188,9 @@ export default function TechDashboard() {
   const [slotEndTime, setSlotEndTime] = useState("10:00");
   const [slotNote, setSlotNote] = useState("");
   const slotDateRange = getLocalDateInputRange(7);
-  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "posts" | "slots">(() =>
+    new URLSearchParams(window.location.search).get("tab") === "posts" ? "posts" : "overview",
+  );
 
   const { data: analytics } = trpc.analytics.techAnalytics.useQuery(undefined, { enabled: isAuthenticated });
   const { data: postsData, refetch: refetchPosts } = trpc.posts.myPosts.useQuery(undefined, { enabled: isAuthenticated });

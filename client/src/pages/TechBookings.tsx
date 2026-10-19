@@ -383,10 +383,12 @@ type UpcomingFilter = "all" | "confirmed" | "pending";
 
 function BookingsTimelineTab() {
   const { isAuthenticated } = useAuth();
+  const [, navigate] = useLocation();
   const { data: timelineData, isLoading } = trpc.bookings.timeline.useQuery(
     undefined,
     { enabled: isAuthenticated, refetchInterval: 30_000 }
   );
+  const { data: myPosts = [] } = trpc.posts.myPosts.useQuery(undefined, { enabled: isAuthenticated });
   const utils = trpc.useUtils();
   const todayRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<UpcomingFilter>("all");
@@ -522,9 +524,15 @@ function BookingsTimelineTab() {
           </p>
           <p className="text-sm text-muted-foreground text-center max-w-xs">
             {filter === "all"
-              ? "New booking requests will appear here."
+              ? "Turn your best looks into bookings by sharing and promoting your work."
               : `Switch to "All" to see all bookings.`}
           </p>
+          {filter === "all" && (
+            <div className="mt-2 grid w-full max-w-xs grid-cols-2 gap-2">
+              <button onClick={() => navigate("/create-post")} className="rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-white">Create a post</button>
+              <button onClick={() => navigate("/dashboard?tab=posts")} className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs font-semibold text-primary">{myPosts.length ? "Promote posts" : "Plan your first post"}</button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-4 pt-4 space-y-6">
@@ -1930,7 +1938,7 @@ export default function TechBookings() {
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-2xl font-display font-light">Bookings</h1>
             <div className="flex items-center gap-2">
-              <button onClick={() => navigate("/tech-calendar")} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:border-primary hover:text-primary transition-colors"><Calendar size={13} /> Calendar</button>
+              <button onClick={() => navigate("/tech-calendar")} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:border-primary hover:text-primary transition-colors" aria-label="Open calendar view"><Calendar size={13} /> Calendar view</button>
               <button onClick={() => setShowSlotDialog(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-white text-xs font-medium shadow-sm hover:bg-primary/90 transition-colors"><Zap size={13} /> Last-Minute Slot</button>
             </div>
           </div>

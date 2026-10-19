@@ -738,3 +738,11 @@
 - [x] Support one-time and recurring work-hour/unavailable-time edits, full-day closures, and client-tier controls from the calendar
 - [x] Require a technician reason and explicit confirmation before an availability override cancels conflicting client appointments; notify clients in-app and by SMS with a rescheduling link
 - [x] Add calendar data contracts, availability validation, regression coverage, responsive UI validation, and a checkpoint
+
+## Calendar Workspace Refinements
+- [x] Expand Day and Week grids to cover midnight through midnight, including visible hourly labels
+- [x] Make Week view fit all seven days in one responsive frame and render recurring weekly schedule hours as calendar blocks
+- [x] Keep appointment information exclusively inside calendar event blocks and the appointment detail overlay
+- [x] Open a date-detail overlay from Month view without leaving the monthly calendar
+- [x] Make Calendar a clear alternative view from technician Bookings and improve technician no-booking empty state with post promotion actions
+- [x] Add focused regression coverage, visual validation, full application test run, and checkpoint

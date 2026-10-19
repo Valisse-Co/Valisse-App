@@ -14,9 +14,9 @@ import { addLocalDays, getBrowserTimeZone, getZonedDateKey, getZonedDateTimePart
 import { eventAppliesOnDate, getSundayStart } from "@shared/techCalendar";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_START = 6 * 60;
-const DAY_END = 22 * 60;
-const GRID_HEIGHT = 768;
+const DAY_START = 0;
+const DAY_END = 24 * 60;
+const GRID_HEIGHT = 1152;
 
 type CalendarView = "day" | "week" | "month";
 type CalendarEventForm = {
@@ -63,7 +63,7 @@ function formatDate(dateKey: string, timeZone?: string, options: Intl.DateTimeFo
 }
 
 function minuteToTime(minutes: number) {
-  const clamped = Math.max(0, Math.min(23 * 60 + 45, Math.round(minutes / 15) * 15));
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.round(minutes / 15) * 15));
   return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
 }
 
@@ -91,6 +91,7 @@ export default function TechCalendar() {
   const [, navigate] = useLocation();
   const [view, setView] = useState<CalendarView>("week");
   const [anchorDate, setAnchorDate] = useState(() => localDateKey());
+  const [monthDetailDate, setMonthDetailDate] = useState<string | null>(null);
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -218,8 +219,14 @@ export default function TechCalendar() {
       </header>
 
       <main className="mx-auto max-w-5xl px-3 pt-3">
-        {isLoading ? <div className="space-y-3"><div className="h-12 animate-pulse rounded-2xl bg-muted" /><div className="h-96 animate-pulse rounded-2xl bg-muted" /></div> : view === "month" ? <MonthGrid calendar={calendar} anchorDate={anchorDate} timeZone={timeZone} onSelectDay={(date: string) => { setAnchorDate(date); setView("day"); }} /> : <TimeGrid days={days} calendar={calendar} timeZone={timeZone} onBooking={setSelectedBooking} onEventDelete={(eventId: number) => removeEvent.mutate({ eventId })} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} />}
+        {isLoading ? <div className="space-y-3"><div className="h-12 animate-pulse rounded-2xl bg-muted" /><div className="h-96 animate-pulse rounded-2xl bg-muted" /></div> : view === "month" ? <MonthGrid calendar={calendar} anchorDate={anchorDate} timeZone={timeZone} onSelectDay={setMonthDetailDate} /> : <TimeGrid days={days} calendar={calendar} timeZone={timeZone} onBooking={setSelectedBooking} onEventDelete={(eventId: number) => removeEvent.mutate({ eventId })} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} />}
       </main>
+
+      <Dialog open={Boolean(monthDetailDate)} onOpenChange={(open) => !open && setMonthDetailDate(null)}>
+        <DialogContent className="mx-2 max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-2xl p-3 sm:mx-4 sm:p-5">
+          {monthDetailDate && <><DialogHeader><DialogTitle>{formatDate(monthDetailDate, timeZone, { weekday: "long", month: "long", day: "numeric" })}</DialogTitle></DialogHeader><p className="-mt-2 text-xs text-muted-foreground">Daily schedule details. Appointments, work hours, and unavailable time stay in this calendar view.</p><TimeGrid days={[monthDetailDate]} calendar={calendar} timeZone={timeZone} onBooking={setSelectedBooking} onEventDelete={(eventId: number) => removeEvent.mutate({ eventId })} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} /></>}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
         <DialogContent className="mx-4 max-h-[88vh] max-w-md overflow-y-auto rounded-2xl">
@@ -263,6 +270,7 @@ function TimeGrid({ days, calendar, timeZone, onBooking, onEventDelete, onDragSt
   const weeklySchedule = calendar?.weeklySchedule ?? [];
   const percentTop = (minutes: number) => ((Math.max(DAY_START, minutes) - DAY_START) / (DAY_END - DAY_START)) * 100;
   const percentHeight = (start: number, end: number) => Math.max(3, ((Math.min(DAY_END, end) - Math.max(DAY_START, start)) / (DAY_END - DAY_START)) * 100);
+  const hourLabel = (minutes: number) => minutes === DAY_END ? "12 AM" : formatTime(minuteToTime(minutes)).replace(":00", "");
 
   const renderBlock = (key: string | number, start: number, end: number, className: string, content: React.ReactNode, onClick?: () => void) => (
     <button
@@ -277,8 +285,8 @@ function TimeGrid({ days, calendar, timeZone, onBooking, onEventDelete, onDragSt
   );
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
-      <div className={cn("grid min-w-[660px]", days.length === 1 ? "grid-cols-[54px_minmax(0,1fr)]" : "grid-cols-[54px_repeat(7,minmax(120px,1fr))]")}>
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className={cn("grid w-full", days.length === 1 ? "grid-cols-[46px_minmax(0,1fr)]" : "grid-cols-[38px_repeat(7,minmax(0,1fr))] sm:grid-cols-[46px_repeat(7,minmax(0,1fr))]")}>
         <div className="sticky left-0 z-20 border-r border-border bg-card" />
         {days.map((date: string) => (
           <div key={date} className="border-b border-r border-border bg-card px-2 py-2 text-center">
@@ -286,8 +294,8 @@ function TimeGrid({ days, calendar, timeZone, onBooking, onEventDelete, onDragSt
             <p className={cn("mx-auto mt-0.5 flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold", date === getZonedDateKey(Date.now(), timeZone) && "bg-primary text-white")}>{date.slice(-2)}</p>
           </div>
         ))}
-        <div className="sticky left-0 z-20 relative h-[768px] border-r border-border bg-card">
-          {hours.slice(0, -1).map((minutes) => <span key={minutes} className="absolute right-1 -translate-y-1/2 text-[10px] text-muted-foreground" style={{ top: `${percentTop(minutes)}%` }}>{formatTime(minuteToTime(minutes)).replace(":00", "")}</span>)}
+        <div className="sticky left-0 z-20 relative border-r border-border bg-card" style={{ height: GRID_HEIGHT }}>
+          {hours.map((minutes) => <span key={minutes} className="absolute right-0.5 -translate-y-1/2 text-[8px] text-muted-foreground sm:right-1 sm:text-[10px]" style={{ top: `${percentTop(minutes)}%` }}>{hourLabel(minutes)}</span>)}
         </div>
         {days.map((date: string) => {
           const dow = new Date(`${date}T12:00:00`).getDay();
@@ -299,7 +307,8 @@ function TimeGrid({ days, calendar, timeZone, onBooking, onEventDelete, onDragSt
           return (
             <div
               key={date}
-              className="relative h-[768px] border-r border-border bg-background/50"
+              className="relative border-r border-border bg-muted/20"
+              style={{ height: GRID_HEIGHT }}
               onPointerDown={(event) => {
                 if ((event.target as HTMLElement).closest("button")) return;
                 const rect = event.currentTarget.getBoundingClientRect();
@@ -325,7 +334,7 @@ function TimeGrid({ days, calendar, timeZone, onBooking, onEventDelete, onDragSt
           );
         })}
       </div>
-      <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground"><Clock3 className="mr-1 inline" size={13} /> Drag across an empty time range to add hours or unavailable time. Tap an appointment for its details.</p>
+      <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground"><Clock3 className="mr-1 inline" size={13} /> The full day runs midnight to midnight. Green blocks are work time; dimmed hours are unavailable unless you add work time. Tap an appointment for its details.</p>
     </div>
   );
 }
