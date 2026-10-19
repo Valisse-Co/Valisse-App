@@ -754,3 +754,8 @@
 - [x] Add Day and Week zoom controls with scale-aware appointment layout
 - [x] Render Week appointments as thin client-name lines and Month appointments as color-only dots
 - [x] Add regression coverage, verify touch behavior and run the full application suite before checkpointing
+
+## Complete Schedule-to-Calendar Projection
+- [x] Include saved time-specific client-tier rules in the calendar aggregate and render them in each matching day
+- [x] Verify all saved Schedule editor data now appears in Calendar without changing the Schedule editor UI
+- [x] Run regression tests and save a verification checkpoint

@@ -1191,7 +1191,7 @@ function DayRow({
                               </span>
                               {rule.specificDate && (
                                 <span className="ml-1 text-[10px] text-muted-foreground">
-                                  ({new Date(rule.specificDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })} only)
+                                  ({new Date(rule.specificDate).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} only)
                                 </span>
                               )}
                             </div>
@@ -1562,6 +1562,7 @@ export function ScheduleTab() {
   const addBookingRule = trpc.availability.addBookingRule.useMutation({
     onSuccess: () => {
       utils.availability.bookingRules.invalidate();
+      utils.availability.calendar.invalidate();
       toast.success("Rule saved");
     },
     onError: () => toast.error("Failed to save rule"),
@@ -1570,6 +1571,7 @@ export function ScheduleTab() {
   const removeBookingRule = trpc.availability.removeBookingRule.useMutation({
     onSuccess: () => {
       utils.availability.bookingRules.invalidate();
+      utils.availability.calendar.invalidate();
       toast.success("Rule removed");
     },
   });
@@ -1577,6 +1579,7 @@ export function ScheduleTab() {
   const updateBookingRule = trpc.availability.updateBookingRule.useMutation({
     onSuccess: () => {
       utils.availability.bookingRules.invalidate();
+      utils.availability.calendar.invalidate();
       toast.success("Rule updated");
     },
     onError: () => toast.error("Failed to update rule"),
@@ -1698,7 +1701,7 @@ export function ScheduleTab() {
           // Rules for this day: recurring rules for this dayOfWeek + one-off rules whose date falls on this day-of-week
           const dayRules = (bookingRulesData ?? []).filter(
             r => r.dayOfWeek === day.dayOfWeek ||
-              (r.specificDate !== null && new Date(r.specificDate).getDay() === day.dayOfWeek)
+              (r.specificDate !== null && new Date(r.specificDate).getUTCDay() === day.dayOfWeek)
           ) as BookingRule[];
           return (
             <DayRow

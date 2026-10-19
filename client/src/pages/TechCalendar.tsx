@@ -35,6 +35,7 @@ type CalendarItem =
   | { type: "weekly-break"; date: string; schedule: any }
   | { type: "event"; date: string; event: any }
   | { type: "block"; date: string; block: any }
+  | { type: "booking-rule"; date: string; rule: any }
   | { type: "last-minute"; date: string; slot: any };
 
 function localDateKey(date = new Date()) {
@@ -80,6 +81,11 @@ function bookingLocalParts(booking: any, timeZone: string) {
   return { date: `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`, minutes: parts.hour * 60 + parts.minute };
 }
 
+function bookingRuleDateKey(value: Date | string) {
+  const date = new Date(value);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
 function statusStyle(status: string) {
   if (status === "confirmed") return "border-primary/30 bg-primary/10 text-primary";
   if (status === "pending") return "border-amber-300 bg-amber-50 text-amber-800";
@@ -95,10 +101,16 @@ function rangeTitle(view: CalendarView, anchorDate: string, range: { fromLocalDa
 }
 
 function calendarItemDetails(item: CalendarItem) {
-  if (item.type === "weekly-work") return { title: "Weekly work hours", source: "Weekly Schedule", startTime: item.schedule.startTime, endTime: item.schedule.endTime, detail: item.schedule.clientTier === "returning_only" ? "Returning clients only" : "Open to everyone" };
+  if (item.type === "weekly-work") {
+    const audience = item.schedule.clientTier === "returning_only" ? "Returning clients only" : "Open to everyone";
+    const services = item.schedule.serviceNames?.length ? `Services: ${item.schedule.serviceNames.join(", ")}.` : "All active services are available.";
+    const buffer = item.schedule.bufferMinutes ? ` ${item.schedule.bufferMinutes}-minute buffer between appointments.` : "";
+    return { title: "Weekly work hours", source: "Weekly Schedule", startTime: item.schedule.startTime, endTime: item.schedule.endTime, detail: `${audience}. ${services}${buffer}` };
+  }
   if (item.type === "weekly-break") return { title: "Weekly break", source: "Weekly Schedule", startTime: item.schedule.breakStart, endTime: item.schedule.breakEnd, detail: "This time is unavailable during your recurring workday." };
   if (item.type === "event") return { title: item.event.kind === "available" ? "One-time work hours" : "One-time unavailable time", source: item.event.recurrence === "weekly" ? "Calendar recurrence" : "Calendar", startTime: item.event.startTime, endTime: item.event.endTime, detail: item.event.title || (item.event.clientTier === "returning_only" ? "Returning clients only" : "Open to everyone") };
   if (item.type === "block") return { title: "Unavailable time", source: "Schedule", startTime: item.block.startTime, endTime: item.block.endTime, detail: item.block.reason || "No reason provided" };
+  if (item.type === "booking-rule") return { title: "Client access rule", source: "Schedule", startTime: item.rule.startTime, endTime: item.rule.endTime, detail: item.rule.clientTier === "returning_only" ? "Only returning clients can book this time." : "Any client can book this time." };
   return { title: "Last-minute opening", source: "Schedule", startTime: item.slot.startTime, endTime: item.slot.endTime, detail: item.slot.note || "Visible to eligible clients while active" };
 }
 
@@ -121,8 +133,10 @@ export default function TechCalendar() {
   const utils = trpc.useUtils();
   const range = useMemo(() => calendarRange(view, anchorDate), [view, anchorDate]);
   const { data, isLoading } = trpc.availability.calendar.useQuery(range, { enabled: isAuthenticated && (user?.userType === "nail_tech" || user?.hasDualRole) });
+  const { data: activeServices = [] } = trpc.settings.getServices.useQuery(undefined, { enabled: isAuthenticated && (user?.userType === "nail_tech" || user?.hasDualRole) });
   const timeZone = (data as any)?.timeZone || getBrowserTimeZone();
   const hourHeight = HOUR_HEIGHTS[hourHeightIndex];
+  const serviceNameById = useMemo(() => new Map((activeServices as any[]).map((service) => [service.id, service.customName || service.category])), [activeServices]);
   const [eventForm, setEventForm] = useState<CalendarEventForm>(() => ({
     kind: "available",
     recurrence: "once",
@@ -245,12 +259,12 @@ export default function TechCalendar() {
       </header>
 
       <main className="mx-auto max-w-5xl px-3 pt-3">
-        {isLoading ? <div className="space-y-3"><div className="h-12 animate-pulse rounded-2xl bg-muted" /><div className="h-96 animate-pulse rounded-2xl bg-muted" /></div> : view === "month" ? <MonthGrid calendar={calendar} anchorDate={anchorDate} timeZone={timeZone} onSelectDay={setMonthDetailDate} /> : <TimeGrid view={view} hourHeight={hourHeight} days={days} calendar={calendar} timeZone={timeZone} onBooking={setSelectedBooking} onCalendarItem={setSelectedCalendarItem} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} />}
+        {isLoading ? <div className="space-y-3"><div className="h-12 animate-pulse rounded-2xl bg-muted" /><div className="h-96 animate-pulse rounded-2xl bg-muted" /></div> : view === "month" ? <MonthGrid calendar={calendar} anchorDate={anchorDate} timeZone={timeZone} onSelectDay={setMonthDetailDate} /> : <TimeGrid view={view} hourHeight={hourHeight} days={days} calendar={calendar} timeZone={timeZone} serviceNameById={serviceNameById} onBooking={setSelectedBooking} onCalendarItem={setSelectedCalendarItem} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} />}
       </main>
 
       <Dialog open={Boolean(monthDetailDate)} onOpenChange={(open) => !open && setMonthDetailDate(null)}>
         <DialogContent className="mx-2 max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-2xl p-3 sm:mx-4 sm:p-5">
-          {monthDetailDate && <><DialogHeader><DialogTitle>{formatDate(monthDetailDate, timeZone, { weekday: "long", month: "long", day: "numeric" })}</DialogTitle></DialogHeader><p className="-mt-2 text-xs text-muted-foreground">Daily schedule details. Appointments, work hours, and unavailable time stay in this calendar view.</p><TimeGrid view="day" hourHeight={hourHeight} days={[monthDetailDate]} calendar={calendar} timeZone={timeZone} onBooking={setSelectedBooking} onCalendarItem={(item: CalendarItem) => { setMonthDetailDate(null); setSelectedCalendarItem(item); }} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} /></>}
+          {monthDetailDate && <><DialogHeader><DialogTitle>{formatDate(monthDetailDate, timeZone, { weekday: "long", month: "long", day: "numeric" })}</DialogTitle></DialogHeader><p className="-mt-2 text-xs text-muted-foreground">Daily schedule details. Appointments, work hours, and unavailable time stay in this calendar view.</p><TimeGrid view="day" hourHeight={hourHeight} days={[monthDetailDate]} calendar={calendar} timeZone={timeZone} serviceNameById={serviceNameById} onBooking={setSelectedBooking} onCalendarItem={(item: CalendarItem) => { setMonthDetailDate(null); setSelectedCalendarItem(item); }} onDragStart={(date: string, minutes: number) => { dragStart.current = { date, minutes }; }} onDragEnd={(date: string, minutes: number) => { const start = dragStart.current; dragStart.current = null; if (!start || start.date !== date) return; const first = Math.min(start.minutes, minutes); const last = Math.max(start.minutes, minutes); openEventDialog({ localDate: date, startTime: minuteToTime(first), endTime: minuteToTime(Math.max(first + 30, last + 30)) }); }} /></>}
         </DialogContent>
       </Dialog>
 
@@ -303,13 +317,14 @@ export default function TechCalendar() {
   );
 }
 
-function TimeGrid({ view, hourHeight, days, calendar, timeZone, onBooking, onCalendarItem, onDragStart, onDragEnd }: any) {
+function TimeGrid({ view, hourHeight, days, calendar, timeZone, serviceNameById, onBooking, onCalendarItem, onDragStart, onDragEnd }: any) {
   const hours = Array.from({ length: 25 }, (_, index) => index * 60);
   const events = calendar?.events ?? [];
   const bookings = calendar?.bookings ?? [];
   const blocks = calendar?.blocks ?? [];
   const slots = calendar?.lastMinuteSlots ?? [];
   const weeklySchedule = calendar?.weeklySchedule ?? [];
+  const bookingRules = calendar?.bookingRules ?? [];
   const gridHeight = 24 * hourHeight;
   const pxPerMinute = hourHeight / 60;
   const topPx = (minutes: number) => Math.max(DAY_START, Math.min(DAY_END, minutes)) * pxPerMinute;
@@ -333,10 +348,12 @@ function TimeGrid({ view, hourHeight, days, calendar, timeZone, onBooking, onCal
           const dayEvents = events.filter((event: any) => eventAppliesOnDate(event, date));
           const dayBlocks = blocks.filter((block: any) => getZonedDateKey(new Date(block.blockDate).getTime(), timeZone) === date);
           const daySlots = slots.filter((slot: any) => slot.slotDate === date && slot.expiresAt > Date.now());
+          const dayBookingRules = bookingRules.filter((rule: any) => rule.specificDate ? bookingRuleDateKey(rule.specificDate) === date : rule.dayOfWeek === dow);
+          const weeklyServiceNames = (weekly?.serviceIds ?? []).map((serviceId: number) => serviceNameById.get(serviceId)).filter(Boolean);
           return <div key={date} className="relative touch-pan-y border-r border-border bg-slate-100/70" style={{ height: gridHeight }} onPointerDown={(event) => { if (event.pointerType === "touch" || (event.target as HTMLElement).closest("[data-calendar-item]")) return; const rect = event.currentTarget.getBoundingClientRect(); onDragStart(date, DAY_START + ((event.clientY - rect.top) / rect.height) * DAY_END); }} onPointerUp={(event) => { if (event.pointerType === "touch" || (event.target as HTMLElement).closest("[data-calendar-item]")) return; const rect = event.currentTarget.getBoundingClientRect(); onDragEnd(date, DAY_START + ((event.clientY - rect.top) / rect.height) * DAY_END); }}>
             <span className="pointer-events-none absolute left-1 top-1 text-[8px] font-medium uppercase tracking-wide text-slate-400">Unavailable</span>
             {hours.map((minutes) => <div key={minutes} className="absolute left-0 right-0 border-t border-border/60" style={{ top: topPx(minutes) }} />)}
-            {weekly && renderItem(`weekly-${date}`, timeToMinutes(weekly.startTime), timeToMinutes(weekly.endTime), "border-emerald-300 bg-emerald-100/95 text-emerald-950", `Weekly work hours, ${formatTime(weekly.startTime)} to ${formatTime(weekly.endTime)}, ${weekly.clientTier === "returning_only" ? "returning clients only" : "open to everyone"}.`, <><span className="block truncate font-semibold">Available · {weekly.clientTier === "returning_only" ? "Returning" : "Anyone"}</span><span className="block truncate">{formatTime(weekly.startTime)}–{formatTime(weekly.endTime)}</span></>, () => onCalendarItem({ type: "weekly-work", date, schedule: weekly }))}
+            {weekly && renderItem(`weekly-${date}`, timeToMinutes(weekly.startTime), timeToMinutes(weekly.endTime), "border-emerald-300 bg-emerald-100/95 text-emerald-950", `Weekly work hours, ${formatTime(weekly.startTime)} to ${formatTime(weekly.endTime)}, ${weekly.clientTier === "returning_only" ? "returning clients only" : "open to everyone"}.`, <><span className="block truncate font-semibold">Available · {weekly.clientTier === "returning_only" ? "Returning" : "Anyone"}</span><span className="block truncate">{weekly.serviceIds?.length ? `${weekly.serviceIds.length} selected services` : "All active services"}</span></>, () => onCalendarItem({ type: "weekly-work", date, schedule: { ...weekly, serviceNames: weeklyServiceNames } }))}
             {weekly?.breakStart && weekly?.breakEnd && renderItem(`break-${date}`, timeToMinutes(weekly.breakStart), timeToMinutes(weekly.breakEnd), "border-slate-400 bg-slate-200/95 text-slate-800", `Weekly break, ${formatTime(weekly.breakStart)} to ${formatTime(weekly.breakEnd)}.`, <><span className="block font-semibold">Break</span><span className="block truncate">{formatTime(weekly.breakStart)}–{formatTime(weekly.breakEnd)}</span></>, () => onCalendarItem({ type: "weekly-break", date, schedule: weekly }))}
             {dayEvents.map((event: any) => {
               const detail = `${event.kind === "available" ? "Available time" : "Unavailable time"}, ${formatTime(event.startTime)} to ${formatTime(event.endTime)}${event.title ? `, ${event.title}` : ""}.`;
@@ -347,6 +364,10 @@ function TimeGrid({ view, hourHeight, days, calendar, timeZone, onBooking, onCal
               const detail = `Unavailable time, ${formatTime(block.startTime)} to ${formatTime(block.endTime)}${block.reason ? `, ${block.reason}` : ""}.`;
               const fallback = `${formatTime(block.startTime)}–${formatTime(block.endTime)}`;
               return renderItem(`block-${block.id}`, timeToMinutes(block.startTime), timeToMinutes(block.endTime), "border-slate-400 bg-slate-200/95 text-slate-800", detail, <><span className="block font-semibold">Unavailable</span><span className="block truncate">{block.reason || fallback}</span></>, () => onCalendarItem({ type: "block", date, block }));
+            })}
+            {dayBookingRules.map((rule: any) => {
+              const ruleLabel = rule.clientTier === "returning_only" ? "Returning clients only" : "Open to everyone";
+              return renderItem(`rule-${rule.id}`, timeToMinutes(rule.startTime), timeToMinutes(rule.endTime), "border-violet-400 bg-violet-100/95 text-violet-950", `Client access rule, ${formatTime(rule.startTime)} to ${formatTime(rule.endTime)}, ${ruleLabel}.`, <><span className="block truncate font-semibold">{ruleLabel}</span><span className="block truncate">{formatTime(rule.startTime)}–{formatTime(rule.endTime)}</span></>, () => onCalendarItem({ type: "booking-rule", date, rule }));
             })}
             {daySlots.map((slot: any) => {
               const detail = `Last-minute opening, ${formatTime(slot.startTime)} to ${formatTime(slot.endTime)}${slot.note ? `, ${slot.note}` : ""}.`;
@@ -380,6 +401,7 @@ function MonthGrid({ calendar, anchorDate, timeZone, onSelectDay }: any) {
   const events = calendar?.events ?? [];
   const blocks = calendar?.blocks ?? [];
   const weeklySchedule = calendar?.weeklySchedule ?? [];
+  const bookingRules = calendar?.bookingRules ?? [];
   return <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"><div className="grid grid-cols-7 border-b border-border bg-muted/40">{DAYS.map((day) => <div key={day} className="py-2 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{day}</div>)}</div><div className="grid grid-cols-7">{cells.map((date) => {
     const dayBookings = bookings.filter((row: any) => bookingLocalParts(row.booking, timeZone).date === date);
     const dayEvents = events.filter((event: any) => eventAppliesOnDate(event, date));
@@ -387,8 +409,9 @@ function MonthGrid({ calendar, anchorDate, timeZone, onSelectDay }: any) {
     const isCurrentMonth = date.slice(0, 7) === anchorDate.slice(0, 7);
     const dow = new Date(`${date}T12:00:00`).getDay();
     const work = weeklySchedule.find((item: any) => item.dayOfWeek === dow && item.isActive);
-    const dots = [work ? "bg-emerald-500" : null, ...dayEvents.map((event: any) => event.kind === "available" ? "bg-sky-500" : "bg-slate-500"), ...dayBlocks.map(() => "bg-slate-500"), ...dayBookings.map((row: any) => row.booking.status === "pending" ? "bg-amber-500" : "bg-primary")].filter(Boolean) as string[];
-    const summary = `${formatDate(date, timeZone, { weekday: "long", month: "long", day: "numeric" })}: ${work ? "work hours; " : ""}${dayBookings.length} appointment${dayBookings.length === 1 ? "" : "s"}; ${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length} unavailable period${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length === 1 ? "" : "s"}. Open daily schedule.`;
+    const dayBookingRules = bookingRules.filter((rule: any) => rule.specificDate ? bookingRuleDateKey(rule.specificDate) === date : rule.dayOfWeek === dow);
+    const dots = [work ? "bg-emerald-500" : null, ...dayEvents.map((event: any) => event.kind === "available" ? "bg-sky-500" : "bg-slate-500"), ...dayBlocks.map(() => "bg-slate-500"), ...dayBookingRules.map(() => "bg-violet-500"), ...dayBookings.map((row: any) => row.booking.status === "pending" ? "bg-amber-500" : "bg-primary")].filter(Boolean) as string[];
+    const summary = `${formatDate(date, timeZone, { weekday: "long", month: "long", day: "numeric" })}: ${work ? "work hours; " : ""}${dayBookingRules.length} client access rule${dayBookingRules.length === 1 ? "" : "s"}; ${dayBookings.length} appointment${dayBookings.length === 1 ? "" : "s"}; ${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length} unavailable period${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length === 1 ? "" : "s"}. Open daily schedule.`;
     return <button key={date} onClick={() => onSelectDay(date)} aria-label={summary} className={cn("min-h-24 border-b border-r border-border p-1.5 text-left transition hover:bg-primary/5", !isCurrentMonth && "bg-muted/20 text-muted-foreground", date === getZonedDateKey(Date.now(), timeZone) && "bg-primary/5")}><span className={cn("flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold", date === getZonedDateKey(Date.now(), timeZone) && "bg-primary text-white")}>{Number(date.slice(-2))}</span><span aria-hidden="true" className="mt-2 flex flex-wrap gap-1">{dots.slice(0, 6).map((color, index) => <span key={`${date}-${index}`} className={cn("h-1.5 w-1.5 rounded-full", color)} />)}</span><span className="sr-only">{summary}</span></button>;
   })}</div></div>;
 }

@@ -1332,6 +1332,13 @@ function getCalendarRangeBounds(range: CalendarRange, timeZone: string) {
   return { start, end };
 }
 
+function getDateOnlyRuleRangeBounds(range: CalendarRange) {
+  return {
+    start: new Date(`${range.fromLocalDate}T00:00:00.000Z`),
+    end: new Date(`${addLocalDays(range.toLocalDate, 1)}T00:00:00.000Z`),
+  };
+}
+
 function assertCalendarRange(range: CalendarRange) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(range.fromLocalDate) || !/^\d{4}-\d{2}-\d{2}$/.test(range.toLocalDate) || range.fromLocalDate > range.toLocalDate) {
     throw new Error("Choose a valid calendar date range.");
@@ -1404,10 +1411,11 @@ export async function deleteCalendarEvent(eventId: number, techId: number) {
 export async function getTechnicianCalendar(techId: number, range: CalendarRange) {
   assertCalendarRange(range);
   const db = await getDb();
-  if (!db) return { timeZone: "UTC", bookings: [], events: [], blocks: [], lastMinuteSlots: [], weeklySchedule: [] };
+  if (!db) return { timeZone: "UTC", bookings: [], events: [], blocks: [], lastMinuteSlots: [], weeklySchedule: [], bookingRules: [] };
   const timeZone = await getTechTimeZone(db, techId);
   const { start, end } = getCalendarRangeBounds(range, timeZone);
-  const [bookingsInRange, events, blocks, lastMinuteInRange, weeklySchedule] = await Promise.all([
+  const ruleDateBounds = getDateOnlyRuleRangeBounds(range);
+  const [bookingsInRange, events, blocks, lastMinuteInRange, weeklySchedule, bookingRulesInRange] = await Promise.all([
     db.select({ booking: bookings, client: users, addonService: techServices })
       .from(bookings)
       .leftJoin(users, eq(bookings.clientId, users.id))
@@ -1423,8 +1431,12 @@ export async function getTechnicianCalendar(techId: number, range: CalendarRange
     db.select().from(scheduleBlocks).where(and(eq(scheduleBlocks.techId, techId), gte(scheduleBlocks.blockDate, start), lt(scheduleBlocks.blockDate, end))).orderBy(scheduleBlocks.blockDate),
     db.select().from(lastMinuteSlots).where(and(eq(lastMinuteSlots.techId, techId), gte(lastMinuteSlots.slotDate, range.fromLocalDate), lte(lastMinuteSlots.slotDate, range.toLocalDate))).orderBy(lastMinuteSlots.slotDate),
     getWeeklySchedule(techId),
+    db.select().from(bookingRules).where(and(
+      eq(bookingRules.techId, techId),
+      or(isNull(bookingRules.specificDate), and(gte(bookingRules.specificDate, ruleDateBounds.start), lt(bookingRules.specificDate, ruleDateBounds.end))),
+    )).orderBy(bookingRules.createdAt),
   ]);
-  return { timeZone, bookings: bookingsInRange, events, blocks, lastMinuteSlots: lastMinuteInRange, weeklySchedule };
+  return { timeZone, bookings: bookingsInRange, events, blocks, lastMinuteSlots: lastMinuteInRange, weeklySchedule, bookingRules: bookingRulesInRange };
 }
 
 export async function getAvailabilityOverrideConflicts(techId: number, input: Pick<CalendarEventInput, "localDate" | "startTime" | "endTime" | "timeZone">) {
@@ -2818,7 +2830,7 @@ export async function getClientTierForSlot(
   for (const rule of rules) {
     if (!rule.specificDate) continue;
     const rd = rule.specificDate;
-    const rDateStr = `${rd.getFullYear()}-${String(rd.getMonth() + 1).padStart(2, "0")}-${String(rd.getDate()).padStart(2, "0")}`;
+    const rDateStr = `${rd.getUTCFullYear()}-${String(rd.getUTCMonth() + 1).padStart(2, "0")}-${String(rd.getUTCDate()).padStart(2, "0")}`;
     if (rDateStr !== dateStr) continue;
     const rStart = toMins(rule.startTime);
     const rEnd   = toMins(rule.endTime);

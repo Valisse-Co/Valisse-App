@@ -50,4 +50,17 @@ describe("technician calendar workspace presentation", () => {
     expect(database).toContain("await db.transaction(async (tx) =>");
     expect(database).toContain("assertWeeklyScheduleInput(schedule)");
   });
+
+  it("projects time-specific client-access rules from Schedule into the calendar", () => {
+    const calendar = source("client/src/pages/TechCalendar.tsx");
+    const bookings = source("client/src/pages/TechBookings.tsx");
+    const database = source("server/db.ts");
+    expect(database).toContain("bookingRules: bookingRulesInRange");
+    expect(database).toContain("getDateOnlyRuleRangeBounds(range)");
+    expect(database).toContain("getUTCFullYear()");
+    expect(calendar).toContain("const dayBookingRules = bookingRules.filter");
+    expect(calendar).toContain("function bookingRuleDateKey");
+    expect(calendar).toContain('type: "booking-rule"');
+    expect(bookings).toContain("utils.availability.calendar.invalidate();");
+  });
 });
