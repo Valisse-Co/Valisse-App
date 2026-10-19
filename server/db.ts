@@ -1,7 +1,10 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   availability,
+  availabilityOffers,
+  availabilityOfferWindows,
   availabilityServiceSelections,
   bookingMatchAssessments,
   bookingRules,
@@ -56,6 +59,12 @@ import {
   mergeAvailabilityWindows,
   timeToMinutes,
 } from "../shared/lastMinuteBooking";
+import {
+  buildAvailabilityOfferFallbackPath,
+  buildAvailabilityOfferPath,
+  groupAvailableStartsIntoWindows,
+  type ShareableAvailabilityWindow,
+} from "../shared/availabilityOffer";
 import {
   assertCalendarEventInput,
   assertWeeklyScheduleInput,
@@ -1939,6 +1948,159 @@ export async function sendMessage(data: InsertMessage) {
   return id;
 }
 
+type AvailabilityOfferWindowRecord = {
+  id: number;
+  localDate: string;
+  startTime: string;
+  endTime: string;
+  audience: "open" | "returning_only";
+};
+
+function availabilityOfferSignature(windowId: number, clientId: number) {
+  if (!ENV.cookieSecret) throw new Error("Availability-offer links are unavailable until application security is configured.");
+  return createHmac("sha256", ENV.cookieSecret)
+    .update(`availability-offer:${windowId}:${clientId}`)
+    .digest("hex");
+}
+
+function createAvailabilityOfferToken(windowId: number, clientId: number) {
+  return `${windowId}.${availabilityOfferSignature(windowId, clientId)}`;
+}
+
+function readAvailabilityOfferToken(token: string, clientId: number) {
+  const [rawWindowId, suppliedSignature, ...extra] = token.split(".");
+  const windowId = Number(rawWindowId);
+  if (!Number.isInteger(windowId) || windowId <= 0 || !suppliedSignature || extra.length > 0) return null;
+  const expectedSignature = availabilityOfferSignature(windowId, clientId);
+  const expected = Buffer.from(expectedSignature);
+  const supplied = Buffer.from(suppliedSignature);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return null;
+  return windowId;
+}
+
+function presentAvailabilityOfferWindow(window: AvailabilityOfferWindowRecord, clientId: number, canFollow = true) {
+  return {
+    ...window,
+    href: canFollow ? buildAvailabilityOfferPath(createAvailabilityOfferToken(window.id, clientId)) : null,
+  };
+}
+
+export async function createAvailabilityOffer(params: {
+  conversationId: number;
+  techId: number;
+  clientId: number;
+  note: string | null;
+  timeZone: string;
+  idempotencyKey: string;
+  windows: ShareableAvailabilityWindow[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  const result = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: availabilityOffers.id })
+      .from(availabilityOffers)
+      .where(and(
+        eq(availabilityOffers.techId, params.techId),
+        eq(availabilityOffers.conversationId, params.conversationId),
+        eq(availabilityOffers.idempotencyKey, params.idempotencyKey),
+      ))
+      .limit(1);
+    if (existing) return { offerId: existing.id, wasCreated: false };
+
+    const summary = params.windows.length === 1
+      ? "I have an opening to share."
+      : `I have ${params.windows.length} upcoming openings to share.`;
+    const [messageResult] = await tx.insert(messages).values({
+      conversationId: params.conversationId,
+      senderId: params.techId,
+      senderRole: "nail_tech",
+      content: params.note ? `${summary} ${params.note}` : summary,
+      type: "availability_offer",
+      imageUrl: null,
+      bookingId: null,
+    });
+    const messageId = Number((messageResult as any).insertId);
+    const [offerResult] = await tx.insert(availabilityOffers).values({
+      messageId,
+      conversationId: params.conversationId,
+      techId: params.techId,
+      clientId: params.clientId,
+      note: params.note,
+      timeZone: params.timeZone,
+      idempotencyKey: params.idempotencyKey,
+    });
+    const offerId = Number((offerResult as any).insertId);
+    await tx.insert(availabilityOfferWindows).values(params.windows.map((window, ordinal) => ({
+      availabilityOfferId: offerId,
+      ordinal,
+      localDate: window.localDate,
+      startTime: window.startTime,
+      endTime: window.endTime,
+      audience: window.audience,
+    })));
+    await tx.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, params.conversationId));
+    return { offerId, wasCreated: true };
+  });
+
+  return getAvailabilityOfferById(result.offerId, params.clientId);
+}
+
+export async function getAvailabilityOfferById(offerId: number, viewerId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [offer] = await db
+    .select()
+    .from(availabilityOffers)
+    .where(eq(availabilityOffers.id, offerId))
+    .limit(1);
+  if (!offer) return null;
+  const windows = await db
+    .select()
+    .from(availabilityOfferWindows)
+    .where(eq(availabilityOfferWindows.availabilityOfferId, offer.id))
+    .orderBy(availabilityOfferWindows.ordinal);
+  return {
+    ...offer,
+    windows: windows.map((window) => presentAvailabilityOfferWindow(window, offer.clientId, viewerId === offer.clientId)),
+    fallbackHref: buildAvailabilityOfferFallbackPath(offer.techId),
+  };
+}
+
+export async function getAvailabilityOffersForMessages(messageIds: number[], viewerId: number) {
+  const db = await getDb();
+  if (!db || messageIds.length === 0) return new Map<number, Awaited<ReturnType<typeof getAvailabilityOfferById>>>();
+  const offers = await db
+    .select()
+    .from(availabilityOffers)
+    .where(inArray(availabilityOffers.messageId, messageIds));
+  const mapped = new Map<number, Awaited<ReturnType<typeof getAvailabilityOfferById>>>();
+  await Promise.all(offers.map(async (offer) => {
+    mapped.set(offer.messageId, await getAvailabilityOfferById(offer.id, viewerId));
+  }));
+  return mapped;
+}
+
+export async function getAvailabilityOfferWindowForClient(token: string, clientId: number) {
+  const windowId = readAvailabilityOfferToken(token, clientId);
+  if (!windowId) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const [result] = await db
+    .select({ offer: availabilityOffers, window: availabilityOfferWindows })
+    .from(availabilityOfferWindows)
+    .innerJoin(availabilityOffers, eq(availabilityOfferWindows.availabilityOfferId, availabilityOffers.id))
+    .where(and(eq(availabilityOfferWindows.id, windowId), eq(availabilityOffers.clientId, clientId)))
+    .limit(1);
+  if (!result) return null;
+  return {
+    ...result.offer,
+    window: presentAvailabilityOfferWindow(result.window, clientId),
+    fallbackHref: buildAvailabilityOfferFallbackPath(result.offer.techId),
+  };
+}
+
 export async function markMessagesRead(conversationId: number, userId: number) {
   const db = await getDb();
   if (!db) return;
@@ -2336,6 +2498,87 @@ export async function getAvailableSlots(
   }
 
   return slots;
+}
+
+/**
+ * Finds the next calendar windows that are genuinely bookable for one client.
+ * The search follows the technician's recurring pattern after the last finite
+ * calendar exception instead of imposing an arbitrary 14-day marketing window.
+ */
+export async function getNextShareableAvailabilityWindows(params: {
+  techId: number;
+  clientId: number;
+  count?: number;
+}) {
+  const db = await getDb();
+  if (!db) return { timeZone: "UTC", windows: [] as ShareableAvailabilityWindow[] };
+  const count = Math.min(Math.max(params.count ?? 3, 1), 3);
+  const timeZone = await getTechTimeZone(db, params.techId);
+  const today = getZonedDateKey(Date.now(), timeZone);
+  const now = new Date();
+
+  const [recurringAvailability, weeklyCalendarEvents, oneTimeCalendarEvents, activeLastMinuteSlots, futureBookings, futureBlocks, futureRules] = await Promise.all([
+    db.select({ dayOfWeek: availability.dayOfWeek }).from(availability).where(and(eq(availability.techId, params.techId), eq(availability.isActive, true))),
+    db.select({ dayOfWeek: calendarEvents.dayOfWeek }).from(calendarEvents).where(and(eq(calendarEvents.techId, params.techId), eq(calendarEvents.recurrence, "weekly"), eq(calendarEvents.kind, "available"))),
+    db.select({ localDate: calendarEvents.localDate }).from(calendarEvents).where(and(eq(calendarEvents.techId, params.techId), eq(calendarEvents.recurrence, "once"), eq(calendarEvents.kind, "available"), gte(calendarEvents.localDate, today))),
+    db.select({ slotDate: lastMinuteSlots.slotDate }).from(lastMinuteSlots).where(and(eq(lastMinuteSlots.techId, params.techId), gte(lastMinuteSlots.slotDate, today), gt(lastMinuteSlots.expiresAt, Date.now()))),
+    db.select({ scheduledAt: bookings.scheduledAt }).from(bookings).where(and(eq(bookings.techId, params.techId), gt(bookings.scheduledAt, now), sql`${bookings.status} IN ('pending', 'confirmed')`)).orderBy(desc(bookings.scheduledAt)).limit(1),
+    db.select({ blockDate: scheduleBlocks.blockDate }).from(scheduleBlocks).where(and(eq(scheduleBlocks.techId, params.techId), gt(scheduleBlocks.blockDate, now))).orderBy(desc(scheduleBlocks.blockDate)).limit(1),
+    db.select({ specificDate: bookingRules.specificDate }).from(bookingRules).where(and(eq(bookingRules.techId, params.techId), isNotNull(bookingRules.specificDate), gt(bookingRules.specificDate, now))).orderBy(desc(bookingRules.specificDate)).limit(1),
+  ]);
+
+  const recurringDays = new Set<number>([
+    ...recurringAvailability.map((row) => row.dayOfWeek),
+    ...weeklyCalendarEvents.map((row) => row.dayOfWeek).filter((day): day is number => day !== null),
+  ]);
+  const oneTimeAvailableDates = new Set([
+    ...oneTimeCalendarEvents.map((row) => row.localDate),
+    ...activeLastMinuteSlots.map((row) => row.slotDate),
+  ].filter((date): date is string => Boolean(date)));
+  const exceptionDates = [
+    futureBookings[0]?.scheduledAt ? getZonedDateKey(futureBookings[0].scheduledAt.getTime(), timeZone) : null,
+    futureBlocks[0]?.blockDate ? getZonedDateKey(futureBlocks[0].blockDate.getTime(), timeZone) : null,
+    futureRules[0]?.specificDate ? getZonedDateKey(futureRules[0].specificDate.getTime(), timeZone) : null,
+    ...Array.from(oneTimeAvailableDates),
+  ].filter((date): date is string => Boolean(date));
+  const latestFiniteDate = exceptionDates.sort().at(-1) ?? today;
+  // Two additional weekly cycles are sufficient to collect the requested three
+  // windows once finite exceptions no longer affect the repeating pattern.
+  const endDate = addLocalDays(latestFiniteDate > today ? latestFiniteDate : today, 21);
+
+  const windows: ShareableAvailabilityWindow[] = [];
+  const candidateDates: string[] = recurringDays.size === 0
+    ? Array.from(oneTimeAvailableDates).filter((date) => date >= today).sort()
+    : (() => {
+      const dates: string[] = [];
+      for (let date = today; date <= endDate; date = addLocalDays(date, 1)) {
+        const [year, month, day] = date.split("-").map(Number);
+        const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+        if (recurringDays.has(dayOfWeek) || oneTimeAvailableDates.has(date)) dates.push(date);
+      }
+      return dates;
+    })();
+  for (const date of candidateDates) {
+    if (windows.length >= count) break;
+    const [year, month, day] = date.split("-").map(Number);
+    const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    if (!recurringDays.has(dayOfWeek) && !oneTimeAvailableDates.has(date)) continue;
+
+    const slots = await getAvailableSlots(params.techId, date, 15, params.clientId, []);
+    const calendarEventsForDate = await getCalendarEventsForLocalDate(params.techId, date);
+    const shareableSlots = await Promise.all(slots.map(async (slot) => {
+      const calendarTier = calendarEventsForDate
+        .filter((event) => event.kind === "available" && timeToMinutes(slot.time) >= timeToMinutes(event.startTime) && timeToMinutes(slot.time) < timeToMinutes(event.endTime))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]?.clientTier;
+      return {
+        ...slot,
+        audience: calendarTier ?? await getClientTierForSlot(params.techId, date, slot.time),
+      };
+    }));
+    windows.push(...groupAvailableStartsIntoWindows(date, shareableSlots));
+  }
+
+  return { timeZone, windows: windows.slice(0, count) };
 }
 
 /**

@@ -13,6 +13,7 @@ import Saved from "./pages/Saved";
 import Bookings from "./pages/Bookings";
 import BookingFlow from "./pages/BookingFlow";
 import LastMinuteBookingRedirect from "./pages/LastMinuteBookingRedirect";
+import AvailabilityOfferBookingRedirect from "./pages/AvailabilityOfferBookingRedirect";
 import Messages from "./pages/Messages";
 import Chat from "./pages/Chat";
 import TechDashboard from "./pages/TechDashboard";
@@ -183,6 +184,9 @@ function Router() {
         </Route>
         <Route path="/book-last-minute/:slotId">
           {() => <AppLayout><LastMinuteBookingRedirect /></AppLayout>}
+        </Route>
+        <Route path="/book-availability/:token">
+          {() => <AppLayout><AvailabilityOfferBookingRedirect /></AppLayout>}
         </Route>
         <Route path="/messages">
           <AppLayout><Messages /></AppLayout>

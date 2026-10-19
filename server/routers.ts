@@ -9,6 +9,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createBooking,
+  createAvailabilityOffer,
   createQaAppointmentRun,
   createQaTestClient,
   createCollection,
@@ -27,6 +28,8 @@ import {
   getActiveQaAppointmentRunForAdmin,
   getConversationForParticipant,
   getConversationMessages,
+  getAvailabilityOfferWindowForClient,
+  getAvailabilityOffersForMessages,
   getDiscoverFeed,
   getFollowerCount,
   getOpenLastMinuteSlots,
@@ -86,6 +89,7 @@ import {
   updateUserProfile,
   getAvailableSlots,
   getMonthBookableStatus,
+  getNextShareableAvailabilityWindows,
   createBookingWithConflictCheck,
   createBookingRevision,
   isReturningClient,
@@ -187,6 +191,7 @@ import {
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
 import { getDirectMessageValidationError, isConversationParticipant, isSafeDirectMessageImageReference } from "../shared/directMessaging";
+import { availabilityAudienceLabel } from "../shared/availabilityOffer";
 import { getConversationRole, isTechCapable } from "../shared/marketplaceAccess";
 import { getReviewEligibility } from "../shared/reviewEligibility";
 import { sendValisseTransactionalSms } from "./telnyx";
@@ -2134,7 +2139,86 @@ const messagingRouter = router({
       }
       await markMessagesRead(input.conversationId, ctx.user.id);
       const msgs = await getConversationMessages(input.conversationId);
-      return msgs.reverse();
+      const orderedMessages = msgs.reverse();
+      const offers = await getAvailabilityOffersForMessages(
+        orderedMessages.filter((message) => message.type === "availability_offer").map((message) => message.id),
+        ctx.user.id,
+      );
+      return orderedMessages.map((message) => ({
+        ...message,
+        availabilityOffer: offers.get(message.id) ?? null,
+      }));
+    }),
+
+  sendAvailabilityOffer: protectedProcedure
+    .input(z.object({
+      conversationId: z.number().int().positive(),
+      note: z.string().trim().max(1_000).optional(),
+      idempotencyKey: z.string().min(16).max(96),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const conversation = await getConversationForParticipant(input.conversationId, ctx.user.id);
+      if (
+        !conversation
+        || conversation.techId !== ctx.user.id
+        || conversation.techRole !== "nail_tech"
+        || conversation.clientRole !== "client"
+        || !isTechCapable(ctx.user)
+      ) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the technician can share availability with this client." });
+      }
+      const client = await getUserById(conversation.clientId);
+      if (!client || client.deactivatedAt) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This client account is unavailable." });
+      }
+      if (await isDirectMessageBlocked(ctx.user.id, client.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Messaging is unavailable for this account." });
+      }
+
+      const availability = await getNextShareableAvailabilityWindows({
+        techId: ctx.user.id,
+        clientId: client.id,
+        count: 3,
+      });
+      if (availability.windows.length === 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "There are no upcoming bookable time blocks to share yet." });
+      }
+      return createAvailabilityOffer({
+        conversationId: conversation.id,
+        techId: ctx.user.id,
+        clientId: client.id,
+        note: input.note || null,
+        timeZone: availability.timeZone,
+        idempotencyKey: input.idempotencyKey,
+        windows: availability.windows,
+      });
+    }),
+
+  resolveAvailabilityOfferWindow: protectedProcedure
+    .input(z.object({ token: z.string().min(1).max(256) }))
+    .query(async ({ ctx, input }) => {
+      const offer = await getAvailabilityOfferWindowForClient(input.token, ctx.user.id);
+      if (!offer) return { state: "unavailable" as const, techId: null, fallbackHref: "/discover" };
+      const tech = await getUserById(offer.techId);
+      if (!tech || tech.deactivatedAt || await isDirectMessageBlocked(ctx.user.id, offer.techId)) {
+        return { state: "unavailable" as const, techId: offer.techId, fallbackHref: offer.fallbackHref };
+      }
+      const liveSlots = await getAvailableSlots(offer.techId, offer.window.localDate, 15, ctx.user.id, []);
+      const openingIsLive = liveSlots.some((slot) => slot.time === offer.window.startTime && slot.available);
+      if (!openingIsLive) {
+        return { state: "unavailable" as const, techId: offer.techId, fallbackHref: offer.fallbackHref };
+      }
+      return {
+        state: "available" as const,
+        techId: offer.techId,
+        localDate: offer.window.localDate,
+        startTime: offer.window.startTime,
+        endTime: offer.window.endTime,
+        audience: offer.window.audience,
+        audienceLabel: availabilityAudienceLabel(offer.window.audience),
+        timeZone: offer.timeZone,
+        fallbackHref: offer.fallbackHref,
+      };
     }),
 
   send: protectedProcedure

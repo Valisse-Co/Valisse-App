@@ -501,13 +501,46 @@ export const messages = mysqlTable("messages", {
   content: text("content"),
   imageUrl: text("imageUrl"),
   bookingId: int("bookingId"),
-  type: mysqlEnum("type", ["text", "image", "booking_request", "booking_card"]).default("text").notNull(),
+  type: mysqlEnum("type", ["text", "image", "booking_request", "booking_card", "availability_offer"]).default("text").notNull(),
   isRead: boolean("isRead").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = typeof messages.$inferInsert;
+
+// ─── Technician Availability Offers ───────────────────────────────────────────
+// Offers are immutable message snapshots. The linked opening is still checked
+// live when the client follows it; a message never reserves calendar time.
+export const availabilityOffers = mysqlTable("availability_offers", {
+  id: int("id").autoincrement().primaryKey(),
+  messageId: int("messageId").notNull().unique(),
+  conversationId: int("conversationId").notNull(),
+  techId: int("techId").notNull(),
+  clientId: int("clientId").notNull(),
+  note: text("note"),
+  timeZone: varchar("timeZone", { length: 64 }).notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 96 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueAvailabilityOfferRequest: unique("availability_offers_tech_conversation_key_unique").on(t.techId, t.conversationId, t.idempotencyKey),
+}));
+
+export const availabilityOfferWindows = mysqlTable("availability_offer_windows", {
+  id: int("id").autoincrement().primaryKey(),
+  availabilityOfferId: int("availabilityOfferId").notNull(),
+  ordinal: int("ordinal").notNull(),
+  localDate: varchar("localDate", { length: 10 }).notNull(),
+  startTime: varchar("startTime", { length: 5 }).notNull(),
+  endTime: varchar("endTime", { length: 5 }).notNull(),
+  audience: mysqlEnum("audience", ["open", "returning_only"]).default("open").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  uniqueAvailabilityOfferOrdinal: unique("availability_offer_windows_offer_ordinal_unique").on(t.availabilityOfferId, t.ordinal),
+}));
+
+export type AvailabilityOffer = typeof availabilityOffers.$inferSelect;
+export type AvailabilityOfferWindow = typeof availabilityOfferWindows.$inferSelect;
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────
 export const reviews = mysqlTable("reviews", {

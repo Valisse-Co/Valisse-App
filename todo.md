@@ -764,3 +764,9 @@
 - [x] Use visibly distinct colors for open-to-all and returning-clients-only work time blocks
 - [x] Add an optional accessible legend covering work, returning-client access, breaks, client-access rules, unavailable time, and appointment states
 - [x] Cover color/legend contracts with regression checks, validate the calendar, and save a checkpoint
+
+## Technician Message Availability Sharing
+- [x] Add a technician-only conversation action that finds the next three truly bookable availability windows without an arbitrary date horizon
+- [x] Send an optional technician note, time-window cards, audience labels, and a general booking link through the existing in-app message system
+- [x] Make opening links validate current availability and show “This time is no longer available” with a normal booking fallback when stale
+- [x] Restrict sharing to technician-to-client conversations, add regression coverage, validate without external notifications, and save a checkpoint

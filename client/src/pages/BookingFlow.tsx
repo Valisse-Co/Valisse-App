@@ -107,12 +107,22 @@ export default function BookingFlow() {
   const lastMinuteDate = new URLSearchParams(search).get("lastMinuteDate");
   const lastMinuteStart = new URLSearchParams(search).get("lastMinuteStart");
   const lastMinuteEnd = new URLSearchParams(search).get("lastMinuteEnd");
+  const availabilityOfferToken = new URLSearchParams(search).get("availabilityOffer");
+  const preferredDate = new URLSearchParams(search).get("preferredDate");
+  const preferredStart = new URLSearchParams(search).get("preferredStart");
+  const preferredEnd = new URLSearchParams(search).get("preferredEnd");
   const preferredLastMinuteOpening = useMemo(() => {
     const id = Number(lastMinuteSlotId);
     if (!Number.isInteger(id) || id <= 0 || !lastMinuteDate || !lastMinuteStart || !lastMinuteEnd) return null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(lastMinuteDate) || !/^\d{2}:\d{2}$/.test(lastMinuteStart) || !/^\d{2}:\d{2}$/.test(lastMinuteEnd)) return null;
     return { id, date: lastMinuteDate, startTime: lastMinuteStart, endTime: lastMinuteEnd };
   }, [lastMinuteDate, lastMinuteEnd, lastMinuteSlotId, lastMinuteStart]);
+  const preferredAvailabilityOpening = useMemo(() => {
+    if (!availabilityOfferToken || !preferredDate || !preferredStart || !preferredEnd) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(preferredDate) || !/^\d{2}:\d{2}$/.test(preferredStart) || !/^\d{2}:\d{2}$/.test(preferredEnd)) return null;
+    return { date: preferredDate, startTime: preferredStart, endTime: preferredEnd };
+  }, [availabilityOfferToken, preferredDate, preferredEnd, preferredStart]);
+  const preferredOpening = preferredLastMinuteOpening ?? preferredAvailabilityOpening;
   const { isAuthenticated } = useAuth();
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -149,10 +159,10 @@ export default function BookingFlow() {
   const hasCompletePricing = bookingServices.every((service) => service.price != null);
   const activeMatchService = initialSelectedServices[smServiceIndex] ?? selectedService;
   const [calMonth, setCalMonth]           = useState(() => {
-    const n = preferredLastMinuteOpening ? new Date(`${preferredLastMinuteOpening.date}T12:00:00`) : new Date();
+    const n = preferredOpening ? new Date(`${preferredOpening.date}T12:00:00`) : new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
   });
-  const [selectedDate, setSelectedDate]   = useState<string | null>(() => preferredLastMinuteOpening?.date ?? null);
+  const [selectedDate, setSelectedDate]   = useState<string | null>(() => preferredOpening?.date ?? null);
   const [selectedTime, setSelectedTime]   = useState<string | null>(null);
   const [notes, setNotes]                 = useState("");
   const [appointmentInspirationImage, setAppointmentInspirationImage] = useState<string | null>(requestedInspirationImage);
@@ -162,12 +172,12 @@ export default function BookingFlow() {
   const [feePolicyAcknowledged, setFeePolicyAcknowledged] = useState(false);
 
   useEffect(() => {
-    if (!preferredLastMinuteOpening) return;
-    const date = new Date(`${preferredLastMinuteOpening.date}T12:00:00`);
+    if (!preferredOpening) return;
+    const date = new Date(`${preferredOpening.date}T12:00:00`);
     setCalMonth({ year: date.getFullYear(), month: date.getMonth() });
-    setSelectedDate(preferredLastMinuteOpening.date);
+    setSelectedDate(preferredOpening.date);
     setSelectedTime(null);
-  }, [preferredLastMinuteOpening?.id]);
+  }, [preferredOpening?.date, preferredOpening?.startTime, preferredOpening?.endTime]);
 
   // ── Smart Match queries ───────────────────────────────────────────────────
   const smEnabledQuery = trpc.smartService.isEnabled.useQuery(
@@ -216,6 +226,12 @@ export default function BookingFlow() {
     },
     { enabled: !!selectedDate && !!selectedService && techId > 0, staleTime: 0 }
   );
+
+  useEffect(() => {
+    if (!preferredAvailabilityOpening || selectedDate !== preferredAvailabilityOpening.date || selectedTime || !slotsQuery.data) return;
+    const preferredSlot = slotsQuery.data.find((slot) => slot.time === preferredAvailabilityOpening.startTime && slot.available);
+    if (preferredSlot) setSelectedTime(preferredSlot.time);
+  }, [preferredAvailabilityOpening, selectedDate, selectedTime, slotsQuery.data]);
 
   // Fetch per-date bookable status for the current calendar month so the
   // calendar can distinguish "working but fully booked" from "open" days.
