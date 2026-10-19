@@ -746,3 +746,11 @@
 - [x] Open a date-detail overlay from Month view without leaving the monthly calendar
 - [x] Make Calendar a clear alternative view from technician Bookings and improve technician no-booking empty state with post promotion actions
 - [x] Add focused regression coverage, visual validation, full application test run, and checkpoint
+
+## Calendar Data, Touch, and Density Repair
+- [x] Render dashboard weekly work hours and breaks as visible calendar data on every matching date
+- [x] Draw every hour as either an explicit unavailable baseline or an available work-time block
+- [x] Replace destructive calendar-block taps with in-place details overlays and separate delete controls
+- [x] Add Day and Week zoom controls with scale-aware appointment layout
+- [x] Render Week appointments as thin client-name lines and Month appointments as color-only dots
+- [x] Add regression coverage, verify touch behavior and run the full application suite before checkpointing

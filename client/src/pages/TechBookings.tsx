@@ -1553,7 +1553,10 @@ export function ScheduleTab() {
   }, [savedSchedule]);
 
   const setDayTier = trpc.availability.setDayTier.useMutation({
-    onSuccess: () => utils.availability.weeklySchedule.invalidate(),
+    onSuccess: () => {
+      utils.availability.weeklySchedule.invalidate();
+      utils.availability.calendar.invalidate();
+    },
   });
 
   const addBookingRule = trpc.availability.addBookingRule.useMutation({
@@ -1582,6 +1585,7 @@ export function ScheduleTab() {
   const saveSchedule = trpc.availability.setWeeklySchedule.useMutation({
     onSuccess: () => {
       utils.availability.weeklySchedule.invalidate();
+      utils.availability.calendar.invalidate();
       setDirty(false);
       toast.success("Schedule saved");
     },
@@ -1591,6 +1595,7 @@ export function ScheduleTab() {
   const addBlock = trpc.availability.addBlock.useMutation({
     onSuccess: () => {
       utils.availability.blocks.invalidate();
+      utils.availability.calendar.invalidate();
       setShowBlockForm(false);
       setBlockDate("");
       setBlockReason("");
@@ -1602,6 +1607,7 @@ export function ScheduleTab() {
   const removeBlock = trpc.availability.removeBlock.useMutation({
     onSuccess: () => {
       utils.availability.blocks.invalidate();
+      utils.availability.calendar.invalidate();
       toast.success("Block removed");
     },
   });

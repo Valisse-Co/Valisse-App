@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertCalendarEventInput,
+  assertWeeklyScheduleInput,
   eventAppliesOnDate,
   getSundayStart,
   intervalsOverlap,
@@ -29,5 +30,13 @@ describe("technician calendar helpers", () => {
     expect(() => assertCalendarEventInput({ kind: "available", recurrence: "weekly", localDate: null, dayOfWeek: 1, startTime: "09:00", endTime: "10:00", timeZone: "America/Denver" })).not.toThrow();
     expect(() => assertCalendarEventInput({ kind: "unavailable", recurrence: "once", localDate: null, dayOfWeek: null, startTime: "10:00", endTime: "09:00", timeZone: "America/Denver" })).toThrow();
     expect(() => assertCalendarEventInput({ kind: "unavailable", recurrence: "weekly", localDate: null, dayOfWeek: 1, startTime: "09:00", endTime: "10:00", timeZone: "America/Denver" })).toThrow();
+  });
+
+  it("requires a complete, non-overlapping weekly schedule with valid breaks", () => {
+    const validWeek = Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, startTime: "09:00", endTime: "17:00", isActive: dayOfWeek > 0, breakStart: dayOfWeek > 0 ? "12:00" : null, breakEnd: dayOfWeek > 0 ? "13:00" : null }));
+    expect(() => assertWeeklyScheduleInput(validWeek)).not.toThrow();
+    expect(() => assertWeeklyScheduleInput(validWeek.slice(0, 6))).toThrow();
+    expect(() => assertWeeklyScheduleInput([{ ...validWeek[0], dayOfWeek: 1 }, ...validWeek.slice(1)])).toThrow();
+    expect(() => assertWeeklyScheduleInput(validWeek.map((day) => day.dayOfWeek === 1 ? { ...day, breakStart: "16:00", breakEnd: "18:00" } : day))).toThrow();
   });
 });

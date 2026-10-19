@@ -31,4 +31,23 @@ describe("technician calendar workspace presentation", () => {
     expect(bookings).toContain("Turn your best looks into bookings");
     expect(bookings).toContain('navigate("/dashboard?tab=posts")');
   });
+
+  it("uses safe detail overlays, zoomable day geometry, and compact week/month appointment presentation", () => {
+    const calendar = source("client/src/pages/TechCalendar.tsx");
+    expect(calendar).toContain("const HOUR_HEIGHTS = [40, 56, 72, 88]");
+    expect(calendar).toContain("setSelectedCalendarItem");
+    expect(calendar).toContain("data-calendar-item");
+    expect(calendar).toContain("pointerType === \"touch\"");
+    expect(calendar).toContain('view === "week" ? 16 : 18, view === "week" ? 20');
+    expect(calendar).toContain('dots.slice(0, 6)');
+    expect(calendar).not.toContain("onEventDelete");
+  });
+
+  it("refreshes the calendar aggregate after schedule edits and replaces weekly rows atomically", () => {
+    const bookings = source("client/src/pages/TechBookings.tsx");
+    const database = source("server/db.ts");
+    expect(bookings).toContain("utils.availability.calendar.invalidate()");
+    expect(database).toContain("await db.transaction(async (tx) =>");
+    expect(database).toContain("assertWeeklyScheduleInput(schedule)");
+  });
 });

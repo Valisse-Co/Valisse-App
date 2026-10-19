@@ -58,6 +58,7 @@ import {
 } from "../shared/lastMinuteBooking";
 import {
   assertCalendarEventInput,
+  assertWeeklyScheduleInput,
   eventAppliesOnDate,
   intervalsOverlap,
   type CalendarEventInput,
@@ -1236,6 +1237,8 @@ export async function setWeeklySchedule(
   const db = await getDb();
   if (!db) return;
 
+  assertWeeklyScheduleInput(schedule);
+
   const selectedServiceIds = schedule.flatMap((day) => day.serviceIds ?? []);
   for (const day of schedule) {
     const serviceIds = day.serviceIds ?? [];
@@ -1254,33 +1257,38 @@ export async function setWeeklySchedule(
     }
   }
 
-  const existingRows = await db.select({ id: availability.id }).from(availability).where(eq(availability.techId, techId));
-  if (existingRows.length > 0) {
-    await db.delete(availabilityServiceSelections).where(inArray(availabilityServiceSelections.availabilityId, existingRows.map((row) => row.id)));
-  }
-  await db.delete(availability).where(eq(availability.techId, techId));
-
-  for (const day of schedule) {
-    const [result] = await db.insert(availability).values({
-      techId,
-      dayOfWeek: day.dayOfWeek,
-      startTime: day.startTime,
-      endTime: day.endTime,
-      isActive: day.isActive,
-      breakStart: day.breakStart ?? null,
-      breakEnd: day.breakEnd ?? null,
-      bufferMinutes: day.bufferMinutes ?? 0,
-      clientTier: day.clientTier ?? "open",
-      clientTierUpdatedAt: new Date(),
-    });
-    const availabilityId = Number((result as { insertId: number }).insertId);
-    const serviceIds = day.serviceIds ?? [];
-    if (serviceIds.length > 0) {
-      await db.insert(availabilityServiceSelections).values(
-        serviceIds.map((techServiceId) => ({ availabilityId, techServiceId }))
-      );
+  // A calendar or availability lookup must see either the prior complete
+  // schedule or the new complete schedule—never the transient empty state
+  // between a delete and the replacement inserts.
+  await db.transaction(async (tx) => {
+    const existingRows = await tx.select({ id: availability.id }).from(availability).where(eq(availability.techId, techId));
+    if (existingRows.length > 0) {
+      await tx.delete(availabilityServiceSelections).where(inArray(availabilityServiceSelections.availabilityId, existingRows.map((row) => row.id)));
     }
-  }
+    await tx.delete(availability).where(eq(availability.techId, techId));
+
+    for (const day of schedule) {
+      const [result] = await tx.insert(availability).values({
+        techId,
+        dayOfWeek: day.dayOfWeek,
+        startTime: day.startTime,
+        endTime: day.endTime,
+        isActive: day.isActive,
+        breakStart: day.breakStart ?? null,
+        breakEnd: day.breakEnd ?? null,
+        bufferMinutes: day.bufferMinutes ?? 0,
+        clientTier: day.clientTier ?? "open",
+        clientTierUpdatedAt: new Date(),
+      });
+      const availabilityId = Number((result as { insertId: number }).insertId);
+      const serviceIds = day.serviceIds ?? [];
+      if (serviceIds.length > 0) {
+        await tx.insert(availabilityServiceSelections).values(
+          serviceIds.map((techServiceId) => ({ availabilityId, techServiceId }))
+        );
+      }
+    }
+  });
 }
 
 export async function getScheduleBlocks(techId: number) {
