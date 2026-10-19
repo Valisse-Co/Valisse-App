@@ -63,4 +63,15 @@ describe("technician calendar workspace presentation", () => {
     expect(calendar).toContain('type: "booking-rule"');
     expect(bookings).toContain("utils.availability.calendar.invalidate();");
   });
+
+  it("uses distinct open and returning-client availability colors with an optional legend", () => {
+    const calendar = source("client/src/pages/TechCalendar.tsx");
+    expect(calendar).toContain("function availabilityBlockStyle");
+    expect(calendar).toContain('"border-emerald-300 bg-emerald-100/95 text-emerald-950"');
+    expect(calendar).toContain('"border-sky-400 bg-sky-100/95 text-sky-950"');
+    expect(calendar).toContain("const [legendOpen, setLegendOpen]");
+    expect(calendar).toContain('id="calendar-color-legend"');
+    expect(calendar).toContain("CALENDAR_LEGEND.map");
+    expect(calendar).toContain("Work · returning");
+  });
 });

@@ -759,3 +759,8 @@
 - [x] Include saved time-specific client-tier rules in the calendar aggregate and render them in each matching day
 - [x] Verify all saved Schedule editor data now appears in Calendar without changing the Schedule editor UI
 - [x] Run regression tests and save a verification checkpoint
+
+## Calendar Availability Colors and Legend
+- [x] Use visibly distinct colors for open-to-all and returning-clients-only work time blocks
+- [x] Add an optional accessible legend covering work, returning-client access, breaks, client-access rules, unavailable time, and appointment states
+- [x] Cover color/legend contracts with regression checks, validate the calendar, and save a checkpoint

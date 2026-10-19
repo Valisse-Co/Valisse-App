@@ -19,6 +19,17 @@ const DAY_START = 0;
 const DAY_END = 24 * 60;
 const HOUR_HEIGHTS = [40, 56, 72, 88] as const;
 
+const CALENDAR_LEGEND = [
+  { label: "Work · anyone", color: "bg-emerald-500", description: "Hours open to all clients" },
+  { label: "Work · returning", color: "bg-sky-500", description: "Hours limited to returning clients" },
+  { label: "Break", color: "bg-slate-400", description: "Recurring break time" },
+  { label: "Client access rule", color: "bg-violet-500", description: "Time-specific client access rule" },
+  { label: "Unavailable", color: "bg-zinc-500", description: "Blocked or closed time" },
+  { label: "Last-minute opening", color: "bg-fuchsia-500", description: "Active extra opening" },
+  { label: "Pending appointment", color: "bg-amber-500", description: "Awaiting your decision" },
+  { label: "Confirmed appointment", color: "bg-primary", description: "Upcoming confirmed appointment" },
+] as const;
+
 type CalendarView = "day" | "week" | "month";
 type CalendarEventForm = {
   kind: "available" | "unavailable";
@@ -94,6 +105,16 @@ function statusStyle(status: string) {
   return "border-violet-200 bg-violet-50 text-violet-800";
 }
 
+function availabilityBlockStyle(clientTier: string | null | undefined) {
+  return clientTier === "returning_only"
+    ? "border-sky-400 bg-sky-100/95 text-sky-950"
+    : "border-emerald-300 bg-emerald-100/95 text-emerald-950";
+}
+
+function availabilityDotColor(clientTier: string | null | undefined) {
+  return clientTier === "returning_only" ? "bg-sky-500" : "bg-emerald-500";
+}
+
 function rangeTitle(view: CalendarView, anchorDate: string, range: { fromLocalDate: string; toLocalDate: string }, timeZone?: string) {
   if (view === "day") return formatDate(anchorDate, timeZone, { weekday: "long", month: "long", day: "numeric" });
   if (view === "week") return `${formatDate(range.fromLocalDate, timeZone, { month: "short", day: "numeric" })} – ${formatDate(range.toLocalDate, timeZone, { month: "short", day: "numeric", year: "numeric" })}`;
@@ -125,6 +146,7 @@ export default function TechCalendar() {
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<CalendarItem | null>(null);
   const [deleteEventPending, setDeleteEventPending] = useState<any | null>(null);
   const [hourHeightIndex, setHourHeightIndex] = useState(1);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewInput, setReviewInput] = useState<any | null>(null);
   const [cancellationReason, setCancellationReason] = useState("");
@@ -253,7 +275,11 @@ export default function TechCalendar() {
             </div>
             <div className="flex items-center gap-1"><button onClick={() => navigateRange(-1)} className="rounded-lg p-2 hover:bg-muted" aria-label="Previous"><ChevronLeft size={16} /></button><button onClick={() => setAnchorDate(localDateKey())} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-primary hover:bg-primary/5">Today</button><button onClick={() => navigateRange(1)} className="rounded-lg p-2 hover:bg-muted" aria-label="Next"><ChevronRight size={16} /></button></div>
           </div>
-          {view !== "month" && <div className="mt-2 flex items-center justify-center gap-2" aria-label="Calendar zoom"><button onClick={() => setHourHeightIndex((index) => Math.max(0, index - 1))} disabled={hourHeightIndex === 0} className="rounded-lg border border-border p-1.5 text-muted-foreground disabled:opacity-40" aria-label="Zoom out calendar"><Minus size={14} /></button><span className="min-w-20 text-center text-[11px] font-medium text-muted-foreground" aria-live="polite">{hourHeight} px / hour</span><button onClick={() => setHourHeightIndex((index) => Math.min(HOUR_HEIGHTS.length - 1, index + 1))} disabled={hourHeightIndex === HOUR_HEIGHTS.length - 1} className="rounded-lg border border-border p-1.5 text-muted-foreground disabled:opacity-40" aria-label="Zoom in calendar"><Plus size={14} /></button></div>}
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+            {view !== "month" && <div className="flex items-center gap-2" aria-label="Calendar zoom"><button onClick={() => setHourHeightIndex((index) => Math.max(0, index - 1))} disabled={hourHeightIndex === 0} className="rounded-lg border border-border p-1.5 text-muted-foreground disabled:opacity-40" aria-label="Zoom out calendar"><Minus size={14} /></button><span className="min-w-20 text-center text-[11px] font-medium text-muted-foreground" aria-live="polite">{hourHeight} px / hour</span><button onClick={() => setHourHeightIndex((index) => Math.min(HOUR_HEIGHTS.length - 1, index + 1))} disabled={hourHeightIndex === HOUR_HEIGHTS.length - 1} className="rounded-lg border border-border p-1.5 text-muted-foreground disabled:opacity-40" aria-label="Zoom in calendar"><Plus size={14} /></button></div>}
+            <button type="button" onClick={() => setLegendOpen((open) => !open)} aria-expanded={legendOpen} aria-controls="calendar-color-legend" className={cn("rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition", legendOpen ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground")}>Color key</button>
+          </div>
+          {legendOpen && <section id="calendar-color-legend" aria-label="Calendar color legend" className="mt-2 rounded-xl border border-border bg-card p-2.5 shadow-sm"><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Calendar colors</p><div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">{CALENDAR_LEGEND.map((item) => <div key={item.label} className="flex min-w-0 items-start gap-1.5"><span aria-hidden="true" className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10", item.color)} /><span className="min-w-0 text-[10px] leading-tight text-muted-foreground"><span className="block font-semibold text-foreground">{item.label}</span>{item.description}</span></div>)}</div></section>}
           <p className="mt-2 text-center text-sm font-semibold text-foreground">{rangeTitle(view, anchorDate, range, timeZone)}</p>
         </div>
       </header>
@@ -353,17 +379,17 @@ function TimeGrid({ view, hourHeight, days, calendar, timeZone, serviceNameById,
           return <div key={date} className="relative touch-pan-y border-r border-border bg-slate-100/70" style={{ height: gridHeight }} onPointerDown={(event) => { if (event.pointerType === "touch" || (event.target as HTMLElement).closest("[data-calendar-item]")) return; const rect = event.currentTarget.getBoundingClientRect(); onDragStart(date, DAY_START + ((event.clientY - rect.top) / rect.height) * DAY_END); }} onPointerUp={(event) => { if (event.pointerType === "touch" || (event.target as HTMLElement).closest("[data-calendar-item]")) return; const rect = event.currentTarget.getBoundingClientRect(); onDragEnd(date, DAY_START + ((event.clientY - rect.top) / rect.height) * DAY_END); }}>
             <span className="pointer-events-none absolute left-1 top-1 text-[8px] font-medium uppercase tracking-wide text-slate-400">Unavailable</span>
             {hours.map((minutes) => <div key={minutes} className="absolute left-0 right-0 border-t border-border/60" style={{ top: topPx(minutes) }} />)}
-            {weekly && renderItem(`weekly-${date}`, timeToMinutes(weekly.startTime), timeToMinutes(weekly.endTime), "border-emerald-300 bg-emerald-100/95 text-emerald-950", `Weekly work hours, ${formatTime(weekly.startTime)} to ${formatTime(weekly.endTime)}, ${weekly.clientTier === "returning_only" ? "returning clients only" : "open to everyone"}.`, <><span className="block truncate font-semibold">Available · {weekly.clientTier === "returning_only" ? "Returning" : "Anyone"}</span><span className="block truncate">{weekly.serviceIds?.length ? `${weekly.serviceIds.length} selected services` : "All active services"}</span></>, () => onCalendarItem({ type: "weekly-work", date, schedule: { ...weekly, serviceNames: weeklyServiceNames } }))}
+            {weekly && renderItem(`weekly-${date}`, timeToMinutes(weekly.startTime), timeToMinutes(weekly.endTime), availabilityBlockStyle(weekly.clientTier), `Weekly work hours, ${formatTime(weekly.startTime)} to ${formatTime(weekly.endTime)}, ${weekly.clientTier === "returning_only" ? "returning clients only" : "open to everyone"}.`, <><span className="block truncate font-semibold">Available · {weekly.clientTier === "returning_only" ? "Returning" : "Anyone"}</span><span className="block truncate">{weekly.serviceIds?.length ? `${weekly.serviceIds.length} selected services` : "All active services"}</span></>, () => onCalendarItem({ type: "weekly-work", date, schedule: { ...weekly, serviceNames: weeklyServiceNames } }))}
             {weekly?.breakStart && weekly?.breakEnd && renderItem(`break-${date}`, timeToMinutes(weekly.breakStart), timeToMinutes(weekly.breakEnd), "border-slate-400 bg-slate-200/95 text-slate-800", `Weekly break, ${formatTime(weekly.breakStart)} to ${formatTime(weekly.breakEnd)}.`, <><span className="block font-semibold">Break</span><span className="block truncate">{formatTime(weekly.breakStart)}–{formatTime(weekly.breakEnd)}</span></>, () => onCalendarItem({ type: "weekly-break", date, schedule: weekly }))}
             {dayEvents.map((event: any) => {
               const detail = `${event.kind === "available" ? "Available time" : "Unavailable time"}, ${formatTime(event.startTime)} to ${formatTime(event.endTime)}${event.title ? `, ${event.title}` : ""}.`;
               const fallback = `${formatTime(event.startTime)}–${formatTime(event.endTime)}`;
-              return renderItem(`event-${event.id}`, timeToMinutes(event.startTime), timeToMinutes(event.endTime), event.kind === "available" ? "border-sky-400 bg-sky-100/95 text-sky-950" : "border-slate-400 bg-slate-200/95 text-slate-800", detail, <><span className="block truncate font-semibold">{event.kind === "available" ? "Available" : "Unavailable"}</span><span className="block truncate">{event.title || fallback}</span></>, () => onCalendarItem({ type: "event", date, event }));
+              return renderItem(`event-${event.id}`, timeToMinutes(event.startTime), timeToMinutes(event.endTime), event.kind === "available" ? availabilityBlockStyle(event.clientTier) : "border-zinc-400 bg-zinc-200/95 text-zinc-900", detail, <><span className="block truncate font-semibold">{event.kind === "available" ? event.clientTier === "returning_only" ? "Returning clients" : "Available" : "Unavailable"}</span><span className="block truncate">{event.title || fallback}</span></>, () => onCalendarItem({ type: "event", date, event }));
             })}
             {dayBlocks.map((block: any) => {
               const detail = `Unavailable time, ${formatTime(block.startTime)} to ${formatTime(block.endTime)}${block.reason ? `, ${block.reason}` : ""}.`;
               const fallback = `${formatTime(block.startTime)}–${formatTime(block.endTime)}`;
-              return renderItem(`block-${block.id}`, timeToMinutes(block.startTime), timeToMinutes(block.endTime), "border-slate-400 bg-slate-200/95 text-slate-800", detail, <><span className="block font-semibold">Unavailable</span><span className="block truncate">{block.reason || fallback}</span></>, () => onCalendarItem({ type: "block", date, block }));
+              return renderItem(`block-${block.id}`, timeToMinutes(block.startTime), timeToMinutes(block.endTime), "border-zinc-400 bg-zinc-200/95 text-zinc-900", detail, <><span className="block font-semibold">Unavailable</span><span className="block truncate">{block.reason || fallback}</span></>, () => onCalendarItem({ type: "block", date, block }));
             })}
             {dayBookingRules.map((rule: any) => {
               const ruleLabel = rule.clientTier === "returning_only" ? "Returning clients only" : "Open to everyone";
@@ -410,7 +436,7 @@ function MonthGrid({ calendar, anchorDate, timeZone, onSelectDay }: any) {
     const dow = new Date(`${date}T12:00:00`).getDay();
     const work = weeklySchedule.find((item: any) => item.dayOfWeek === dow && item.isActive);
     const dayBookingRules = bookingRules.filter((rule: any) => rule.specificDate ? bookingRuleDateKey(rule.specificDate) === date : rule.dayOfWeek === dow);
-    const dots = [work ? "bg-emerald-500" : null, ...dayEvents.map((event: any) => event.kind === "available" ? "bg-sky-500" : "bg-slate-500"), ...dayBlocks.map(() => "bg-slate-500"), ...dayBookingRules.map(() => "bg-violet-500"), ...dayBookings.map((row: any) => row.booking.status === "pending" ? "bg-amber-500" : "bg-primary")].filter(Boolean) as string[];
+    const dots = [work ? availabilityDotColor(work.clientTier) : null, ...dayEvents.map((event: any) => event.kind === "available" ? availabilityDotColor(event.clientTier) : "bg-zinc-500"), ...dayBlocks.map(() => "bg-zinc-500"), ...dayBookingRules.map(() => "bg-violet-500"), ...dayBookings.map((row: any) => row.booking.status === "pending" ? "bg-amber-500" : "bg-primary")].filter(Boolean) as string[];
     const summary = `${formatDate(date, timeZone, { weekday: "long", month: "long", day: "numeric" })}: ${work ? "work hours; " : ""}${dayBookingRules.length} client access rule${dayBookingRules.length === 1 ? "" : "s"}; ${dayBookings.length} appointment${dayBookings.length === 1 ? "" : "s"}; ${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length} unavailable period${dayEvents.filter((event: any) => event.kind === "unavailable").length + dayBlocks.length === 1 ? "" : "s"}. Open daily schedule.`;
     return <button key={date} onClick={() => onSelectDay(date)} aria-label={summary} className={cn("min-h-24 border-b border-r border-border p-1.5 text-left transition hover:bg-primary/5", !isCurrentMonth && "bg-muted/20 text-muted-foreground", date === getZonedDateKey(Date.now(), timeZone) && "bg-primary/5")}><span className={cn("flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold", date === getZonedDateKey(Date.now(), timeZone) && "bg-primary text-white")}>{Number(date.slice(-2))}</span><span aria-hidden="true" className="mt-2 flex flex-wrap gap-1">{dots.slice(0, 6).map((color, index) => <span key={`${date}-${index}`} className={cn("h-1.5 w-1.5 rounded-full", color)} />)}</span><span className="sr-only">{summary}</span></button>;
   })}</div></div>;
