@@ -1,8 +1,10 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
   float,
   int,
+  index,
   json,
   mysqlEnum,
   mysqlTable,
@@ -45,6 +47,12 @@ export const users = mysqlTable("users", {
   deactivatedAt: timestamp("deactivatedAt"),
   connectedProvider: varchar("connectedProvider", { length: 64 }),
   passwordHash: varchar("passwordHash", { length: 255 }), // bcrypt hash for email+password accounts
+  emailVerifiedAt: timestamp("emailVerifiedAt"),
+  // Legacy accounts retain access; registration explicitly opts new accounts in.
+  emailVerificationRequired: boolean("emailVerificationRequired")
+    .default(false)
+    .notNull(),
+  sessionVersion: int("sessionVersion").default(0).notNull(),
   // Stripe references only; Stripe remains the source of truth for card and charge details.
   stripeCustomerId: varchar("stripeCustomerId", { length: 255 }).unique(),
   // Stripe test and live objects are isolated. Track the owning environment so
@@ -107,6 +115,42 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// Raw security tokens are never persisted. deliveredAt gates redemption until
+// the provider accepts delivery, so even cleanup failure leaves failed sends inert.
+export const emailAuthTokens = mysqlTable(
+  "email_auth_tokens",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+    purpose: mysqlEnum("purpose", ["verify_email", "reset_password"]).notNull(),
+    userId: int("userId").notNull(),
+    email: varchar("email", { length: 320 }).notNull(),
+    expiresAt: timestamp("expiresAt", { fsp: 3 }).notNull(),
+    consumedAt: timestamp("consumedAt", { fsp: 3 }),
+    deliveredAt: timestamp("deliveredAt", { fsp: 3 }),
+    createdAt: timestamp("createdAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+  },
+  t => ({
+    userPurposeIndex: index("email_auth_tokens_user_purpose_idx").on(
+      t.userId,
+      t.purpose,
+      t.id
+    ),
+    expiresIndex: index("email_auth_tokens_expires_idx").on(t.expiresAt),
+  })
+);
+
+export type EmailAuthToken = typeof emailAuthTokens.$inferSelect;
+
+// Both recipient and socket-origin buckets contain only keyed hashes, not PII.
+export const emailAuthRateLimits = mysqlTable("email_auth_rate_limits", {
+  bucketHash: varchar("bucketHash", { length: 64 }).primaryKey(),
+  windowStartedAt: timestamp("windowStartedAt", { fsp: 3 }).notNull(),
+  requestCount: int("requestCount").default(0).notNull(),
+  lastRequestedAt: timestamp("lastRequestedAt", { fsp: 3 }),
+  updatedAt: timestamp("updatedAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+});
 
 // ─── Subscriptions ────────────────────────────────────────────────────────────
 export const subscriptions = mysqlTable("subscriptions", {

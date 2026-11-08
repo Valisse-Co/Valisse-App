@@ -1,6 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
+import { emailSecurityRouter } from "./emailSecurityRouter";
+import { issueVerificationEmail, checkAuthRateLimit } from "./emailSecurity";
+import { isResendConfigured } from "./resend";
+import { requiresEmailVerification, getPasswordValidationError } from "../shared/emailSecurity";
 import { COOKIE_NAME, CURRENT_TOS_VERSION, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -262,12 +267,24 @@ import {
 import { createEligibleAttendanceFee, createEligibleCancellationFee } from "./appointmentFees";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
+async function requireAuthRateLimit(scope: string, key: string, max: number, windowMs: number) {
+  try {
+    if (!await checkAuthRateLimit(scope, key, max, windowMs)) {
+      throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many attempts. Please wait a few minutes and try again." });
+    }
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "Account security is temporarily unavailable. Please try again later." });
+  }
+}
 const authRouter = router({
   me: publicProcedure.query(opts => {
     const user = opts.ctx.user;
     if (!user) return null;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return {
-      ...user,
+      ...safeUser,
+      hasPassword: Boolean(user.passwordHash),
       isDeactivated: user.deactivatedAt != null,
     };
   }),
@@ -280,13 +297,17 @@ const authRouter = router({
   // ── Email + Password Registration ──────────────────────────────────────────
   register: publicProcedure
     .input(z.object({
-      name: z.string().min(1).max(100),
-      email: z.string().email(),
-      password: z.string().min(8).max(128),
+      name: z.string().trim().min(1).max(100),
+      email: z.string().trim().email().max(320),
+      password: z.string().max(72).superRefine((value, context) => {
+        const error = getPasswordValidationError(value);
+        if (error) context.addIssue({ code: "custom", message: error });
+      }),
       // Role is intentionally selected in onboarding after account creation.
       userType: z.enum(["client", "nail_tech"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      await requireAuthRateLimit("signup", ctx.req.socket?.remoteAddress ?? "unknown-socket", 20, 60 * 60 * 1000);
       const existing = await getUserByEmail(input.email.toLowerCase());
       if (existing) {
         throw new TRPCError({
@@ -294,9 +315,12 @@ const authRouter = router({
           message: "An account with this email already exists. Please sign in.",
         });
       }
+      if (!isResendConfigured()) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Email verification is not available yet. Please try signing up later." });
+      }
       const hash = await bcrypt.hash(input.password, 12);
-      // Generate a deterministic openId for email accounts
-      const openId = `email_${Buffer.from(input.email.toLowerCase()).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 40)}`;
+      // Random IDs avoid truncated-email identity collisions.
+      const openId = `email_${randomUUID()}`;
       const user = await createEmailUser({
         openId,
         name: input.name,
@@ -306,19 +330,24 @@ const authRouter = router({
       });
       if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create account" });
       // Issue session cookie
-      const sessionToken = await sdk.createSessionToken(openId, { name: input.name, expiresInMs: ONE_YEAR_MS });
+      const sessionToken = await sdk.createSessionToken(openId, { name: input.name, expiresInMs: ONE_YEAR_MS, sessionVersion: user.sessionVersion });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return { success: true };
+      let verificationEmailSent = false;
+      try { await issueVerificationEmail(user.id); verificationEmailSent = true; }
+      catch { console.warn("[Email security] Initial verification email could not be sent"); }
+      return { success: true, verificationEmailSent };
     }),
 
   // ── Email + Password Login ──────────────────────────────────────────────────
   emailLogin: publicProcedure
     .input(z.object({
-      email: z.string().email(),
-      password: z.string().min(1),
+      email: z.string().trim().email().max(320),
+      password: z.string().min(1).max(128),
     }))
     .mutation(async ({ input, ctx }) => {
+      await requireAuthRateLimit("login-origin", ctx.req.socket?.remoteAddress ?? "unknown-socket", 100, 15 * 60 * 1000);
+      await requireAuthRateLimit("login-email", input.email.toLowerCase(), 10, 15 * 60 * 1000);
       const user = await getUserByEmail(input.email.toLowerCase());
       if (!user || !user.passwordHash) {
         throw new TRPCError({
@@ -335,7 +364,7 @@ const authRouter = router({
       }
       // Update last signed in
       await updateUserProfile(user.id, { lastSignedIn: new Date() });
-      const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name ?? "", expiresInMs: ONE_YEAR_MS });
+      const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name ?? "", expiresInMs: ONE_YEAR_MS, sessionVersion: user.sessionVersion });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       return {
@@ -344,6 +373,8 @@ const authRouter = router({
         userType: user.userType,
         activeMode: user.activeMode,
         hasDualRole: user.hasDualRole,
+        needsEmailVerification: requiresEmailVerification(user),
+        emailVerified: Boolean(user.emailVerifiedAt),
       };
     }),
 });
@@ -2846,6 +2877,9 @@ const settingsRouter = router({
       instagramHandle: z.string().max(64).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      if (input.email && input.email.trim().toLowerCase() !== ctx.user.email?.trim().toLowerCase()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Email changes require a separate identity check. Contact Valisse support to change your account email." });
+      }
       await updateUserProfile(ctx.user.id, input);
       return { success: true };
     }),
@@ -3365,6 +3399,7 @@ const smartMatchRouter = router({
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
+  emailSecurity: emailSecurityRouter,
   users: usersRouter,
   posts: postsRouter,
   collections: collectionsRouter,

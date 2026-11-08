@@ -93,6 +93,13 @@ export default function SettingsAccount() {
       </div>
 
       <div className="px-4 py-4 flex flex-col gap-4">
+        <div className="bg-card text-card-foreground border border-border rounded-2xl p-4">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Email & Password</p>
+          <p className="text-sm break-all">{user?.email}</p>
+          <p className="text-xs text-muted-foreground mt-1">{user?.emailVerifiedAt ? "Email verified" : "Email not yet verified"}</p>
+          {!user?.emailVerifiedAt && <button onClick={() => navigate("/verify-email")} className="text-sm text-primary underline mt-3 block">Verify email address</button>}
+          {user?.hasPassword ? <button onClick={() => navigate("/forgot-password")} className="text-sm text-primary underline mt-3 block">Reset password securely</button> : <p className="text-xs text-muted-foreground mt-3">Use your sign-in provider to manage your password. Password reset cannot add an email password to this account.</p>}
+        </div>
         {/* Display name */}
         <div className="bg-card border border-border rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-border">

@@ -5,6 +5,7 @@ import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
 import { Apple, Eye, EyeOff, Loader2, Mail, Lock } from "lucide-react";
+import { requiresEmailVerification } from "@shared/emailSecurity";
 
 function GoogleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -37,7 +38,9 @@ export default function Login() {
 
   useEffect(() => {
     if (!loading && isAuthenticated && user) {
+      if (requiresEmailVerification(user)) { navigate("/verify-email"); return; }
       if (!user.onboardingCompleted) {
+        if (user.emailVerifiedAt) sessionStorage.setItem("valisse_onboarding_intent", "new_account");
         if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
           navigate("/onboarding");
         }
@@ -51,7 +54,9 @@ export default function Login() {
   const emailLoginMutation = trpc.auth.emailLogin.useMutation({
     onSuccess: async (data) => {
       await utils.auth.me.invalidate();
+      if (data.needsEmailVerification) { navigate("/verify-email"); return; }
       if (!data.onboardingCompleted) {
+        if (data.emailVerified) sessionStorage.setItem("valisse_onboarding_intent", "new_account");
         if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
           navigate("/onboarding");
         } else {
@@ -188,6 +193,10 @@ export default function Login() {
             Sign In
           </button>
         </form>
+
+        <button onClick={() => navigate("/forgot-password")} className="block mx-auto text-sm text-primary underline underline-offset-2 mt-4">Forgot password?</button>
+        {searchParams.get("passwordReset") === "1" && <p role="status" className="text-sm text-primary text-center mt-3">Password updated. Sign in with your new password.</p>}
+        {searchParams.get("verified") === "1" && <p role="status" className="text-sm text-primary text-center mt-3">Email verified. Sign in to continue your account setup.</p>}
 
         <p className="text-center text-sm text-muted-foreground mt-6">
           Don't have an account?{" "}

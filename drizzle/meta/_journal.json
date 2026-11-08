@@ -260,6 +260,20 @@
       "when": 1792451033108,
       "tag": "0036_bizarre_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1794096004171,
+      "tag": "0037_clever_johnny_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1794096122098,
+      "tag": "0038_dapper_young_avengers",
+      "breakpoints": true
     }
   ]
 }

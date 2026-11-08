@@ -1,0 +1,2 @@
+ALTER TABLE `email_auth_rate_limits` MODIFY COLUMN `updatedAt` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);--> statement-breakpoint
+ALTER TABLE `email_auth_tokens` MODIFY COLUMN `createdAt` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);

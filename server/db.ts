@@ -150,7 +150,9 @@ async function getTechTimeZone(database: ReturnType<typeof drizzle>, techId: num
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
 
-  const values: InsertUser = { openId: user.openId };
+  // New OAuth identities require mailbox verification as well. The flag is
+  // insert-only so existing accounts are not forced through onboarding again.
+  const values: InsertUser = { openId: user.openId, emailVerificationRequired: true };
   const updateSet: Record<string, unknown> = {};
 
   const textFields = ["name", "email", "loginMethod"] as const;
@@ -300,6 +302,7 @@ export async function createEmailUser(data: {
     name: data.name,
     email: data.email,
     passwordHash: data.passwordHash,
+    emailVerificationRequired: true,
     loginMethod: "email",
     userType: data.userType ?? "client",
     lastSignedIn: new Date(),

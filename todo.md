@@ -770,3 +770,19 @@
 - [x] Send an optional technician note, time-window cards, audience labels, and a general booking link through the existing in-app message system
 - [x] Make opening links validate current availability and show “This time is no longer available” with a normal booking fallback when stale
 - [x] Restrict sharing to technician-to-client conversations, add regression coverage, validate without external notifications, and save a checkpoint
+
+## Telnyx Production SMS Launch
+- [ ] Verify the saved Telnyx API key can read the assigned messaging profile without exposing credentials
+- [ ] Confirm the production messaging profile assigns Valisse’s SMS number and uses the signed production webhook endpoint
+- [ ] Complete or verify the required U.S. A2P 10DLC brand, campaign, opt-in, and number-assignment status
+- [ ] Verify inbound STOP and HELP through the signed webhook, then send one user-approved transactional test SMS to a consented test number
+- [ ] Record the live result, run relevant regressions, and checkpoint the launch configuration
+
+## Resend Email Verification and Secure Password Recovery
+- [ ] Add Resend sender configuration and validate credentials without exposing secrets
+- [x] Add hashed single-use expiring email tokens, persistent abuse limits, and atomic reset/verification consumption
+- [x] Require new accounts to verify email before onboarding; preserve existing onboarded account access and Google identity boundaries
+- [x] Add verification/resend, forgot-password, reset-password, and success screens with secure session invalidation
+- [x] Test token expiry/replay, account isolation, reset eligibility, provider failures, and auth routing; migrate schema and checkpoint
+- [x] Verify token persistence and simultaneous-reset atomicity against the real database with disposable data and no emails sent
+- [ ] Confirm verification and recovery email inbox delivery using a user-approved address after Resend configuration and deployment

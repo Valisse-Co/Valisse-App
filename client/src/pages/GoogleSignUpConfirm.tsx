@@ -1,15 +1,22 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { CheckCircle2, Mail, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
+import { requiresEmailVerification } from "@shared/emailSecurity";
 
 export default function GoogleSignUpConfirm() {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { user, loading, isAuthenticated, logout } = useAuth();
   const [, navigate] = useLocation();
   const params = new URLSearchParams(window.location.search);
-  const email = params.get("email") || user?.email || "your Google account";
+  const email = user?.email || "your Google account";
   const source = params.get("source");
+  const [sendError, setSendError] = useState("");
+  const sendVerification = trpc.emailSecurity.resendVerification.useMutation({
+    onSuccess: () => navigate("/verify-email?sent=1"),
+    onError: e => { setSendError(e.message); navigate("/verify-email?delivery=failed"); },
+  });
 
   useEffect(() => {
     if (loading) return;
@@ -66,20 +73,23 @@ export default function GoogleSignUpConfirm() {
 
         <div className="mt-4 rounded-xl bg-primary/5 px-4 py-3 flex items-start gap-2 text-left">
           <ShieldCheck className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-          <p className="text-xs text-muted-foreground">Next, you’ll choose whether you’re joining as a client or a nail tech.</p>
+          <p className="text-xs text-muted-foreground">Next, verify your email, then choose whether you’re joining as a client or a nail tech.</p>
         </div>
 
+        {sendError && <p role="alert" className="text-sm text-destructive mt-3">{sendError}</p>}
         <button
           onClick={() => {
             sessionStorage.setItem("valisse_onboarding_intent", "new_account");
-            navigate("/onboarding");
+            if (requiresEmailVerification(user)) sendVerification.mutate();
+            else navigate("/onboarding");
           }}
+          disabled={sendVerification.isPending}
           className="btn-valisse w-full h-13 rounded-2xl text-sm font-medium mt-6"
         >
-          Continue to setup
+          {sendVerification.isPending ? "Sending verification…" : "Continue to setup"}
         </button>
         <button
-          onClick={() => navigate("/login")}
+          onClick={async () => { await logout(); navigate("/login"); }}
           className="text-xs text-muted-foreground underline underline-offset-2 mt-4"
         >
           Use a different account

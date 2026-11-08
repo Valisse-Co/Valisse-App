@@ -5,6 +5,7 @@ import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
 import { Apple, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
+import { requiresEmailVerification } from "@shared/emailSecurity";
 
 function GoogleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -41,6 +42,7 @@ export default function SignUp() {
 
   useEffect(() => {
     if (loading || !isAuthenticated || !user) return;
+    if (requiresEmailVerification(user)) { navigate("/verify-email"); return; }
     if (!user.onboardingCompleted) {
       if (sessionStorage.getItem("valisse_onboarding_intent") === "new_account") {
         navigate("/onboarding");
@@ -52,10 +54,10 @@ export default function SignUp() {
   }, [isAuthenticated, loading, navigate, user]);
 
   const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       sessionStorage.setItem("valisse_onboarding_intent", "new_account");
       await utils.auth.me.invalidate();
-      navigate("/onboarding");
+      navigate(data.verificationEmailSent ? "/verify-email?sent=1" : "/verify-email?delivery=failed");
     },
     onError: (err) => {
       if (err.data?.code === "CONFLICT") {
@@ -72,6 +74,7 @@ export default function SignUp() {
     if (!name.trim()) return setFormError("Please enter your name.");
     if (!email.trim()) return setFormError("Please enter your email address.");
     if (password.length < 8) return setFormError("Password must be at least 8 characters.");
+    if (new TextEncoder().encode(password).length > 72) return setFormError("Password is too long. Use no more than 72 UTF-8 bytes.");
     if (password !== confirmPassword) return setFormError("Passwords do not match.");
     registerMutation.mutate({ name: name.trim(), email: email.trim().toLowerCase(), password });
   };
@@ -87,7 +90,7 @@ export default function SignUp() {
           <img src="/manus-storage/valisse_logo_transparent_b005737c.png" alt="Valisse" className="w-16 h-16 object-contain mx-auto mb-3" />
           <h1 className="font-display text-4xl font-light tracking-widest text-foreground">valisse</h1>
           <p className="text-xs text-muted-foreground tracking-wider uppercase mt-1">Create your account</p>
-          <p className="text-sm text-muted-foreground mt-4">Create your credentials first. Then you’ll choose Client or Nail Tech during setup.</p>
+          <p className="text-sm text-muted-foreground mt-4">Create your credentials, verify your email, then choose Client or Nail Tech during setup.</p>
         </div>
 
         {formError && <div className="mb-4 rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3"><p className="text-sm text-destructive text-center">{formError}</p></div>}

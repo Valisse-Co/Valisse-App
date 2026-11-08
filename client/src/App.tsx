@@ -46,9 +46,11 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ConsentStep from "./pages/ConsentStep";
 import { trpc } from "./lib/trpc";
 import SearchPeople from "./pages/SearchPeople";
+import { VerifyEmail, ForgotPassword, ResetPassword } from "./pages/EmailSecurity";
+import { requiresEmailVerification } from "@shared/emailSecurity";
 
 // Routes that are always accessible — even during re-consent flow
-const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/404"];
+const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/", "/404"];
 
 // ── Reactivation Gate ────────────────────────────────────────────────────────
 // If a signed-in user's account is deactivated, show a full-screen reactivation
@@ -56,7 +58,7 @@ const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/", "/404"];
 function ReactivationGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const utils = trpc.useUtils();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
 
   const reactivate = trpc.settings.reactivateAccount.useMutation({
     onSuccess: () => {
@@ -65,7 +67,7 @@ function ReactivationGate({ children }: { children: React.ReactNode }) {
     onError: () => {},
   });
 
-  if (!loading && user && (user as any).isDeactivated) {
+  if (!loading && user && (user as any).isDeactivated && !PUBLIC_PATHS.includes(location)) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center gap-6">
         <img src="/manus-storage/valisse_logo_transparent_b005737c.png" alt="Valisse" className="w-16 h-16 object-contain" />
@@ -136,6 +138,14 @@ function ConsentGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function EmailVerificationGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [location] = useLocation();
+  const isPublic = PUBLIC_PATHS.some(path => location === path || (path !== "/" && location.startsWith(path + "/")));
+  if (requiresEmailVerification(user) && !isPublic) return <VerifyEmail />;
+  return <>{children}</>;
+}
+
 function Router() {
   const { loading } = useAuth();
 
@@ -151,10 +161,14 @@ function Router() {
   }
 
   return (
+    <EmailVerificationGate>
     <ReactivationGate>
     <ConsentGate>
       <Switch>
         <Route path="/" component={Login} />
+        <Route path="/verify-email" component={VerifyEmail} />
+        <Route path="/forgot-password" component={ForgotPassword} />
+        <Route path="/reset-password" component={ResetPassword} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/signup/google-confirm" component={GoogleSignUpConfirm} />
         {/* Legal pages — always public, no auth or consent required */}
@@ -266,6 +280,7 @@ function Router() {
       </Switch>
     </ConsentGate>
     </ReactivationGate>
+    </EmailVerificationGate>
   );
 }
 

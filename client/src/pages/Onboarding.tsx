@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { ChevronRight, Sparkles, Scissors, MapPin, CheckCircle2, Phone, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ConsentStep from "./ConsentStep";
+import { requiresEmailVerification } from "@shared/emailSecurity";
 
 const STYLE_OPTIONS = ["Minimalist", "Bold", "Floral", "Geometric", "Glam", "Natural", "Abstract", "French"];
 const COLOR_OPTIONS = ["Nude", "White", "Black", "Pink", "Red", "Blue", "Green", "Purple", "Gold", "Multicolor"];
@@ -72,6 +73,7 @@ export default function Onboarding() {
       navigate("/login");
       return;
     }
+    if (requiresEmailVerification(user)) { navigate("/verify-email"); return; }
     if (!user.onboardingCompleted && !hasOnboardingIntent) {
       navigate("/login");
       return;
@@ -85,14 +87,6 @@ export default function Onboarding() {
   useEffect(() => {
     if (user?.name) setFullName(user.name);
   }, [user?.name]);
-
-  if (loading || !isAuthenticated || !user || user.onboardingCompleted || !hasOnboardingIntent) {
-    return (
-      <div className="min-h-screen bg-[#F7F4EE] flex items-center justify-center">
-        <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
 
   // Address autocomplete — debounced query
   const [debouncedAddress, setDebouncedAddress] = useState("");
@@ -201,6 +195,11 @@ export default function Onboarding() {
     : ["role", "contact", "preferences", "location", "done"];
 
   const currentStep = steps[step];
+
+  // Keep every hook above conditional rendering during auth/verification changes.
+  if (loading || !isAuthenticated || !user || requiresEmailVerification(user) || (!profileSaved && (user.onboardingCompleted || !hasOnboardingIntent))) {
+    return <div className="min-h-screen bg-background flex items-center justify-center"><div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>;
+  }
 
   // After profile is saved, show the consent step
   if (profileSaved) {

@@ -22,6 +22,7 @@ export type SessionPayload = {
   openId: string;
   appId: string;
   name: string;
+  sessionVersion?: number;
 };
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
@@ -166,13 +167,16 @@ class SDKServer {
    */
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string } = {}
+    options: { expiresInMs?: number; name?: string; sessionVersion?: number } = {}
   ): Promise<string> {
+    const currentUser = options.sessionVersion === undefined && !openId.startsWith("cron_")
+      ? await db.getUserByOpenId(openId) : undefined;
     return this.signSession(
       {
         openId,
         appId: ENV.appId,
         name: options.name || "",
+        sessionVersion: options.sessionVersion ?? currentUser?.sessionVersion ?? 0,
       },
       options
     );
@@ -191,6 +195,7 @@ class SDKServer {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
+      sessionVersion: payload.sessionVersion ?? 0,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setExpirationTime(expirationSeconds)
@@ -199,7 +204,7 @@ class SDKServer {
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{ openId: string; appId: string; name: string; sessionVersion: number } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -225,6 +230,7 @@ class SDKServer {
         openId,
         appId,
         name,
+        sessionVersion: typeof payload.sessionVersion === "number" ? payload.sessionVersion : 0,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
@@ -299,6 +305,10 @@ class SDKServer {
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    if (session.sessionVersion !== (user.sessionVersion ?? 0)) {
+      throw ForbiddenError("Your session expired. Please sign in again.");
     }
 
     await db.upsertUser({
