@@ -13,6 +13,7 @@ import { serveStatic, setupVite } from "./vite";
 import { handleStripeConnectWebhook, handleStripeWebhook } from "../stripeWebhook";
 import { handlePayoutRelease } from "../payoutReleaseHandler";
 import { handleTelnyxWebhook } from "../telnyxWebhook";
+import { securityHeaders, privateApiHeaders } from "../securityHeaders";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +37,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  app.disable("x-powered-by");
+  app.use(securityHeaders);
+  app.use("/api", privateApiHeaders);
   // Stripe requires the exact raw request body for webhook signature verification.
   app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
   app.post("/api/stripe/connect-webhook", express.raw({ type: "application/json" }), handleStripeConnectWebhook);

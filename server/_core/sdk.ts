@@ -7,6 +7,8 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { safeErrorDetails } from "../securityLogging";
+import { decodeOAuthState } from "../../shared/oauthState";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -40,8 +42,9 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    const parsed = decodeOAuthState(state, "manus");
+    if (!parsed) throw new Error("Invalid OAuth state");
+    return parsed.redirectUri;
   }
 
   async getTokenByCode(
@@ -298,7 +301,7 @@ class SDKServer {
         });
         user = await db.getUserByOpenId(userInfo.openId);
       } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
+        console.error("[Auth] Failed to sync user from OAuth:", safeErrorDetails(error));
         throw ForbiddenError("Failed to sync user info");
       }
     }

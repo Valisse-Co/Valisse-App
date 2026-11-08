@@ -786,3 +786,16 @@
 - [x] Test token expiry/replay, account isolation, reset eligibility, provider failures, and auth routing; migrate schema and checkpoint
 - [x] Verify token persistence and simultaneous-reset atomicity against the real database with disposable data and no emails sent
 - [ ] Confirm verification and recovery email inbox delivery using a user-approved address after Resend configuration and deployment
+
+## Launch Security and Privacy Audit
+- [x] Audit public profiles and booking responses for private addresses, identity secrets, and payment information
+- [x] Audit participant authorization and production-only restrictions on preview/test tools
+- [x] Fix confirmed security/privacy issues without external messages or money movement
+- [x] Add regression tests, run TypeScript/full test suite, and save a launch-hardening checkpoint
+- [x] Record remaining external-provider, legal-review, and live-validation launch blockers honestly
+- [x] Verify retired demo routes return HTTP 404 and no session cookie; TypeScript and production build pass, 250 internal tests pass
+- [ ] Publish this security checkpoint; saved preview changes alone do not secure an older live deployment
+- [ ] With owner approval after publishing, revoke existing sessions for the former demo-linked accounts; no evidence of actual unauthorized access was assessed
+- [ ] Finalize Terms/Privacy effective dates, provider disclosures (Telnyx/Resend), payment-policy language and support details with owner/legal review
+- [ ] Recheck Telnyx readiness after verification/configuration: current read-only health test returns HTTP 401; Resend delivery remains deferred
+- [ ] Run an explicitly approved live payment-to-bank smoke test and fresh interactive Google login check before public launch

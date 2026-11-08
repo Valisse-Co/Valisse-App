@@ -16,6 +16,9 @@ import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import * as db from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
+import { safeErrorDetails } from "./securityLogging";
+import { createBrowserOAuthState, consumeBrowserOAuthState } from "./browserOAuth";
+import { validOAuthRedirectUri } from "../shared/oauthState";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -83,16 +86,22 @@ async function registerGoogleRoutes(app: Express) {
       return;
     }
 
+    const origin = typeof req.query.origin === "string" ? req.query.origin : "";
+    const redirectUri = `${origin}/api/oauth/google/callback`;
+    if (!validOAuthRedirectUri(redirectUri, "google")) {
+      res.status(400).json({ error: "A valid frontend origin is required." });
+      return;
+    }
     const client = new OAuth2Client(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      `${req.query.origin ?? `${req.protocol}://${req.get("host")}`}/api/oauth/google/callback`
+      redirectUri
     );
 
     const url = client.generateAuthUrl({
       access_type: "offline",
       scope: ["openid", "email", "profile"],
-      state: String(req.query.origin ?? ""),
+      state: createBrowserOAuthState(res, "google", redirectUri),
     });
 
     res.redirect(302, url);
@@ -105,15 +114,19 @@ async function registerGoogleRoutes(app: Express) {
     }
 
     const code = typeof req.query.code === "string" ? req.query.code : null;
-    const origin = typeof req.query.state === "string" ? req.query.state : null;
 
     if (!code) {
       res.status(400).json({ error: "Missing code from Google." });
       return;
     }
 
+    const pending = consumeBrowserOAuthState(req, res, req.query.state, "google");
+    if (!pending) {
+      res.status(403).json({ error: "Invalid or expired sign-in state. Please start sign-in again." });
+      return;
+    }
     try {
-      const redirectUri = `${origin ?? `${req.protocol}://${req.get("host")}`}/api/oauth/google/callback`;
+      const redirectUri = pending.redirectUri;
       const client = new OAuth2Client(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
@@ -139,7 +152,7 @@ async function registerGoogleRoutes(app: Express) {
         provider: "google",
       });
     } catch (err) {
-      console.error("[Google OAuth] Callback error:", err);
+      console.error("[Google OAuth] Callback error:", safeErrorDetails(err));
       res.redirect(302, "/login?error=google_failed");
     }
   });
@@ -156,15 +169,19 @@ async function registerAppleRoutes(app: Express) {
       return;
     }
 
-    const origin = String(req.query.origin ?? `${req.protocol}://${req.get("host")}`);
+    const origin = typeof req.query.origin === "string" ? req.query.origin : "";
     const redirectUri = `${origin}/api/oauth/apple/callback`;
+    if (!validOAuthRedirectUri(redirectUri, "apple")) {
+      res.status(400).json({ error: "A valid frontend origin is required." });
+      return;
+    }
 
     const url = appleSignin.getAuthorizationUrl({
       clientID: process.env.APPLE_CLIENT_ID!,
       redirectUri,
       responseMode: "form_post",
       scope: "name email",
-      state: origin,
+      state: createBrowserOAuthState(res, "apple", redirectUri),
     });
 
     res.redirect(302, url);
@@ -177,18 +194,23 @@ async function registerAppleRoutes(app: Express) {
       return;
     }
 
-    const { code, id_token, state, user: userJson } = req.body as {
+    const { code, id_token, state, user: userJson } = (req.body ?? {}) as {
       code?: string;
       id_token?: string;
       state?: string;
       user?: string;
     };
 
-    if (!code || !id_token) {
+    if (typeof code !== "string" || typeof id_token !== "string") {
       res.redirect(302, "/login?error=apple_failed");
       return;
     }
 
+    const pending = consumeBrowserOAuthState(req, res, state, "apple");
+    if (!pending) {
+      res.status(403).json({ error: "Invalid or expired sign-in state. Please start sign-in again." });
+      return;
+    }
     try {
       const clientSecret = appleSignin.getClientSecret({
         clientID: process.env.APPLE_CLIENT_ID!,
@@ -197,8 +219,7 @@ async function registerAppleRoutes(app: Express) {
         privateKey: process.env.APPLE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
       });
 
-      const origin = state ?? `${req.protocol}://${req.get("host")}`;
-      const redirectUri = `${origin}/api/oauth/apple/callback`;
+      const redirectUri = pending.redirectUri;
 
       const tokenResponse = await appleSignin.getAuthorizationToken(code, {
         clientID: process.env.APPLE_CLIENT_ID!,
@@ -231,7 +252,7 @@ async function registerAppleRoutes(app: Express) {
         provider: "apple",
       });
     } catch (err) {
-      console.error("[Apple OAuth] Callback error:", err);
+      console.error("[Apple OAuth] Callback error:", safeErrorDetails(err));
       res.redirect(302, "/login?error=apple_failed");
     }
   });

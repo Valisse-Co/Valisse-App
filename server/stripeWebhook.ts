@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { getConnectedAccountReadiness, getStripe } from "./stripe";
 import { ENV } from "./_core/env";
 import { getStripeEnvironmentMode, shouldProcessStripeEvent } from "../shared/stripeMode";
+import { safeErrorDetails } from "./securityLogging";
 import {
   getBookingById,
   markBookingPaymentResult,
@@ -82,7 +83,7 @@ async function processStripeWebhook(req: Request, res: Response, connect: boolea
     console.log("[Stripe webhook] Processed", event.type, event.id);
     return res.json({ received: true });
   } catch (error) {
-    console.error("[Stripe webhook] Processing error", event.type, event.id, error);
+    console.error("[Stripe webhook] Processing error", event.type, event.id, safeErrorDetails(error));
     return res.status(500).json({ error: "Webhook processing failed." });
   }
 }

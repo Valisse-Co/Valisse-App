@@ -1,4 +1,5 @@
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { encodeOAuthState, OAUTH_STATE_COOKIES, OAUTH_STATE_TTL_SECONDS } from "@shared/oauthState";
 
 export type OAuthIntent = "login" | "signup";
 
@@ -10,7 +11,9 @@ export const getLoginUrl = (intent: OAuthIntent = "login") => {
   const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
   const appId = import.meta.env.VITE_APP_ID;
   const redirectUri = `${window.location.origin}/api/oauth/callback`;
-  const state = btoa(redirectUri);
+  const nonce = crypto.randomUUID();
+  document.cookie = `${OAUTH_STATE_COOKIES.manus}=${nonce}; Path=/; Max-Age=${OAUTH_STATE_TTL_SECONDS}; SameSite=None; Secure`;
+  const state = encodeOAuthState({ provider: "manus", nonce, redirectUri });
 
   const url = new URL(`${oauthPortalUrl}/app-auth`);
   url.searchParams.set("appId", appId);

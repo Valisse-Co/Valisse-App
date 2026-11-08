@@ -3,6 +3,8 @@ import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
+import { safeErrorDetails } from "../securityLogging";
+import { consumeBrowserOAuthState } from "../browserOAuth";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -25,6 +27,11 @@ export function registerOAuthRoutes(app: Express) {
 
     if (!code || !state) {
       res.status(400).json({ error: "code and state are required" });
+      return;
+    }
+
+    if (!consumeBrowserOAuthState(req, res, state, "manus")) {
+      res.status(403).json({ error: "Your sign-in link expired or belongs to another browser. Please start sign-in again." });
       return;
     }
 
@@ -83,7 +90,7 @@ export function registerOAuthRoutes(app: Express) {
       const source = existingByOpenId || oauthIntent === "signup" ? "signup" : "login";
       res.redirect(302, getOAuthPostLoginPath(user as Parameters<typeof getOAuthPostLoginPath>[0], email, source));
     } catch (error) {
-      console.error("[OAuth] Callback failed", error);
+      console.error("[OAuth] Callback failed", safeErrorDetails(error));
       res.status(500).json({ error: "OAuth callback failed" });
     }
   });

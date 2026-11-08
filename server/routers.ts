@@ -5,13 +5,14 @@ import { randomUUID } from "node:crypto";
 import { emailSecurityRouter } from "./emailSecurityRouter";
 import { issueVerificationEmail, checkAuthRateLimit } from "./emailSecurity";
 import { isResendConfigured } from "./resend";
+import { toPublicTechnician } from "../shared/responsePrivacy";
 import { requiresEmailVerification, getPasswordValidationError } from "../shared/emailSecurity";
 import { COOKIE_NAME, CURRENT_TOS_VERSION, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, accountRecoveryProcedure, router } from "./_core/trpc";
 import {
   createBooking,
   createAvailabilityOffer,
@@ -386,6 +387,7 @@ const usersRouter = router({
     .query(async ({ ctx, input }) => {
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+      if (user.deactivatedAt && ctx.user?.id !== user.id && ctx.user?.role !== "admin") throw new TRPCError({ code: "NOT_FOUND" });
       const techCapable = isTechCapable(user);
       if (!techCapable && ctx.user?.id !== user.id) {
         if (!ctx.user || !isTechCapable(ctx.user) || !(await hasAppointmentRelationship(ctx.user.id, user.id))) {
@@ -394,6 +396,7 @@ const usersRouter = router({
       }
       const ratingStats = techCapable ? await getTechRatingStats(user.id) : null;
       const followerCount = await getFollowerCount(user.id);
+      const privacy = techCapable ? await getPrivacySettings(user.id) : null;
       return {
         user: {
           id: user.id,
@@ -412,8 +415,8 @@ const usersRouter = router({
             : null,
           addressCity: techCapable ? user.addressCity : null,
           addressState: techCapable ? user.addressState : null,
-          fuzzedLat: techCapable ? user.fuzzedLat : null,
-          fuzzedLng: techCapable ? user.fuzzedLng : null,
+          fuzzedLat: techCapable && !privacy?.hideApproxLocation ? user.fuzzedLat : null,
+          fuzzedLng: techCapable && !privacy?.hideApproxLocation ? user.fuzzedLng : null,
         },
         ratingStats,
         followerCount,
@@ -739,10 +742,14 @@ const postsRouter = router({
     .query(async ({ input, ctx }) => {
       const post = await getPostById(input.postId);
       if (!post) throw new TRPCError({ code: "NOT_FOUND" });
+      const privileged = ctx.user?.id === post.techId || ctx.user?.role === "admin";
+      if (post.status !== "published" && !privileged) throw new TRPCError({ code: "NOT_FOUND" });
       const tech = await getUserById(post.techId);
+      if (tech?.deactivatedAt && !privileged) throw new TRPCError({ code: "NOT_FOUND" });
       await incrementPostViews(input.postId);
       const ratingStats = tech ? await getTechRatingStats(tech.id) : null;
-      return { post, tech, ratingStats };
+      const privacy = tech ? await getPrivacySettings(tech.id) : null;
+      return { post, tech: toPublicTechnician(tech, privacy), ratingStats };
     }),
 
   create: protectedProcedure
@@ -2903,13 +2910,13 @@ const settingsRouter = router({
       return { success: true, cancelledCount: result.cancelledCount };
     }),
 
-  reactivateAccount: protectedProcedure
+  reactivateAccount: accountRecoveryProcedure
     .mutation(async ({ ctx }) => {
       await reactivateAccount(ctx.user.id);
       return { success: true };
     }),
 
-  permanentDeleteAccount: protectedProcedure
+  permanentDeleteAccount: accountRecoveryProcedure
     .mutation(async ({ ctx }) => {
       const result = await permanentDeleteAccount(ctx.user.id);
       return { success: true, cancelledCount: result.cancelledCount };

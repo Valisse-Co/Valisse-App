@@ -49,6 +49,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { safeErrorDetails } from "./securityLogging";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
 import {
   addLocalDays,
@@ -76,12 +77,53 @@ import { canDiscoverAccount, getConversationPartner, getConversationRole, isTech
 import { calculatePayoutHistoryAmounts } from "../shared/payoutHistory";
 import { filterVisibleLastMinuteNotifications, isBookingNotification, presentNotification } from "../shared/notificationPresentation";
 import {
+  toBookingCounterpart,
+  toParticipantBooking,
+  toParticipantFeeEvent,
+  toPublicIdentity,
+  toPublicTechnician,
+  type PublicIdentity,
+  type PublicTechnician,
+} from "../shared/responsePrivacy";
+import type { Booking, User } from "../drizzle/schema";
+import {
   APPOINTMENT_FEE_TYPES,
   buildAppointmentFeePolicySnapshot,
   getAppointmentFeePolicyVersion,
   type AppointmentFeeRuleInput,
   type AppointmentFeeType,
 } from "../shared/appointmentFeePolicy";
+
+const publicIdentityColumns = {
+  id: users.id,
+  name: users.name,
+  businessName: users.businessName,
+  avatarUrl: users.avatarUrl,
+  userType: users.userType,
+  hasDualRole: users.hasDualRole,
+};
+
+const publicTechnicianColumns = {
+  ...publicIdentityColumns,
+  bio: users.bio,
+  services: users.services,
+  priceRange: users.priceRange,
+  instagramHandle: users.instagramHandle,
+  yearsExperience: users.yearsExperience,
+  smartMatchEnabled: users.smartMatchEnabled,
+  addressCity: users.addressCity,
+  addressState: users.addressState,
+  fuzzedLat: users.fuzzedLat,
+  fuzzedLng: users.fuzzedLng,
+};
+
+function presentTechBooking<T extends { booking: Booking; client: PublicIdentity | null }>(row: T) {
+  return { ...row, booking: toParticipantBooking(row.booking), client: toPublicIdentity(row.client) };
+}
+
+function presentClientBooking<T extends { booking: Booking; tech: (PublicIdentity & Pick<User, "fullAddress">) | null }>(row: T) {
+  return { ...row, booking: toParticipantBooking(row.booking), tech: toBookingCounterpart(row.tech, row.booking, "client") };
+}
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -130,7 +172,7 @@ export async function getDb() {
     try {
       _db = drizzle(process.env.DATABASE_URL);
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.warn("[Database] Failed to connect:", safeErrorDetails(error));
       _db = null;
     }
   }
@@ -275,7 +317,7 @@ export async function getDisputedBookingsForAdmin() {
     .where(inArray(users.id, partyIds));
   const partiesById = new Map(parties.map((party) => [party.id, party]));
   return disputedBookings.map((booking) => ({
-    ...booking,
+    ...toParticipantBooking(booking),
     clientName: partiesById.get(booking.clientId)?.name ?? null,
     techName: partiesById.get(booking.techId)?.businessName ?? partiesById.get(booking.techId)?.name ?? null,
   }));
@@ -459,30 +501,22 @@ export async function getDiscoverFeed(
   // (stored as JSON arrays, SQL equality won't work for multi-value fields)
   if (filters?.shape) conditions.push(eq(posts.shape, filters.shape));
 
-  // Fetch base results with tech lat/lng included
+  // Never select real coordinates for public discovery or distance scoring.
   const rows = await db
     .select({
       post: posts,
-      tech: {
-        id: users.id,
-        name: users.name,
-        businessName: users.businessName,
-        avatarUrl: users.avatarUrl,
-        location: users.location,
-        lat: users.lat,
-        lng: users.lng,
-        // Public-safe location fields (fuzzed coords, never real address)
-        fuzzedLat: users.fuzzedLat,
-        fuzzedLng: users.fuzzedLng,
-        addressCity: users.addressCity,
-        addressState: users.addressState,
+      tech: publicTechnicianColumns,
+      privacy: {
+        discoverVisible: privacySettings.discoverVisible,
+        hideApproxLocation: privacySettings.hideApproxLocation,
       },
       analytics: postAnalytics,
     })
     .from(posts)
     .leftJoin(users, eq(posts.techId, users.id))
+    .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
     .leftJoin(postAnalytics, eq(posts.id, postAnalytics.postId))
-    .where(and(...conditions))
+    .where(and(...conditions, isNull(users.deactivatedAt), or(isNull(privacySettings.userId), eq(privacySettings.discoverVisible, true))))
     .orderBy(desc(posts.isPromoted), desc(posts.createdAt))
     .limit(500); // over-fetch so we can filter/sort in JS
 
@@ -503,7 +537,9 @@ export async function getDiscoverFeed(
   const uLng = filters?.userLng;
 
   // ── Subscriptions-only filter ─────────────────────────────────────────
-  let results = rows;
+  let results = rows
+    .filter((row) => row.privacy?.discoverVisible !== false)
+    .map(({ post, tech, analytics, privacy }) => ({ post, tech: toPublicTechnician(tech, privacy), analytics }));
   if (filters?.subscriptionsOnly && followedTechIds.size > 0) {
     results = results.filter((r) => r.tech?.id != null && followedTechIds.has(r.tech.id));
   } else if (filters?.subscriptionsOnly) {
@@ -603,8 +639,8 @@ export async function getDiscoverFeed(
     let withinLocation = true;
     let distMiles = 0;
     if (hasLocation && uLat !== undefined && uLng !== undefined) {
-      if (r.tech?.lat != null && r.tech?.lng != null) {
-        distMiles = getDistMiles(r.tech.lat, r.tech.lng, uLat, uLng);
+      if (r.tech?.fuzzedLat != null && r.tech?.fuzzedLng != null) {
+        distMiles = getDistMiles(r.tech.fuzzedLat, r.tech.fuzzedLng, uLat, uLng);
         withinLocation = distMiles <= maxMiles;
       } else {
         withinLocation = false;
@@ -638,8 +674,8 @@ export async function getDiscoverFeed(
   if (filters?.nearestFirst && uLat !== undefined && uLng !== undefined) {
     const withDist = scored.map(r => ({
       ...r,
-      _distMiles: (r.tech?.lat != null && r.tech?.lng != null)
-        ? getDistMiles(r.tech.lat, r.tech.lng, uLat!, uLng!)
+      _distMiles: (r.tech?.fuzzedLat != null && r.tech?.fuzzedLng != null)
+        ? getDistMiles(r.tech.fuzzedLat, r.tech.fuzzedLng, uLat!, uLng!)
         : 9999,
     }));
     withDist.sort((a, b) => a._distMiles - b._distMiles);
@@ -829,23 +865,27 @@ export async function getSavedPostsForAlbum(userId: number, collectionId: number
   if (!db) return [];
   if (collectionId === null) {
     // All Saved
-    return db
-      .select({ savedPost: savedPosts, post: posts, tech: users })
+    const rows = await db
+      .select({ savedPost: savedPosts, post: posts, tech: publicTechnicianColumns, privacy: { hideApproxLocation: privacySettings.hideApproxLocation } })
       .from(savedPosts)
       .leftJoin(posts, eq(savedPosts.postId, posts.id))
       .leftJoin(users, eq(posts.techId, users.id))
+      .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
       .where(eq(savedPosts.userId, userId))
       .orderBy(desc(savedPosts.createdAt));
+    return rows.map(({ savedPost, post, tech, privacy }) => ({ savedPost, post, tech: toPublicTechnician(tech, privacy) }));
   } else {
     // Specific album
-    return db
-      .select({ savedPost: savedPosts, post: posts, tech: users })
+    const rows = await db
+      .select({ savedPost: savedPosts, post: posts, tech: publicTechnicianColumns, privacy: { hideApproxLocation: privacySettings.hideApproxLocation } })
       .from(postAlbumMemberships)
       .innerJoin(savedPosts, and(eq(postAlbumMemberships.postId, savedPosts.postId), eq(postAlbumMemberships.userId, savedPosts.userId)))
       .leftJoin(posts, eq(postAlbumMemberships.postId, posts.id))
       .leftJoin(users, eq(posts.techId, users.id))
+      .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
       .where(and(eq(postAlbumMemberships.userId, userId), eq(postAlbumMemberships.collectionId, collectionId)))
       .orderBy(desc(postAlbumMemberships.createdAt));
+    return rows.map(({ savedPost, post, tech, privacy }) => ({ savedPost, post, tech: toPublicTechnician(tech, privacy) }));
   }
 }
 
@@ -906,15 +946,7 @@ export async function toggleSave(userId: number, postId: number, _collectionId?:
 }
 
 export async function getUserSavedPosts(userId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db
-    .select({ savedPost: savedPosts, post: posts, tech: users })
-    .from(savedPosts)
-    .leftJoin(posts, eq(savedPosts.postId, posts.id))
-    .leftJoin(users, eq(posts.techId, users.id))
-    .where(eq(savedPosts.userId, userId))
-    .orderBy(desc(savedPosts.createdAt));
+  return getSavedPostsForAlbum(userId, null);
 }
 
 export async function getUserCollections(userId: number) {
@@ -1055,24 +1087,26 @@ export async function getBookingById(bookingId: number) {
 export async function getClientBookings(clientId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select({ booking: bookings, tech: users })
+  const rows = await db
+    .select({ booking: bookings, tech: { ...publicIdentityColumns, fullAddress: users.fullAddress } })
     .from(bookings)
     .leftJoin(users, eq(bookings.techId, users.id))
     .where(eq(bookings.clientId, clientId))
     .orderBy(desc(bookings.scheduledAt));
+  return rows.map(presentClientBooking);
 }
 
 export async function getTechBookings(techId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select({ booking: bookings, client: users, addonService: techServices })
+  const rows = await db
+    .select({ booking: bookings, client: publicIdentityColumns, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
     .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
     .where(and(eq(bookings.techId, techId), ne(bookings.paymentMethodStatus, "required")))
     .orderBy(desc(bookings.scheduledAt));
+  return rows.map(presentTechBooking);
 }
 
 export async function getAllUserBookings(userId: number) {
@@ -1089,10 +1123,7 @@ export async function getAllUserBookings(userId: number) {
     ...asClient.map(({ booking, tech }) => ({
       booking,
       counterpart: tech ? {
-        id: tech.id,
-        name: tech.name,
-        businessName: tech.businessName,
-        avatarUrl: tech.avatarUrl,
+        ...toPublicIdentity(tech),
         fullAddress: booking.status === "confirmed" ? tech.fullAddress : null,
       } : null,
       myRole: "client" as const,
@@ -1101,10 +1132,8 @@ export async function getAllUserBookings(userId: number) {
     ...asTech.map(({ booking, client, addonService }) => ({
       booking,
       counterpart: client ? {
-        id: client.id,
-        name: client.name,
+        ...toPublicIdentity(client),
         businessName: null,
-        avatarUrl: client.avatarUrl,
         fullAddress: null,
       } : null,
       addonService,
@@ -1120,8 +1149,8 @@ export async function getTodayBookings(techId: number) {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-  return db
-    .select({ booking: bookings, client: users })
+  const rows = await db
+    .select({ booking: bookings, client: publicIdentityColumns })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
     .where(
@@ -1132,6 +1161,7 @@ export async function getTodayBookings(techId: number) {
       )
     )
     .orderBy(bookings.scheduledAt);
+  return rows.map(presentTechBooking);
 }
 
 /**
@@ -1144,8 +1174,8 @@ export async function getTechBookingsTimeline(techId: number) {
   if (!db) return [];
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  return db
-    .select({ booking: bookings, client: users, addonService: techServices })
+  const rows = await db
+    .select({ booking: bookings, client: publicIdentityColumns, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
     .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
@@ -1158,6 +1188,7 @@ export async function getTechBookingsTimeline(techId: number) {
       )
     )
     .orderBy(bookings.scheduledAt);
+  return rows.map(presentTechBooking);
 }
 
 /**
@@ -1167,8 +1198,8 @@ export async function getTechBookingsTimeline(techId: number) {
 export async function getTechPastBookings(techId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select({ booking: bookings, client: users, addonService: techServices })
+  const rows = await db
+    .select({ booking: bookings, client: publicIdentityColumns, addonService: techServices })
     .from(bookings)
     .leftJoin(users, eq(bookings.clientId, users.id))
     .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
@@ -1179,6 +1210,7 @@ export async function getTechPastBookings(techId: number) {
       )
     )
     .orderBy(desc(bookings.scheduledAt));
+  return rows.map(presentTechBooking);
 }
 
 /** Returns only the authenticated tech's payout-relevant appointments. Amounts
@@ -1200,6 +1232,7 @@ export async function getTechPayoutHistory(techId: number) {
 
   return Promise.all(rows.map(async (row) => ({
     ...row,
+    booking: toParticipantBooking(row.booking),
     amounts: calculatePayoutHistoryAmounts({
       serviceTotalInCents: await getBookingServiceTotalInCents(row.booking.id),
       refundAmountInCents: row.booking.refundAmountInCents,
@@ -1428,7 +1461,7 @@ export async function getTechnicianCalendar(techId: number, range: CalendarRange
   const { start, end } = getCalendarRangeBounds(range, timeZone);
   const ruleDateBounds = getDateOnlyRuleRangeBounds(range);
   const [bookingsInRange, events, blocks, lastMinuteInRange, weeklySchedule, bookingRulesInRange] = await Promise.all([
-    db.select({ booking: bookings, client: users, addonService: techServices })
+    db.select({ booking: bookings, client: publicIdentityColumns, addonService: techServices })
       .from(bookings)
       .leftJoin(users, eq(bookings.clientId, users.id))
       .leftJoin(techServices, eq(bookings.addonServiceId, techServices.id))
@@ -1448,7 +1481,7 @@ export async function getTechnicianCalendar(techId: number, range: CalendarRange
       or(isNull(bookingRules.specificDate), and(gte(bookingRules.specificDate, ruleDateBounds.start), lt(bookingRules.specificDate, ruleDateBounds.end))),
     )).orderBy(bookingRules.createdAt),
   ]);
-  return { timeZone, bookings: bookingsInRange, events, blocks, lastMinuteSlots: lastMinuteInRange, weeklySchedule, bookingRules: bookingRulesInRange };
+  return { timeZone, bookings: bookingsInRange.map(presentTechBooking), events, blocks, lastMinuteSlots: lastMinuteInRange, weeklySchedule, bookingRules: bookingRulesInRange };
 }
 
 export async function getAvailabilityOverrideConflicts(techId: number, input: Pick<CalendarEventInput, "localDate" | "startTime" | "endTime" | "timeZone">) {
@@ -1770,13 +1803,16 @@ export async function getOpenLastMinuteSlots() {
   const db = await getDb();
   if (!db) return [];
   const now = Date.now();
-  return db
-    .select({ slot: lastMinuteSlots, tech: users })
+  const rows = await db
+    .select({ slot: lastMinuteSlots, tech: publicTechnicianColumns, privacy: { discoverVisible: privacySettings.discoverVisible, hideApproxLocation: privacySettings.hideApproxLocation } })
     .from(lastMinuteSlots)
     .leftJoin(users, eq(lastMinuteSlots.techId, users.id))
-    .where(gt(lastMinuteSlots.expiresAt, now))
+    .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
+    .where(and(gt(lastMinuteSlots.expiresAt, now), isNull(users.deactivatedAt), or(isNull(privacySettings.userId), eq(privacySettings.discoverVisible, true))))
     .orderBy(lastMinuteSlots.slotDate, lastMinuteSlots.startTime)
     .limit(40);
+  return rows.filter((row) => row.privacy?.discoverVisible !== false)
+    .map(({ slot, tech, privacy }) => ({ slot, tech: toPublicTechnician(tech, privacy) }));
 }
 
 export async function getActiveSlotsForTech(techId: number) {
@@ -2131,12 +2167,13 @@ export async function getReviewByBookingId(bookingId: number) {
 export async function getTechReviews(techId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
-    .select({ review: reviews, client: users })
+  const rows = await db
+    .select({ review: reviews, client: publicIdentityColumns })
     .from(reviews)
     .leftJoin(users, eq(reviews.clientId, users.id))
     .where(eq(reviews.techId, techId))
     .orderBy(desc(reviews.createdAt));
+  return rows.map(({ review, client }) => ({ review, client: toPublicIdentity(client) }));
 }
 
 export async function getTechRatingStats(techId: number) {
@@ -3692,12 +3729,15 @@ export async function getFeeEventsReadyForPayout(now: Date) {
 export async function getDisputedFeeEventsForAdmin() {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ event: bookingFeeEvents, booking: bookings, client: users })
+  const rows = await db.select({ event: bookingFeeEvents, booking: bookings, client: publicIdentityColumns })
     .from(bookingFeeEvents)
     .leftJoin(bookings, eq(bookingFeeEvents.bookingId, bookings.id))
     .leftJoin(users, eq(bookingFeeEvents.clientId, users.id))
     .where(eq(bookingFeeEvents.status, "disputed"))
     .orderBy(desc(bookingFeeEvents.clientDisputedAt));
+  return rows.map(({ event, booking, client }) => ({
+    event: toParticipantFeeEvent(event), booking: toParticipantBooking(booking), client: toPublicIdentity(client),
+  }));
 }
 
 /** Confirmed appointments that may cross a late/no-show threshold. */
@@ -3736,18 +3776,7 @@ export async function getAlternativeTechs(params: {
   scheduledAt: Date;
   clientLat?: number | null;
   clientLng?: number | null;
-}): Promise<Array<{
-  id: number;
-  name: string | null;
-  businessName: string | null;
-  avatarUrl: string | null;
-  location: string | null;
-  lat: number | null;
-  lng: number | null;
-  services: string[] | null;
-  priceRange: string | null;
-  distanceMiles: number | null;
-}>> {
+}): Promise<Array<PublicTechnician & { distanceMiles: number | null }>> {
   const db = await getDb();
   if (!db) return [];
 
@@ -3758,32 +3787,31 @@ export async function getAlternativeTechs(params: {
   // Get all nail techs except the original
   const techs = await db
     .select({
-      id: users.id,
-      name: users.name,
-      businessName: users.businessName,
-      avatarUrl: users.avatarUrl,
-      location: users.location,
-      lat: users.lat,
-      lng: users.lng,
-      services: users.services,
-      priceRange: users.priceRange,
+      ...publicTechnicianColumns,
+      discoverVisible: privacySettings.discoverVisible,
+      hideApproxLocation: privacySettings.hideApproxLocation,
     })
     .from(users)
+    .leftJoin(privacySettings, eq(privacySettings.userId, users.id))
     .where(
       and(
-        eq(users.userType, "nail_tech"),
-        ne(users.id, params.originalTechId)
+        or(eq(users.userType, "nail_tech"), eq(users.hasDualRole, true)),
+        ne(users.id, params.originalTechId),
+        isNull(users.deactivatedAt),
+        or(isNull(privacySettings.userId), eq(privacySettings.discoverVisible, true)),
       )
     );
 
   // Filter by service type if provided
-  const filtered = techs.filter((t) => {
+  const filtered = techs.filter((t) => t.discoverVisible !== false)
+    .map((t) => toPublicTechnician(t, t)).filter((t) => {
     if (!params.serviceType) return true;
     if (!t.services || t.services.length === 0) return true;
     return t.services.some(
       (s) => s.toLowerCase() === params.serviceType!.toLowerCase()
     );
   });
+  if (filtered.length === 0) return [];
 
   // Check availability in the window for each tech
   const windowStartDow = windowStart.getDay();
@@ -3820,18 +3848,18 @@ export async function getAlternativeTechs(params: {
     if (
       params.clientLat != null &&
       params.clientLng != null &&
-      t.lat != null &&
-      t.lng != null
+      t.fuzzedLat != null &&
+      t.fuzzedLng != null
     ) {
       const R = 3958.8;
-      const dLat = ((t.lat - params.clientLat) * Math.PI) / 180;
-      const dLng = ((t.lng - params.clientLng) * Math.PI) / 180;
+      const dLat = ((t.fuzzedLat - params.clientLat) * Math.PI) / 180;
+      const dLng = ((t.fuzzedLng - params.clientLng) * Math.PI) / 180;
       const a =
         Math.sin(dLat / 2) ** 2 +
         Math.cos((params.clientLat * Math.PI) / 180) *
-          Math.cos((t.lat * Math.PI) / 180) *
+          Math.cos((t.fuzzedLat * Math.PI) / 180) *
           Math.sin(dLng / 2) ** 2;
-      distanceMiles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      distanceMiles = Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
     }
     return { ...t, distanceMiles };
   });
@@ -4210,7 +4238,7 @@ export async function getUpcomingBookingsForUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
   const now = new Date();
-  return db
+  const rows = await db
     .select()
     .from(bookings)
     .where(
@@ -4220,6 +4248,7 @@ export async function getUpcomingBookingsForUser(userId: number) {
         gt(bookings.scheduledAt, now)
       )
     );
+  return rows.map((booking) => toParticipantBooking(booking));
 }
 
 /**
