@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { STYLE_TAG_GROUPS, NAIL_COLORS, MULTI_COLOR_TAG } from "@shared/const";
 import { MediaCarousel } from "@/components/MediaCarousel";
+import AppFooter from "@/components/AppFooter";
 import { ReportSheet } from "@/components/ReportSheet";
 import { buildLastMinuteBookingPath, type LastMinuteBookingSlot } from "@shared/lastMinuteBooking";
 
@@ -666,6 +667,7 @@ export default function Discover() {
             )}
           </>
         )}
+        <AppFooter className="mt-8 -mx-3 -mb-24" />
       </div>}
 
       {/* Album picker sheet */}

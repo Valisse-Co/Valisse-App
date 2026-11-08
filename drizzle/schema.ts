@@ -835,7 +835,6 @@ export const blockedUsers = mysqlTable("blocked_users", {
 }, (t) => ({
   uniqBlock: unique().on(t.blockerId, t.blockedId),
 }));
-
 export type BlockedUser = typeof blockedUsers.$inferSelect;
 
 // ─── Appointment Operations (observability only by default) ────────────────────
@@ -880,3 +879,29 @@ export const operationsRuns = mysqlTable("operations_runs", {
 
 export type OperationsJob = typeof operationsJobs.$inferSelect;
 export type OperationsRun = typeof operationsRuns.$inferSelect;
+
+// ─── Support Tickets ─────────────────────────────────────────────────────────
+export const supportTickets = mysqlTable("support_tickets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  name: varchar("name", { length: 191 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  category: mysqlEnum("category", [
+    "booking",
+    "payment",
+    "subscription",
+    "account",
+    "safety",
+    "feedback",
+    "other",
+  ]).default("other").notNull(),
+  subject: varchar("subject", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  appointmentRef: varchar("appointmentRef", { length: 128 }),
+  status: mysqlEnum("status", ["open", "in_progress", "resolved", "closed"])
+    .default("open")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type InsertSupportTicket = typeof supportTickets.$inferInsert;

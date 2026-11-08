@@ -45,13 +45,14 @@ import QaAppointmentPayment from "./pages/QaAppointmentPayment";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import ConsentStep from "./pages/ConsentStep";
+import Support from "./pages/Support";
 import { trpc } from "./lib/trpc";
 import SearchPeople from "./pages/SearchPeople";
 import { VerifyEmail, ForgotPassword, ResetPassword } from "./pages/EmailSecurity";
 import { requiresEmailVerification } from "@shared/emailSecurity";
 
 // Routes that are always accessible — even during re-consent flow
-const PUBLIC_PATHS = ["/terms", "/privacy", "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/", "/404"];
+const PUBLIC_PATHS = ["/terms", "/privacy", "/support", "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/", "/404"];
 
 // ── Reactivation Gate ────────────────────────────────────────────────────────
 // If a signed-in user's account is deactivated, show a full-screen reactivation
@@ -175,6 +176,7 @@ function Router() {
         {/* Legal pages — always public, no auth or consent required */}
         <Route path="/terms" component={TermsOfService} />
         <Route path="/privacy" component={PrivacyPolicy} />
+        <Route path="/support" component={Support} />
         {/* Client routes */}
         <Route path="/discover">
           <AppLayout><Discover /></AppLayout>
