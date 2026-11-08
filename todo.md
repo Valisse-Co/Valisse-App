@@ -801,10 +801,14 @@
 - [ ] Run an explicitly approved live payment-to-bank smoke test and fresh interactive Google login check before public launch
 
 ## Production Job Verification and Admin Operations Dashboard
-- [ ] Inspect project-owned HTTP schedules and execution logs without triggering financial work
-- [ ] Persist job registration, environment-scoped run history, lease/concurrency protection and sanitized step outcomes
-- [ ] Isolate payouts, appointment-code SMS, and attendance evaluation so one failing provider cannot hide other results
-- [ ] Add admin-only operations snapshot showing scheduler evidence, overdue payouts, failed transfers, payments due, and unresolved disputes
-- [ ] Build the mobile-friendly operations workspace and admin Settings entry; read-only by default, no Run Now money action
-- [ ] Test task identity binding, auth, environment isolation, stale jobs, concurrency, partial failure and response privacy; migrate and checkpoint
+- [x] Inspect project-owned HTTP schedules without financial work: owner list returned zero jobs, so there are no owner-job execution logs to verify yet
+- [x] Persist job registration, environment-scoped run history, lease/concurrency protection and sanitized step outcomes
+- [x] Isolate payouts, appointment-code SMS, and attendance evaluation so one failing provider cannot hide other results
+- [x] Add admin-only operations snapshot showing scheduler evidence, overdue payouts, failed transfers, payments due, and unresolved disputes
+- [x] Build the mobile-friendly operations workspace and admin Settings entry; read-only by default, no Run Now money action
+- [x] Test task identity binding, auth, environment isolation, stale jobs, concurrency, partial failure and response privacy; migrate and checkpoint
 - [ ] After owner publishes the checkpoint, verify a production observation-only heartbeat delivery; enable money/SMS work only with explicit approval
+- [x] Merge and retain the other task’s Privacy/Terms/Support update; operations migration 0040 applied without touching booking/account data
+- [x] TypeScript and production build pass; 319 internal tests pass plus one real disposable database lease/concurrency test; Telnyx-only health test remains HTTP 401
+- [x] Verify desktop/mobile admin UI, blocked non-admin UI, and unauthenticated scheduled callback HTTP 403; no transfers/messages sent
+- [ ] Before approving execute mode, bound provider/DB await chains under the platform two-minute deadline and validate slow-response/reconciliation scenarios

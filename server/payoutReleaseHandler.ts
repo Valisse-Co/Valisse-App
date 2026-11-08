@@ -60,6 +60,11 @@ export async function handlePayoutRelease(req: Request, res: Response) {
     const started = await beginOperationsRun(job.jobId);
     if (!started) return res.status(429).json({ ok: false, error: "run-already-in-progress" });
     runId = started.runId;
+    if (!started.job.scheduleEnabled || started.job.scheduleCronTaskUid !== user.taskUid ||
+      started.job.environment !== environment || started.job.callbackPath !== OPERATIONS_CALLBACK_PATH) {
+      await finishOperationsRun(runId, "abandoned", emptyOperationsSteps());
+      return res.status(409).json({ ok: false, error: "registration-changed", runId, environment });
+    }
     const now = new Date();
     let steps: OperationsSteps;
     // Use the policy captured under the lease, not any mutable request payload.
