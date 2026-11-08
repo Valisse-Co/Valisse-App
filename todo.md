@@ -799,3 +799,12 @@
 - [ ] Finalize Terms/Privacy effective dates, provider disclosures (Telnyx/Resend), payment-policy language and support details with owner/legal review
 - [ ] Recheck Telnyx readiness after verification/configuration: current read-only health test returns HTTP 401; Resend delivery remains deferred
 - [ ] Run an explicitly approved live payment-to-bank smoke test and fresh interactive Google login check before public launch
+
+## Production Job Verification and Admin Operations Dashboard
+- [ ] Inspect project-owned HTTP schedules and execution logs without triggering financial work
+- [ ] Persist job registration, environment-scoped run history, lease/concurrency protection and sanitized step outcomes
+- [ ] Isolate payouts, appointment-code SMS, and attendance evaluation so one failing provider cannot hide other results
+- [ ] Add admin-only operations snapshot showing scheduler evidence, overdue payouts, failed transfers, payments due, and unresolved disputes
+- [ ] Build the mobile-friendly operations workspace and admin Settings entry; read-only by default, no Run Now money action
+- [ ] Test task identity binding, auth, environment isolation, stale jobs, concurrency, partial failure and response privacy; migrate and checkpoint
+- [ ] After owner publishes the checkpoint, verify a production observation-only heartbeat delivery; enable money/SMS work only with explicit approval

@@ -837,3 +837,46 @@ export const blockedUsers = mysqlTable("blocked_users", {
 }));
 
 export type BlockedUser = typeof blockedUsers.$inferSelect;
+
+// ─── Appointment Operations (observability only by default) ────────────────────
+import type { OperationsSteps } from "../shared/operations";
+
+export const operationsJobs = mysqlTable("operations_jobs", {
+  jobId: int("jobId").autoincrement().primaryKey(),
+  jobKey: varchar("jobKey", { length: 64 }).default("appointment_operations").notNull(),
+  environment: mysqlEnum("environment", ["production", "development"]).notNull(),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }).unique(),
+  callbackPath: varchar("callbackPath", { length: 255 }).default("/api/scheduled/release-payouts").notNull(),
+  cronExpression: varchar("cronExpression", { length: 128 }).default("0 */5 * * * *").notNull(),
+  scheduleEnabled: boolean("scheduleEnabled").default(false).notNull(),
+  executionMode: mysqlEnum("executionMode", ["observe_only", "execute"]).default("observe_only").notNull(),
+  schedulerVerifiedAt: timestamp("schedulerVerifiedAt", { fsp: 3 }),
+  providerLastExecutedAt: timestamp("providerLastExecutedAt", { fsp: 3 }),
+  providerNextExecutionAt: timestamp("providerNextExecutionAt", { fsp: 3 }),
+  leaseToken: varchar("leaseToken", { length: 64 }),
+  leaseUntil: timestamp("leaseUntil", { fsp: 3 }),
+  createdAt: timestamp("createdAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+  updatedAt: timestamp("updatedAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+}, t => ({
+  uniqueJobEnvironment: unique("operations_jobs_key_environment_unique").on(t.jobKey, t.environment),
+}));
+
+export const operationsRuns = mysqlTable("operations_runs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  jobId: int("jobId").notNull().references(() => operationsJobs.jobId),
+  environment: mysqlEnum("environment", ["production", "development"]).notNull(),
+  executionMode: mysqlEnum("executionMode", ["observe_only", "execute"]).notNull(),
+  status: mysqlEnum("status", ["running", "succeeded", "partial_failure", "failed", "abandoned"]).default("running").notNull(),
+  startedAt: timestamp("startedAt", { fsp: 3 }).notNull(),
+  completedAt: timestamp("completedAt", { fsp: 3 }),
+  steps: json("steps").$type<OperationsSteps>().notNull(),
+  source: mysqlEnum("source", ["heartbeat"]).default("heartbeat").notNull(),
+  createdAt: timestamp("createdAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+}, t => ({
+  environmentStartedIndex: index("operations_runs_environment_started_idx").on(t.environment, t.startedAt),
+  statusStartedIndex: index("operations_runs_status_started_idx").on(t.status, t.startedAt),
+  jobStatusIndex: index("operations_runs_job_status_idx").on(t.jobId, t.status),
+}));
+
+export type OperationsJob = typeof operationsJobs.$inferSelect;
+export type OperationsRun = typeof operationsRuns.$inferSelect;

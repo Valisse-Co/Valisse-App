@@ -26,6 +26,7 @@ import {
   FileText,
   ShieldAlert,
   Landmark,
+  Activity,
 } from "lucide-react";
 
 type SettingsSection = {
@@ -253,6 +254,11 @@ export default function Settings() {
           <div className="px-4 py-3 border-b border-amber-200/80 dark:border-amber-900/50">
             <p className="text-xs uppercase tracking-[0.14em] font-semibold text-amber-700 dark:text-amber-300">Administrator</p>
           </div>
+          <button onClick={() => navigate("/admin/operations")} className="w-full flex items-center gap-4 border-b border-amber-200/80 px-4 py-3.5 text-left transition-colors hover:bg-amber-100/50 dark:border-amber-900/50 dark:hover:bg-amber-950/20">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Activity size={20} /></div>
+            <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground">Operations</p><p className="truncate text-xs text-muted-foreground">Job health, overdue payouts, payment due, and disputes</p></div>
+            <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+          </button>
           <button onClick={() => navigate("/admin/reports")} className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-amber-100/50 dark:hover:bg-amber-950/20 transition-colors text-left">
             <div className="w-9 h-9 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
               <ShieldAlert size={20} />

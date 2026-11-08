@@ -258,20 +258,23 @@ export async function revokeSmsConsentForPhoneCandidates(phoneCandidates: string
   return ids.length;
 }
 
-export async function getBookingsDueForAppointmentCodeSms(now = new Date()) {
+export async function getBookingsDueForAppointmentCodeSms(now = new Date(), limit = 10) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("DB unavailable");
   return db
-    .select({ id: bookings.id, clientId: bookings.clientId, scheduledAt: bookings.scheduledAt })
+    .select({ id: bookings.id, clientId: bookings.clientId, scheduledAt: bookings.scheduledAt, isQaTest: bookings.isQaTest })
     .from(bookings)
     .innerJoin(users, eq(users.id, bookings.clientId))
     .where(and(
       eq(bookings.status, "confirmed"),
+      eq(bookings.isQaTest, false),
       lte(bookings.appointmentCodeVisibleAt, now),
       isNull(bookings.appointmentCodeSmsSentAt),
       eq(users.smsConsent, true),
       isNotNull(users.phone),
-    ));
+    ))
+    .orderBy(bookings.appointmentCodeVisibleAt, bookings.id)
+    .limit(Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10);
 }
 
 export async function markAppointmentCodeSmsSent(bookingId: number, sentAt = new Date()) {
@@ -1678,9 +1681,9 @@ export async function reportBookingIssue(bookingId: number, reason: string, repo
   }).where(eq(bookings.id, bookingId));
 }
 
-export async function getPayoutEligibleBookings(now: Date) {
+export async function getPayoutEligibleBookings(now: Date, limit = 10) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("DB unavailable");
   return db
     .select({ booking: bookings, tech: users })
     .from(bookings)
@@ -1690,7 +1693,9 @@ export async function getPayoutEligibleBookings(now: Date) {
       eq(bookings.payoutStatus, "pending_dispute_window"),
       lte(bookings.payoutEligibleAt, now),
       eq(bookings.isQaTest, false),
-    ));
+    ))
+    .orderBy(bookings.payoutEligibleAt, bookings.id)
+    .limit(Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10);
 }
 
 export async function markBookingPayoutResult(
@@ -3714,16 +3719,20 @@ export async function updateBookingFeeEvent(eventId: number, values: Partial<typ
   await db.update(bookingFeeEvents).set(values).where(eq(bookingFeeEvents.id, eventId));
 }
 
-export async function getFeeEventsReadyForPayout(now: Date) {
+export async function getFeeEventsReadyForPayout(now: Date, limit = 10) {
   const db = await getDb();
-  if (!db) return [];
-  return db.select({ event: bookingFeeEvents, tech: users }).from(bookingFeeEvents)
+  if (!db) throw new Error("DB unavailable");
+  return db.select({ event: bookingFeeEvents, tech: users, booking: bookings }).from(bookingFeeEvents)
+    .innerJoin(bookings, eq(bookingFeeEvents.bookingId, bookings.id))
     .leftJoin(users, eq(bookingFeeEvents.techId, users.id))
     .where(and(
+      eq(bookings.isQaTest, false),
       inArray(bookingFeeEvents.status, ["charged", "upheld"]),
       eq(bookingFeeEvents.payoutStatus, "pending_dispute_window"),
       lte(bookingFeeEvents.payoutEligibleAt, now),
-    ));
+    ))
+    .orderBy(bookingFeeEvents.payoutEligibleAt, bookingFeeEvents.id)
+    .limit(Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10);
 }
 
 export async function getDisputedFeeEventsForAdmin() {
@@ -3741,14 +3750,17 @@ export async function getDisputedFeeEventsForAdmin() {
 }
 
 /** Confirmed appointments that may cross a late/no-show threshold. */
-export async function getAttendanceFeeEligibilityCandidates(now: Date) {
+export async function getAttendanceFeeEligibilityCandidates(now: Date, limit = 10) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("DB unavailable");
   return db.select().from(bookings).where(and(
     eq(bookings.status, "confirmed"),
+    eq(bookings.isQaTest, false),
     lte(bookings.scheduledAt, now),
     isNull(bookings.arrivedAt),
-  ));
+  ))
+    .orderBy(bookings.scheduledAt, bookings.id)
+    .limit(Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, 100) : 10);
 }
 
 export async function markBookingNoShow(bookingId: number, techId: number) {

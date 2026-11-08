@@ -265,6 +265,22 @@ class SDKServer {
     } as GetUserInfoWithJwtResponse;
   }
 
+  /** Reject normal account cookies before any user synchronization or writes. */
+  async authenticateCronRequest(req: Request): Promise<AuthenticatedUser> {
+    const cookies = this.parseCookies(req.headers.cookie);
+    const sessionCookie = cookies.get(COOKIE_NAME);
+    const session = await this.verifySession(sessionCookie);
+    if (!session || session.appId !== ENV.appId || !session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
+      throw ForbiddenError("Scheduled-task authentication required");
+    }
+    const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
+    if (userInfo.projectId !== ENV.appId || userInfo.openId !== session.openId ||
+      !isNonEmptyString(userInfo.taskUid) || userInfo.taskUid.length > 65) {
+      throw ForbiddenError("Scheduled-task identity mismatch");
+    }
+    return buildCronUser(userInfo);
+  }
+
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
     // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
@@ -276,12 +292,7 @@ class SDKServer {
     }
 
     if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
-      const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-      const taskUid = userInfo.taskUid ?? null;
-      if (!taskUid) {
-        throw ForbiddenError("Cron session missing task_uid");
-      }
-      return buildCronUser(userInfo);
+      return this.authenticateCronRequest(req);
     }
 
     const sessionUserId = session.openId;

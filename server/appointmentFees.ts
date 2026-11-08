@@ -21,6 +21,7 @@ import {
   type AppointmentFeeType,
 } from "../shared/appointmentFeePolicy";
 import { formatUsdCents } from "../shared/money";
+import { safeErrorDetails } from "./securityLogging";
 
 type FeeEligibleBooking = {
   id: number;
@@ -74,9 +75,9 @@ async function notifyFeeEligibility(params: {
       category: "appointment_fee_eligible",
       text: `Valisse: a ${formatUsdCents(params.amountInCents)} ${label} fee is eligible for your appointment. Your nail tech must confirm it before any charge. View details in Valisse. Reply STOP to opt out.`,
     });
-    if (delivered) await markBookingFeeEventNotified(params.eventId, "sms");
+    if (delivered.sent) await markBookingFeeEventNotified(params.eventId, "sms");
   } catch (error) {
-    console.warn("[Appointment fee] Eligibility SMS failed", params.eventId, error);
+    console.warn("[Appointment fee] Eligibility SMS failed", safeErrorDetails(error));
   }
 }
 
@@ -141,7 +142,7 @@ export async function createEligibleAttendanceFee(params: {
     eligibilityReason: reason,
   });
   if (created) await notifyFeeEligibility({ eventId: event.id, booking, feeType, amountInCents, reason });
-  return event;
+  return { ...event, wasCreated: created };
 }
 
 /** Creates a late-cancellation case without any automatic card charge. */
@@ -176,17 +177,25 @@ export async function createEligibleCancellationFee(params: {
   return event;
 }
 
-export async function evaluateAttendanceFeeEligibility(now = new Date()) {
-  const candidates = await getAttendanceFeeEligibilityCandidates(now);
+export async function evaluateAttendanceFeeEligibility(now = new Date(), maxItems = 5) {
+  const limit = Number.isSafeInteger(maxItems) && maxItems > 0 ? Math.min(maxItems, 100) : 5;
+  const candidates = (await getAttendanceFeeEligibilityCandidates(now, limit)).slice(0, limit);
   let created = 0;
+  let failed = 0;
   for (const booking of candidates) {
-    const snapshot = await policyForBooking(booking);
-    const noShow = ruleFor(snapshot, "no_show");
-    const duration = await getBookingServiceDurationMinutes(booking.id);
-    const noShowThreshold = noShow ? resolveAttendanceThresholdMinutes(noShow, duration || booking.duration) : null;
-    if (!noShowThreshold || now.getTime() < booking.scheduledAt.getTime() + noShowThreshold * 60_000) continue;
-    const result = await createEligibleAttendanceFee({ booking, feeType: "no_show", now });
-    if (result) created += 1;
+    if (booking.isQaTest) continue;
+    try {
+      const snapshot = await policyForBooking(booking);
+      const noShow = ruleFor(snapshot, "no_show");
+      const duration = await getBookingServiceDurationMinutes(booking.id);
+      const noShowThreshold = noShow ? resolveAttendanceThresholdMinutes(noShow, duration || booking.duration) : null;
+      if (!noShowThreshold || now.getTime() < booking.scheduledAt.getTime() + noShowThreshold * 60_000) continue;
+      const result = await createEligibleAttendanceFee({ booking, feeType: "no_show", now });
+      if (result?.wasCreated) created += 1;
+    } catch (error) {
+      failed += 1;
+      console.warn("[Appointment fee] Eligibility evaluation failed", safeErrorDetails(error));
+    }
   }
-  return { checked: candidates.length, created };
+  return { checked: candidates.length, created, failed };
 }

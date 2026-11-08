@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { emailSecurityRouter } from "./emailSecurityRouter";
+import { operationsRouter } from "./operationsRouter";
 import { issueVerificationEmail, checkAuthRateLimit } from "./emailSecurity";
 import { isResendConfigured } from "./resend";
 import { toPublicTechnician } from "../shared/responsePrivacy";
@@ -3406,6 +3407,7 @@ const smartMatchRouter = router({
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
+  operations: operationsRouter,
   emailSecurity: emailSecurityRouter,
   users: usersRouter,
   posts: postsRouter,

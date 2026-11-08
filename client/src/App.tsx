@@ -39,6 +39,7 @@ import ClientProfile from "./pages/ClientProfile";
 import { useAuth } from "./_core/hooks/useAuth";
 import Notifications from "./pages/Notifications";
 import AdminReports from "./pages/AdminReports";
+import AdminOperations from "./pages/AdminOperations";
 import QaAppointmentLab from "./pages/QaAppointmentLab";
 import QaAppointmentPayment from "./pages/QaAppointmentPayment";
 import TermsOfService from "./pages/TermsOfService";
@@ -264,6 +265,7 @@ function Router() {
           <AppLayout><SettingsSupport /></AppLayout>
         </Route>
         {/* Admin routes */}
+        <Route path="/admin/operations" component={AdminOperations} />
         <Route path="/admin/reports">
           <AppLayout><AdminReports /></AppLayout>
         </Route>
