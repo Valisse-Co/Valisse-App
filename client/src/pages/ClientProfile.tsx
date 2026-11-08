@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Bookmark, Camera, ChevronRight, MapPin, Settings, UserRound } from "lucide-react";
+import { Bookmark, Camera, ChevronRight, MapPin, Settings, UserRound, HelpCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -110,6 +110,14 @@ export default function ClientProfile() {
           <span className="flex-1">
             <span className="block text-sm font-medium text-foreground">Settings</span>
             <span className="block text-xs text-muted-foreground">Privacy, notifications, appearance, and account</span>
+          </span>
+          <ChevronRight size={18} className="text-muted-foreground" />
+        </button>
+        <button type="button" onClick={() => navigate("/settings/support")} className="w-full flex items-center gap-3 p-4 text-left hover:bg-muted/40 transition-colors">
+          <span className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><HelpCircle size={18} /></span>
+          <span className="flex-1">
+            <span className="block text-sm font-medium text-foreground">Help & Support</span>
+            <span className="block text-xs text-muted-foreground">FAQ, contact form, Terms of Service, and Privacy Policy</span>
           </span>
           <ChevronRight size={18} className="text-muted-foreground" />
         </button>

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload, Sparkles, CalendarDays } from "lucide-react";
+import { Plus, Eye, Bookmark, TrendingUp, Clock, Edit2, Trash2, Bell, BarChart2, Zap, EyeOff, RotateCcw, AlertTriangle, DollarSign, Image as ImageIcon, Pencil, Upload, Sparkles, CalendarDays, HelpCircle } from "lucide-react";
+import AppFooter from "@/components/AppFooter";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -322,6 +323,27 @@ export default function TechDashboard() {
                 Renew →
               </button>
             )}
+            {/* Help & Support quick access */}
+            <div className="bg-card rounded-2xl border border-border p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-primary">
+                  <HelpCircle size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">Need help? We're here</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    FAQ, contact form, or email info@valisseco.com
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/settings/support")}
+                className="text-xs text-primary font-semibold hover:underline flex-shrink-0"
+              >
+                Help &amp; Support →
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -563,6 +585,7 @@ export default function TechDashboard() {
         )}
 
 
+        <AppFooter className="mt-8 -mx-4 -mb-24" />
       </div>
 
       {/* Add Slot Dialog */}

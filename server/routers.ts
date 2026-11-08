@@ -193,6 +193,7 @@ import {
   setBookingTipPaymentIntent,
   declineBookingTip,
   resolveBookingIssue,
+  createSupportTicket,
 } from "./db";
 import { storagePut } from "./storage";
 import { isValidInspirationImageReference } from "../shared/inspirationImage";
@@ -3403,6 +3404,54 @@ const smartMatchRouter = router({
     }),
 });
 
+
+// ─── Support ──────────────────────────────────────────────────────────────────
+const supportRouter = router({
+  submitTicket: publicProcedure
+    .input(
+      z.object({
+        name: z.string().trim().min(1, "Name is required").max(191),
+        email: z.string().trim().email("Valid email required").max(320),
+        category: z.enum([
+          "booking",
+          "payment",
+          "subscription",
+          "account",
+          "safety",
+          "feedback",
+          "other",
+        ]),
+        subject: z.string().trim().min(1, "Subject is required").max(255),
+        message: z.string().trim().min(5, "Message must be at least 5 characters").max(5000),
+        appointmentRef: z.string().trim().max(128).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const ticket = await createSupportTicket({
+        userId: ctx.user?.id ?? null,
+        name: input.name,
+        email: input.email.toLowerCase(),
+        category: input.category,
+        subject: input.subject,
+        message: input.message,
+        appointmentRef: input.appointmentRef || null,
+      });
+      const ticketNumber = ticket
+        ? `VAL-${String(ticket.id).padStart(4, "0")}`
+        : "VAL-0000";
+      try {
+        const { notifyOwner } = await import("./_core/notification");
+        await notifyOwner({
+          title: `New support request [${input.category}]: ${input.subject.slice(0, 100)}`,
+          content: `From: ${input.name} <${input.email}>\nCategory: ${input.category}\n${input.appointmentRef ? `Appointment #: ${input.appointmentRef}\n` : ""}\n${input.message}`,
+        });
+      } catch {
+        // Best-effort notification; the ticket is already persisted.
+      }
+      return { success: true as const, ticketNumber };
+    }),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -3426,6 +3475,7 @@ export const appRouter = router({
   appointment: appointmentRouter,
   settings: settingsRouter,
   smartService: smartServiceMatchRouter,
+  support: supportRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
 import { Apple, Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
 import { requiresEmailVerification } from "@shared/emailSecurity";
+import AppFooter from "@/components/AppFooter";
 
 function GoogleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -119,6 +120,7 @@ export default function SignUp() {
         <p className="text-center text-sm text-muted-foreground mt-6">Already have an account? <button onClick={() => navigate("/login")} className="text-primary font-medium underline underline-offset-2">Log in</button></p>
         <p className="text-center text-xs text-muted-foreground mt-6">By continuing, you agree to Valisse’s <a href="/terms" className="text-primary">Terms of Service</a> and <a href="/privacy" className="text-primary">Privacy Policy</a>.</p>
       </motion.main>
+      <AppFooter className="w-full max-w-sm mt-8 rounded-2xl border" />
     </div>
   );
 }

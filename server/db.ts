@@ -47,6 +47,9 @@ import {
   PrivacySettings,
   BlockedUser,
   users,
+  supportTickets,
+  InsertSupportTicket,
+  SupportTicket,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { safeErrorDetails } from "./securityLogging";
@@ -4473,4 +4476,17 @@ export async function getTechsNearMe(userLat: number, userLng: number, radiusMil
       addressState: r.addressState,
       distMiles: parseFloat(distMilesFn(r.fuzzedLat!, r.fuzzedLng!, userLat, userLng).toFixed(1)),
     }));
+}
+
+// ─── Support Tickets ─────────────────────────────────────────────────────────
+export async function createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket | null> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [result] = await db.insert(supportTickets).values(ticket);
+  const rows = await db
+    .select()
+    .from(supportTickets)
+    .where(eq(supportTickets.id, result.insertId))
+    .limit(1);
+  return rows[0] ?? null;
 }

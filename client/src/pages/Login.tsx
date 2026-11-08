@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { motion } from "framer-motion";
 import { Apple, Eye, EyeOff, Loader2, Mail, Lock } from "lucide-react";
 import { requiresEmailVerification } from "@shared/emailSecurity";
+import AppFooter from "@/components/AppFooter";
 
 function GoogleIcon({ size = 18 }: { size?: number }) {
   return (
@@ -214,6 +215,7 @@ export default function Login() {
           <a href="/privacy" className="text-primary">Privacy Policy</a>.
         </p>
       </motion.div>
+      <AppFooter className="w-full max-w-sm mt-8 rounded-2xl border" />
     </div>
   );
 }

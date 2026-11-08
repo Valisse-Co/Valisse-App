@@ -150,6 +150,16 @@ export default function ConsentStep({ onComplete }: ConsentStepProps) {
             By continuing, you confirm you are at least 18 years old and agree to be bound by these agreements. If we update our Terms, you will be asked to re-accept before continuing.
           </p>
         </div>
+        <p className="text-[11px] text-muted-foreground text-center">
+          Have questions about these terms?{" "}
+          <button
+            type="button"
+            onClick={() => navigate("/support")}
+            className="text-primary underline underline-offset-2"
+          >
+            Contact our support team
+          </button>
+        </p>
       </div>
 
       {/* CTA */}

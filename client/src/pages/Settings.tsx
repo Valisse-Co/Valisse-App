@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import AppFooter from "@/components/AppFooter";
 import { Separator } from "@/components/ui/separator";
 import {
   Scissors,
@@ -306,6 +307,7 @@ export default function Settings() {
 
       {/* App version */}
       <p className="text-center text-xs text-muted-foreground mt-6">Valisse · v1.0.0</p>
+      <AppFooter className="mt-8 mx-0" />
 
       {/* Become a Nail Tech Modal */}
       <AnimatePresence>
