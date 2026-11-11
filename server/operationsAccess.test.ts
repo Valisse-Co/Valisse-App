@@ -4,9 +4,9 @@ import type { TrpcContext } from "./_core/context";
 import type { User } from "../drizzle/schema";
 import { COOKIE_NAME } from "../shared/const";
 import { operationsHealth } from "../shared/operationsPresentation";
-const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), stripe: vi.fn(), telnyx: vi.fn(), resend: vi.fn() }));
+const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), stripe: vi.fn(), funds: vi.fn(), telnyx: vi.fn(), resend: vi.fn() }));
 vi.mock("./operationsDb", () => ({ getOperationsSnapshot: mocks.snapshot }));
-vi.mock("./stripe", () => ({ getStripeIntegrationStatus: mocks.stripe }));
+vi.mock("./stripe", () => ({ getStripeIntegrationStatus: mocks.stripe, getStripePlatformFundsStatus: mocks.funds }));
 vi.mock("./telnyx", () => ({ isTelnyxConfigured: mocks.telnyx }));
 vi.mock("./resend", () => ({ isResendConfigured: mocks.resend }));
 import { operationsRouter } from "./operationsRouter";
@@ -25,6 +25,34 @@ describe("private admin operations API", () => {
   it("rejects deactivated administrators", async () => { await expect(caller({ ...baseUser, deactivatedAt: new Date() }).snapshot({ environment: "production" })).rejects.toMatchObject({ code: "FORBIDDEN" }); expect(mocks.snapshot).not.toHaveBeenCalled(); });
   it("returns configuration-only diagnostics and the selected environment to administrators", async () => { const data = await caller(baseUser).snapshot({ environment: "production" }); expect(mocks.snapshot).toHaveBeenCalledWith("production"); expect(data.job).toBeNull(); expect(data.providers.resend.configured).toBe(false); expect(data.providers.stripe.configured).toBe(false); });
   it("offers no Run Now, transfer, charge, scheduling or policy-changing mutation", () => { expect(Object.keys(operationsRouter._def.procedures)).toEqual(["snapshot"]); });
+});
+describe("admin-only environment-scoped platform funds monitoring", () => {
+  it("never queries Stripe for a normal technician", async () => {
+    await expect(caller({ ...baseUser, role: "user" }).snapshot()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.funds).not.toHaveBeenCalled();
+  });
+  it("does not query live Stripe balances when QA is selected", async () => {
+    mocks.stripe.mockReturnValue({ configured: true, mode: "live" });
+    const data = await caller(baseUser).snapshot({ environment: "development" });
+    expect(data.platformFunds.status).toBe("scope_mismatch");
+    expect(mocks.funds).not.toHaveBeenCalled();
+  });
+  it("shows a zero live balance and monthly platform payout schedule without claiming a technician bank payout", async () => {
+    mocks.stripe.mockReturnValue({ configured: true, mode: "live" });
+    mocks.funds.mockResolvedValue({ status: "available", mode: "live", observedAt: new Date(), availableUsdInCents: 0, pendingUsdInCents: 0, payoutSchedule: "monthly", automaticBankPayouts: true });
+    const data = await caller(baseUser).snapshot({ environment: "production" });
+    expect(mocks.funds).toHaveBeenCalledWith("live");
+    expect(data.platformFunds).toMatchObject({ status: "available", availableUsdInCents: 0, automaticBankPayouts: true });
+    expect(data.platformFunds).not.toHaveProperty("bankAccountId");
+  });
+  it("keeps application queues visible when Stripe is unavailable and does not report an unknown balance as zero", async () => {
+    mocks.stripe.mockReturnValue({ configured: true, mode: "live" });
+    mocks.funds.mockRejectedValue(new Error("private request payload"));
+    const data = await caller(baseUser).snapshot({ environment: "production" });
+    expect(data.platformFunds).toEqual({ status: "unavailable" });
+    expect(data.counts.overduePayouts).toBe(0);
+    expect(JSON.stringify(data)).not.toContain("private request payload");
+  });
 });
 describe("cron authentication without account synchronization", () => {
   const req = { headers: { cookie: `${COOKIE_NAME}=mock-cookie` } } as Request;

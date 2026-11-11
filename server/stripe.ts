@@ -44,6 +44,27 @@ export function getStripe(mode?: StripePaymentMode): Stripe {
   return client;
 }
 
+/** Read-only treasury diagnostics. No bank identifiers, account details, or mutations. */
+export async function getStripePlatformFundsStatus(mode: StripePaymentMode) {
+  const stripe = getStripe(mode);
+  const options = { timeout: 8_000, maxNetworkRetries: 0 };
+  const [account, balance] = await Promise.all([
+    stripe.accounts.retrieveCurrent({}, options),
+    stripe.balance.retrieve({}, options),
+  ]);
+  const interval = account.settings?.payouts?.schedule?.interval;
+  const payoutSchedule = ["manual", "daily", "weekly", "monthly"].includes(interval ?? "") ? interval! : "unknown";
+  return {
+    status: "available" as const,
+    mode,
+    observedAt: new Date(),
+    availableUsdInCents: balance.available.filter(item => item.currency === "usd").reduce((sum, item) => sum + item.amount, 0),
+    pendingUsdInCents: balance.pending.filter(item => item.currency === "usd").reduce((sum, item) => sum + item.amount, 0),
+    payoutSchedule,
+    automaticBankPayouts: payoutSchedule === "unknown" ? null : payoutSchedule !== "manual",
+  };
+}
+
 export async function createStripeCustomer(params: { userId: number; name?: string | null; email?: string | null; mode?: StripePaymentMode }) {
   const stripe = getStripe(params.mode);
   return stripe.customers.create({

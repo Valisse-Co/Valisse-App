@@ -814,3 +814,16 @@
 - [ ] Before approving execute mode, bound provider/DB await chains under the platform two-minute deadline and validate slow-response/reconciliation scenarios
 - [x] Refreshed verified native scheduler timestamps in the registry; reran 45 callback/auth/persistence tests successfully; no code changes to the deployed callback were needed
 - [ ] Enable money/SMS execution only after separate explicit owner approval and completion of provider deadline/compliance checks
+
+## Investigate $2.00 Platform-versus-Technician Payout
+- [x] Trace the client charge, platform settlement/bank payout, technician transfer and connected-account readiness using read-only evidence
+- [x] Confirm the expected technician entitlement, accepted platform fee, hold/dispute status and any Stripe fee or balance shortfall
+- [x] Implement honest in-app payout-history labels and private read-only platform-balance/bank-schedule warnings; do not change SMS/email providers
+- [x] Test code changes, run TypeScript/full regressions and checkpoint before delivery
+- [ ] Obtain explicit approval for any specific corrective transfer, refund, balance funding or Stripe payout-schedule change; do not enable batch financial execution implicitly
+- [x] Confirm booking 1920002: $2.00 service charge, $0.36 Stripe fee, $1.64 automatically paid to platform bank on Oct 30; no linked transfer, no refund/dispute; Ashton recipient ownership/readiness confirmed
+- [x] Confirm $1.90 technician entitlement, $0.00 platform USD balance, monthly platform bank sweeps and observation-only worker; replenishment and one approved transfer remain necessary
+- [x] TypeScript and production build pass; 377 internal tests pass (four opt-in tests skipped); complete pnpm test fails only deferred Telnyx health check HTTP 401
+- [ ] Publish the payout-history and admin-monitoring checkpoint; display fixes alone do not recover funds
+- [ ] With explicit approval, stop automatic platform-only bank sweeps; owner funds the platform Payments balance and separately approves one reconciled $1.90 technician transfer
+- [ ] Before batch financial activation, address the existing deadline, durable-reconciliation and payment/recipient identity validation work; no batch worker was enabled for this investigation

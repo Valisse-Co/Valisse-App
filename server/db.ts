@@ -1237,7 +1237,12 @@ export async function getTechPayoutHistory(techId: number) {
     .orderBy(desc(bookings.completedAt), desc(bookings.scheduledAt));
 
   return Promise.all(rows.map(async (row) => ({
-    ...row,
+    clientName: row.clientName,
+    // Evidence only, not proof of bank receipt. Derive it before stripping all
+    // provider identifiers; never pass the raw booking to the participant UI.
+    hasRecordedTransfer: typeof row.booking.stripeTransferId === "string"
+      && row.booking.stripeTransferId === row.booking.stripeTransferId.trim()
+      && /^tr_[A-Za-z0-9]+$/.test(row.booking.stripeTransferId),
     booking: toParticipantBooking(row.booking),
     amounts: calculatePayoutHistoryAmounts({
       serviceTotalInCents: await getBookingServiceTotalInCents(row.booking.id),
