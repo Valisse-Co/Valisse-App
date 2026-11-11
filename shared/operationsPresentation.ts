@@ -13,6 +13,7 @@ export function operationsHealth(job: Job | null, runs: Run[], now = new Date())
   if (latest.status !== "succeeded") return { label: "Needs attention", tone: "warning" as const, detail: "One or more steps failed or deferred work. This is not a fully successful execution." };
   if (latest.executionMode !== job.executionMode) return { label: "Policy change not verified", tone: "warning" as const, detail: "No successful callback under the current execution policy has been recorded." };
   if (job.executionMode === "observe_only") return { label: "Observation verified", tone: "neutral" as const, detail: "Read-only heartbeat delivery is working. Charges, transfers, messages, and fee changes remain disabled for this job." };
+  if (job.executionMode === "payouts_only") return { label: "Automatic payouts verified", tone: "success" as const, detail: "The payout-only callback completed successfully. It checks future captured payments after their review window and settlement; historical payments, new charges, SMS and attendance changes are not enabled." };
   return { label: "Execution verified", tone: "success" as const, detail: "The last registered processing callback completed successfully. Check each step and remaining queue counts below." };
 }
 export const OPERATION_QUEUE_LABELS = {

@@ -55,6 +55,16 @@ import { ENV } from "./_core/env";
 import { safeErrorDetails } from "./securityLogging";
 import { areServicesAvailableForDay, getInvalidServiceSelectionIds } from "../shared/dayServiceAvailability";
 import {
+  FinancialTransitionError,
+  assertGenericBookingStatus,
+  assertUnpaidPendingBooking,
+  assertBookingIssueReport,
+  assertPendingTipReservation,
+  assertStoredTipCompletion,
+  assertTipChoiceWindow,
+  validateFinancialServiceLines,
+} from "../shared/financialTransitions";
+import {
   addLocalDays,
   fitsWithinAvailabilityWindows,
   getZonedDateKey,
@@ -1573,18 +1583,28 @@ export async function updateBookingStatus(
   userId: number
 ) {
   const db = await getDb();
-  if (!db) return;
-  await db.update(bookings).set({ status }).where(eq(bookings.id, bookingId));
-  // increment analytics if booking is confirmed
-  if (status === "confirmed") {
-    const booking = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
-    if (booking[0]?.postId) {
-      await db
+  if (!db) throw new Error("DB unavailable");
+  await db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking || (status === "cancelled" ? booking.techId !== userId && booking.clientId !== userId : booking.techId !== userId)) {
+      throw new FinancialTransitionError("Only the assigned booking participant can change this booking.");
+    }
+    assertGenericBookingStatus(booking, status);
+    if (status === "confirmed" || status === "declined") {
+      const [pending] = await tx.select().from(bookingRevisions).where(and(eq(bookingRevisions.bookingId, bookingId), eq(bookingRevisions.status, "pending"))).limit(1).for("update");
+      if (pending) throw new FinancialTransitionError("Wait for the client to respond to the pending revised quote.");
+    }
+    if (status === "confirmed" && booking.paymentMethodStatus !== "saved") {
+      throw new FinancialTransitionError("The client must save a payment method before this booking can be confirmed.");
+    }
+    await tx.update(bookings).set({ status, ...(status === "confirmed" ? { needsReview: false } : {}) }).where(eq(bookings.id, bookingId));
+    if (status === "confirmed" && booking.postId) {
+      await tx
         .update(postAnalytics)
         .set({ bookingsFromPost: sql`${postAnalytics.bookingsFromPost} + 1` })
-        .where(eq(postAnalytics.postId, booking[0].postId));
+        .where(eq(postAnalytics.postId, booking.postId));
     }
-  }
+  });
 }
 
 export async function updateUserStripeReferences(
@@ -1659,34 +1679,86 @@ export async function markBookingPaymentResult(
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(bookings).set(values).where(eq(bookings.id, bookingId));
+  return db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    if (values.stripePaymentIntentId && booking.stripePaymentIntentId && values.stripePaymentIntentId !== booking.stripePaymentIntentId) {
+      throw new FinancialTransitionError("A different service payment is already recorded for this booking.");
+    }
+    // Out-of-order failures, catch handlers, and duplicate success webhooks must
+    // never downgrade a capture, rewrite its time, or reopen a released/held payout.
+    if (booking.paymentStatus === "paid" || booking.paymentStatus === "refunded") return booking;
+    if (values.paymentStatus === "paid" && !(values.stripePaymentIntentId || booking.stripePaymentIntentId)) {
+      throw new FinancialTransitionError("A verified service payment is required before recording a paid booking.");
+    }
+    await tx.update(bookings).set(values).where(eq(bookings.id, bookingId));
+    return { ...booking, ...values };
+  });
+}
+
+/** Reserve before revealing a client secret. tipStatus=none plus this ID means pending. */
+export async function createPendingBookingTip(bookingId: number, params: { stripeTipPaymentIntentId: string; amountInCents: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  return db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    assertPendingTipReservation(booking, params.stripeTipPaymentIntentId, params.amountInCents, new Date());
+    if (booking.stripeTipPaymentIntentId === params.stripeTipPaymentIntentId) return;
+    await tx.update(bookings).set({
+      stripeTipPaymentIntentId: params.stripeTipPaymentIntentId,
+      tipAmountInCents: params.amountInCents,
+      tipStatus: "none",
+    }).where(eq(bookings.id, bookingId));
+  });
 }
 
 export async function setBookingTipPaymentIntent(bookingId: number, params: { stripeTipPaymentIntentId: string; amountInCents: number }) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(bookings).set({
-    stripeTipPaymentIntentId: params.stripeTipPaymentIntentId,
-    tipAmountInCents: params.amountInCents,
-    tipStatus: "paid",
-  }).where(eq(bookings.id, bookingId));
+  return db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    assertStoredTipCompletion(booking, params.stripeTipPaymentIntentId, params.amountInCents);
+    if (booking.tipStatus === "paid") return { wasRecorded: false };
+    await tx.update(bookings).set({ tipStatus: "paid" }).where(eq(bookings.id, bookingId));
+    return { wasRecorded: true };
+  });
 }
 
 export async function declineBookingTip(bookingId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(bookings).set({ tipStatus: "declined", tipAmountInCents: 0 }).where(eq(bookings.id, bookingId));
+  await db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    assertTipChoiceWindow(booking, new Date());
+    // A client-secret holder may confirm concurrently. Do not discard the
+    // reservation or pretend Stripe cancellation and a DB write are atomic.
+    if (booking.stripeTipPaymentIntentId) throw new FinancialTransitionError("Finish the current tip first. A pending payment cannot be declined safely.");
+    await tx.update(bookings).set({ tipStatus: "declined", tipAmountInCents: 0 }).where(eq(bookings.id, bookingId));
+  });
 }
 
-export async function reportBookingIssue(bookingId: number, reason: string, reportedAt: Date) {
+export async function reportBookingIssue(bookingId: number, reason: string, reportedAt?: Date) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.update(bookings).set({
-    status: "disputed",
-    payoutStatus: "on_hold",
-    issueReason: reason,
-    issueReportedAt: reportedAt,
-  }).where(eq(bookings.id, bookingId));
+  await db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    // Obtain time only after the locking read finishes. A pre-lock timestamp
+    // cannot extend the original dispute window or race an automatic claim.
+    const now = new Date();
+    if (reportedAt && (!Number.isFinite(reportedAt.getTime()) || reportedAt > now)) throw new FinancialTransitionError("The issue-report date is invalid.");
+    assertBookingIssueReport(booking, now);
+    if (typeof reason !== "string" || reason.trim().length < 10 || reason.trim().length > 1500) throw new FinancialTransitionError("Describe the issue using 10 to 1,500 characters.");
+    await tx.update(bookings).set({
+      status: "disputed",
+      payoutStatus: "on_hold",
+      issueReason: reason.trim(),
+      issueReportedAt: now,
+    }).where(eq(bookings.id, bookingId));
+  });
 }
 
 export async function getPayoutEligibleBookings(now: Date, limit = 10) {
@@ -2897,14 +2969,26 @@ export type BookingServiceLineInput = {
   position: number;
 };
 
+type BookingFinancialTransaction = Parameters<Parameters<ReturnType<typeof drizzle>["transaction"]>[0]>[0];
+
+async function replaceBookingServiceLinesInTransaction(tx: BookingFinancialTransaction, bookingId: number, lines: BookingServiceLineInput[]): Promise<void> {
+  await tx.delete(bookingServiceLines).where(eq(bookingServiceLines.bookingId, bookingId));
+  await tx.insert(bookingServiceLines).values(lines.map((line) => ({ ...line, bookingId })));
+}
+
 export async function replaceBookingServiceLines(bookingId: number, lines: BookingServiceLineInput[]): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.delete(bookingServiceLines).where(eq(bookingServiceLines.bookingId, bookingId));
-  if (!lines.length) return;
-  await db.insert(bookingServiceLines).values(
-    lines.map((line) => ({ bookingId, ...line }))
-  );
+  await db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1).for("update");
+    if (!booking) throw new FinancialTransitionError("This booking is no longer available.");
+    assertUnpaidPendingBooking(booking);
+    if (booking.revisionStatus === "pending") throw new FinancialTransitionError("Service amounts cannot change while a revised quote awaits the client.");
+    const [pending] = await tx.select().from(bookingRevisions).where(and(eq(bookingRevisions.bookingId, bookingId), eq(bookingRevisions.status, "pending"))).limit(1).for("update");
+    if (pending) throw new FinancialTransitionError("Service amounts cannot change while a revised quote awaits the client.");
+    const validated = validateFinancialServiceLines(lines);
+    await replaceBookingServiceLinesInTransaction(tx, bookingId, validated);
+  });
 }
 
 export async function getBookingServiceLines(bookingId: number) {
@@ -2939,18 +3023,26 @@ export async function createBookingRevision(params: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const totalPriceInCents = params.serviceLines.reduce((sum, line) => sum + line.priceInCents, 0);
-  const totalDurationMinutes = params.serviceLines.reduce((sum, line) => sum + line.durationMinutes, 0);
-  const [result] = await db.insert(bookingRevisions).values({
-    bookingId: params.bookingId,
-    techId: params.techId,
-    serviceLines: params.serviceLines,
-    totalPriceInCents,
-    totalDurationMinutes,
-    techNote: params.techNote ?? null,
+  return db.transaction(async (tx) => {
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, params.bookingId)).limit(1).for("update");
+    if (!booking || booking.techId !== params.techId) throw new FinancialTransitionError("Only the assigned nail tech can revise this booking.");
+    assertUnpaidPendingBooking(booking);
+    const [pending] = await tx.select().from(bookingRevisions).where(and(eq(bookingRevisions.bookingId, params.bookingId), eq(bookingRevisions.status, "pending"))).limit(1).for("update");
+    if (booking.revisionStatus === "pending" || pending) throw new FinancialTransitionError("Wait for the client to respond to the pending revised quote.");
+    const serviceLines = validateFinancialServiceLines(params.serviceLines);
+    const totalPriceInCents = serviceLines.reduce((sum, line) => sum + line.priceInCents, 0);
+    const totalDurationMinutes = serviceLines.reduce((sum, line) => sum + line.durationMinutes, 0);
+    const [result] = await tx.insert(bookingRevisions).values({
+      bookingId: params.bookingId,
+      techId: params.techId,
+      serviceLines,
+      totalPriceInCents,
+      totalDurationMinutes,
+      techNote: params.techNote ?? null,
+    });
+    await tx.update(bookings).set({ revisionStatus: "pending", needsReview: false }).where(eq(bookings.id, params.bookingId));
+    return (result as any).insertId as number;
   });
-  await db.update(bookings).set({ revisionStatus: "pending", needsReview: false }).where(eq(bookings.id, params.bookingId));
-  return (result as any).insertId as number;
 }
 
 export async function getLatestBookingRevision(bookingId: number) {
@@ -2973,35 +3065,34 @@ export async function resolveBookingRevision(params: {
 }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  const [revision] = await db
-    .select()
-    .from(bookingRevisions)
-    .where(and(eq(bookingRevisions.id, params.revisionId), eq(bookingRevisions.bookingId, params.bookingId)))
-    .limit(1);
-  const [booking] = await db
-    .select({ clientId: bookings.clientId })
-    .from(bookings)
-    .where(eq(bookings.id, params.bookingId))
-    .limit(1);
-  if (!revision || !booking || booking.clientId !== params.clientId || revision.status !== "pending") {
-    throw new Error("This revised quote is no longer available.");
-  }
-  if (!params.accepted) {
-    await db.update(bookingRevisions).set({ status: "declined", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
-    await db.update(bookings).set({ revisionStatus: "declined", status: "declined" }).where(eq(bookings.id, params.bookingId));
-    return;
-  }
-  const lines = revision.serviceLines as BookingServiceLineInput[];
-  await replaceBookingServiceLines(params.bookingId, lines);
-  const primary = lines.find((line) => line.lineType === "primary") ?? lines[0];
-  await db.update(bookingRevisions).set({ status: "accepted", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
-  await db.update(bookings).set({
-    revisionStatus: "accepted",
-    status: "confirmed",
-    needsReview: false,
-    serviceType: primary?.serviceName ?? null,
-    duration: revision.totalDurationMinutes,
-  }).where(eq(bookings.id, params.bookingId));
+  await db.transaction(async (tx) => {
+    // Match automatic payout and all quote writers: booking first, revision second.
+    const [booking] = await tx.select().from(bookings).where(eq(bookings.id, params.bookingId)).limit(1).for("update");
+    if (!booking || booking.clientId !== params.clientId) throw new FinancialTransitionError("This revised quote is no longer available to this client.");
+    assertUnpaidPendingBooking(booking);
+    const [revision] = await tx.select().from(bookingRevisions).where(and(eq(bookingRevisions.id, params.revisionId), eq(bookingRevisions.bookingId, params.bookingId))).limit(1).for("update");
+    if (!revision || revision.techId !== booking.techId || revision.status !== "pending" || booking.revisionStatus !== "pending") throw new FinancialTransitionError("This revised quote is no longer pending.");
+    const lines = validateFinancialServiceLines(revision.serviceLines);
+    const totalPrice = lines.reduce((sum, line) => sum + line.priceInCents, 0);
+    const totalDuration = lines.reduce((sum, line) => sum + line.durationMinutes, 0);
+    if (revision.totalPriceInCents !== totalPrice || revision.totalDurationMinutes !== totalDuration) throw new FinancialTransitionError("The revised quote totals are invalid. Ask the nail tech to review the quote.");
+    if (!params.accepted) {
+      await tx.update(bookingRevisions).set({ status: "declined", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
+      await tx.update(bookings).set({ revisionStatus: "declined", status: "declined" }).where(eq(bookings.id, params.bookingId));
+      return;
+    }
+    if (booking.paymentMethodStatus !== "saved") throw new FinancialTransitionError("Save a payment method before accepting the revised quote.");
+    await replaceBookingServiceLinesInTransaction(tx, params.bookingId, lines);
+    const primary = lines.find((line) => line.lineType === "primary")!;
+    await tx.update(bookingRevisions).set({ status: "accepted", resolvedAt: new Date() }).where(eq(bookingRevisions.id, revision.id));
+    await tx.update(bookings).set({
+      revisionStatus: "accepted",
+      status: "confirmed",
+      needsReview: false,
+      serviceType: primary.serviceName,
+      duration: totalDuration,
+    }).where(eq(bookings.id, params.bookingId));
+  });
 }
 
 export async function saveBookingMatchAssessment(params: {
@@ -3725,6 +3816,29 @@ export async function updateBookingFeeEvent(eventId: number, values: Partial<typ
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(bookingFeeEvents).set(values).where(eq(bookingFeeEvents.id, eventId));
+}
+
+export async function reportBookingFeeIssue(eventId: number, clientId: number, reason: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [locator] = await db.select({ bookingId: bookingFeeEvents.bookingId }).from(bookingFeeEvents)
+    .where(eq(bookingFeeEvents.id, eventId)).limit(1);
+  if (!locator) throw new FinancialTransitionError("This fee is not eligible for an issue report.");
+  await db.transaction(async tx => {
+    const [booking] = await tx.select({ id: bookings.id, clientId: bookings.clientId }).from(bookings)
+      .where(eq(bookings.id, locator.bookingId)).limit(1).for("update");
+    const [event] = await tx.select().from(bookingFeeEvents).where(eq(bookingFeeEvents.id, eventId)).limit(1).for("update");
+    const now = new Date();
+    const chargedAt = event?.chargedAt?.getTime();
+    const eligibleAt = event?.payoutEligibleAt?.getTime();
+    if (!booking || !event || event.bookingId !== booking.id || booking.clientId !== clientId || event.clientId !== clientId ||
+        event.status !== "charged" || event.payoutStatus !== "pending_dispute_window" || event.stripeTransferId || event.clientDisputedAt ||
+        !chargedAt || !eligibleAt || chargedAt > now.getTime() || now.getTime() >= Math.min(chargedAt + 86_400_000, eligibleAt)) {
+      throw new FinancialTransitionError("The 24-hour fee review window has ended or this fee is not eligible for an issue report.");
+    }
+    await tx.update(bookingFeeEvents).set({ status: "disputed", payoutStatus: "on_hold", clientDisputedAt: now, clientDisputeReason: reason })
+      .where(eq(bookingFeeEvents.id, eventId));
+  });
 }
 
 export async function getFeeEventsReadyForPayout(now: Date, limit = 10) {

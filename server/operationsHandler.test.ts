@@ -1,12 +1,13 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { Request, Response } from "express";
 import { OPERATIONS_CALLBACK_PATH, OPERATIONS_JOB_KEY, emptyOperationsSteps } from "../shared/operations";
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), lookup: vi.fn(), begin: vi.fn(), finish: vi.fn(), snapshot: vi.fn(), payouts: vi.fn(), sms: vi.fn(), fees: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), lookup: vi.fn(), begin: vi.fn(), finish: vi.fn(), snapshot: vi.fn(), payouts: vi.fn(), sms: vi.fn(), fees: vi.fn(), futurePayouts: vi.fn() }));
 vi.mock("./_core/sdk", () => ({ sdk: { authenticateCronRequest: mocks.auth } }));
 vi.mock("./operationsDb", () => ({ getOperationsJobByTaskUid: mocks.lookup, beginOperationsRun: mocks.begin, finishOperationsRun: mocks.finish, getOperationsSnapshot: mocks.snapshot }));
 vi.mock("./payoutRelease", () => ({ releaseEligiblePayouts: mocks.payouts }));
 vi.mock("./appointmentSms", () => ({ sendDueAppointmentCodeSms: mocks.sms }));
 vi.mock("./appointmentFees", () => ({ evaluateAttendanceFeeEligibility: mocks.fees }));
+vi.mock("./automaticPayout", async importOriginal => ({ ...await importOriginal<typeof import("./automaticPayout")>(), releaseFutureAutomaticPayouts: mocks.futurePayouts }));
 import { handlePayoutRelease, executeOperationsSteps } from "./payoutReleaseHandler";
 const job = { jobId: 1, jobKey: OPERATIONS_JOB_KEY, environment: "production", scheduleCronTaskUid: "T_owned", callbackPath: OPERATIONS_CALLBACK_PATH, executionMode: "observe_only", scheduleEnabled: true };
 function response() {
@@ -41,4 +42,28 @@ describe("settled operations steps", () => {
   it("preserves other step outcomes when one worker rejects and redacts sensitive failures", async () => { vi.spyOn(console, "error").mockImplementation(() => {}); mocks.payouts.mockRejectedValue(new Error("provider-secret")); const steps = await executeOperationsSteps(new Date()); expect(steps.payouts).toEqual({ status: "failed", counts: {}, errorCode: "STEP_FAILED" }); expect(steps.appointment_codes.status).toBe("succeeded"); expect(steps.attendance_fees.status).toBe("succeeded"); expect(JSON.stringify(steps)).not.toContain("provider-secret"); });
   it("reports skipped SMS as deferred, not a delivered message", async () => { mocks.sms.mockResolvedValue({ found: 1, sent: 0, skipped: 1, failed: 0 }); const steps = await executeOperationsSteps(new Date()); expect(steps.appointment_codes.status).toBe("deferred"); });
   it("copies only allowlisted numeric counts, never nested provider payloads", async () => { mocks.payouts.mockResolvedValue({ checked: 1, released: 0, deferred: 1, failed: 0, customer: "cus_secret", appointmentFeePayouts: { secret: "hidden" } }); const steps = await executeOperationsSteps(new Date()); expect(steps.payouts.counts).toEqual({ checked: 1, released: 0, deferred: 1, failed: 0 }); expect(JSON.stringify(steps)).not.toContain("secret"); });
+});
+
+describe("future-only payout callback policy", () => {
+  function futureJob() { const approved = new Date(Date.now()-60_000); return { ...job, executionMode: "payouts_only", payoutsFrom: approved, payoutsApprovedAt: approved }; }
+  it("executes only the future payout lane using the fixed server cutoff", async () => {
+    const future = futureJob(); mocks.lookup.mockResolvedValue(future); mocks.begin.mockResolvedValue({ runId: "R_future", job: future }); mocks.futurePayouts.mockResolvedValue({ checked: 0, released: 0, deferred: 0, failed: 0 });
+    const res = response(); await handlePayoutRelease(request({ cutoff: "2000-01-01", sms: true }), res);
+    expect(mocks.futurePayouts).toHaveBeenCalledWith({ environment: "production", cutoff: future.payoutsFrom, approvedAt: future.payoutsApprovedAt }, expect.any(Date), expect.any(Number));
+    noBusinessCalls(); expect(mocks.snapshot).not.toHaveBeenCalled();
+    expect(mocks.finish).toHaveBeenCalledWith("R_future", "succeeded", expect.objectContaining({ appointment_codes: { status: "skipped", counts: {} }, attendance_fees: { status: "skipped", counts: {} } }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ mode: "payouts_only", ok: true }));
+  });
+  it.each([null, new Date("invalid"), new Date(Date.now()+86_400_000)])("fails closed on a missing, invalid, or future cutoff", async cutoff => {
+    vi.spyOn(console, "error").mockImplementation(() => {}); mocks.lookup.mockResolvedValue({ ...futureJob(), payoutsFrom: cutoff });
+    const res = response(); await handlePayoutRelease(request(), res); expect(res.status).toHaveBeenCalledWith(500); expect(mocks.begin).not.toHaveBeenCalled(); expect(mocks.futurePayouts).not.toHaveBeenCalled(); noBusinessCalls();
+  });
+  it("revalidates the policy returned under the job lease", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {}); const future = futureJob(); mocks.lookup.mockResolvedValue(future); mocks.begin.mockResolvedValue({ runId: "R_future", job: { ...future, payoutsApprovedAt: new Date() } });
+    const res = response(); await handlePayoutRelease(request(), res); expect(mocks.futurePayouts).not.toHaveBeenCalled(); noBusinessCalls(); expect(res.status).toHaveBeenCalledWith(500);
+  });
+  it("records unsettled or insufficient funds as deferred, not a verified bank payout", async () => {
+    const future = futureJob(); mocks.lookup.mockResolvedValue(future); mocks.begin.mockResolvedValue({ runId: "R_future", job: future }); mocks.futurePayouts.mockResolvedValue({ checked: 1, released: 0, deferred: 1, failed: 0 });
+    const res = response(); await handlePayoutRelease(request(), res); noBusinessCalls(); expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: false, state: "partial_failure", steps: expect.objectContaining({ payouts: expect.objectContaining({ status: "deferred" }) }) }));
+  });
 });

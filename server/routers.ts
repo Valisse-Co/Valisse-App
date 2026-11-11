@@ -13,6 +13,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { ENV } from "./_core/env";
 import { systemRouter } from "./_core/systemRouter";
+import { reportBookingFeeIssue } from "./db";
 import { protectedProcedure, publicProcedure, accountRecoveryProcedure, router } from "./_core/trpc";
 import {
   createBooking,
@@ -193,6 +194,7 @@ import {
   markBookingPayoutResult,
   setBookingTipPaymentIntent,
   declineBookingTip,
+  createPendingBookingTip,
   resolveBookingIssue,
   createSupportTicket,
 } from "./db";
@@ -214,8 +216,15 @@ import {
 import {
   getIssueResolutionAmounts,
   getStandardTipOptions,
-  isTipFinal,
 } from "../shared/paymentResolution";
+import {
+  FinancialTransitionError,
+  assertGenericBookingStatus,
+  assertUnpaidPendingBooking,
+  assertTipChoiceWindow,
+  assertStoredTipCompletion,
+  isMatchingStoredTip,
+} from "../shared/financialTransitions";
 import { isStripeObjectInConfiguredEnvironment, resolveStripeModeForBooking, type StripePaymentMode } from "../shared/stripeMode";
 import {
   buildAppointmentFeePolicySnapshot,
@@ -244,6 +253,7 @@ import {
   createStripeCustomer,
   getConnectedAccountReadiness,
   getStripeIntegrationStatus,
+  getStripe,
   releaseBookingPayout,
   refundPaymentIntent,
   verifyBookingCardSetupIntent,
@@ -1107,13 +1117,11 @@ const bookingsRouter = router({
       if (!booking || booking.techId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned nail tech can update this booking request." });
       }
-      if (booking.revisionStatus === "pending" && input.status === "confirmed") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Wait for the client to accept the revised quote before confirming this booking." });
-      }
+      await guardedFinancialTransition(async () => assertGenericBookingStatus(booking, input.status));
       if (input.status === "confirmed" && booking.paymentMethodStatus !== "saved") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The client must save a payment method before this booking can be confirmed." });
       }
-      await updateBookingStatus(input.bookingId, input.status, ctx.user.id);
+      await guardedFinancialTransition(() => updateBookingStatus(input.bookingId, input.status, ctx.user.id));
       if (input.status === "confirmed") {
         const code = deriveAppointmentCode(booking.id, booking.scheduledAt, ENV.cookieSecret);
         await setBookingAppointmentCode(
@@ -1355,6 +1363,14 @@ function getBookingStripeModeOrThrow(booking: { isQaTest: boolean }): StripePaym
     });
   }
 }
+async function guardedFinancialTransition<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof FinancialTransitionError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+    throw error;
+  }
+}
 const appointmentRouter = router({
   prepareNewBookingCard: protectedProcedure
     .mutation(async ({ ctx }) => {
@@ -1483,35 +1499,44 @@ const appointmentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      if (booking.status !== "in_progress") throw new TRPCError({ code: "BAD_REQUEST", message: "Start the verified appointment before completing it." });
+      if (booking.status === "completed" && booking.paymentStatus === "paid") return { success: true, paymentDue: false };
+      if (booking.status !== "in_progress" || !booking.startedAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Start the verified appointment before completing it." });
       const client = await getUserById(booking.clientId);
       const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!client?.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(client.stripeCustomerMode, stripeMode) || booking.paymentMethodStatus !== "saved") {
-        await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        const current = await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        if (current.paymentStatus === "paid") return { success: true, paymentDue: false };
         throw new TRPCError({ code: "BAD_REQUEST", message: "The client has no verified payment method for the active Stripe environment. Payment is now due." });
       }
+      const totalInCents = await getBookingServiceTotalInCents(booking.id);
+      if (!Number.isSafeInteger(totalInCents) || totalInCents <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "The agreed service total is unavailable. No payment was attempted." });
       const completedAt = new Date();
       const eligibleAt = payoutEligibleAt(completedAt);
       await markAppointmentCompleted(booking.id, completedAt, eligibleAt);
-      const totalInCents = await getBookingServiceTotalInCents(booking.id);
+      let payment: Awaited<ReturnType<typeof chargeSavedCard>>;
       try {
-        const payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion", mode: stripeMode });
+        payment = await chargeSavedCard({ bookingId: booking.id, customerId: client.stripeCustomerId, amountInCents: totalInCents, kind: "service_completion", mode: stripeMode });
         if (payment.status !== "succeeded") throw new Error("The service charge requires client action.");
-        await markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" });
-        if (!booking.isQaTest) {
-          await createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id });
-          await createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id });
-          void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_complete", text: "Valisse: your appointment is complete and your approved service payment was processed. You can add a tip or report an issue in the app within 24 hours. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Completion SMS failed", error));
-        }
-        return { success: true, paymentDue: false };
       } catch (error) {
-        await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        const current = await markBookingPaymentResult(booking.id, { paymentStatus: "payment_due", status: "payment_due", payoutStatus: "not_ready" });
+        if (current.paymentStatus === "paid") return { success: true, paymentDue: false };
         if (!booking.isQaTest) {
-          await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id });
+          await createNotification({ userId: booking.clientId, type: "payment_due", title: "Payment needed", body: "Your appointment is complete. Please update your payment method to settle the booking.", relatedId: booking.id }).catch(() => console.warn("[Booking] Payment-due notification failed"));
           void sendValisseTransactionalSms({ userId: booking.clientId, category: "payment_due", text: "Valisse: payment is needed for your completed appointment. Update your payment method in the app to settle the balance. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Payment-due SMS failed", error));
         }
         return { success: true, paymentDue: true };
       }
+      // A DB error after Stripe success must surface for reconciliation, not be
+      // mislabeled a failed charge. Notifications are deliberately outside catch.
+      await guardedFinancialTransition(() => markBookingPaymentResult(booking.id, { stripePaymentIntentId: payment.id, paymentStatus: "paid", paymentCapturedAt: completedAt, status: "completed", payoutStatus: "pending_dispute_window" }));
+      if (!booking.isQaTest) {
+        await Promise.allSettled([
+          createNotification({ userId: booking.clientId, type: "booking_payment_captured", title: "Appointment complete", body: "Your service payment was processed. You can add an optional tip or report an issue within 24 hours.", relatedId: booking.id }),
+          createNotification({ userId: booking.techId, type: "payout_pending", title: "Payout pending", body: "Your appointment payment is captured. Payout releases after the 24-hour issue window.", relatedId: booking.id }),
+        ]);
+        void sendValisseTransactionalSms({ userId: booking.clientId, category: "appointment_complete", text: "Valisse: your appointment is complete and your approved service payment was processed. You can add a tip or report an issue in the app within 24 hours. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Completion SMS failed", error));
+      }
+      return { success: true, paymentDue: false };
     }),
 
   reportIssue: protectedProcedure
@@ -1522,7 +1547,7 @@ const appointmentRouter = router({
       if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This booking is not currently eligible for an issue report." });
       }
-      await reportBookingIssue(booking.id, input.reason, new Date());
+      await guardedFinancialTransition(() => reportBookingIssue(booking.id, input.reason));
       if (!booking.isQaTest) {
         await createNotification({ userId: booking.techId, type: "booking_issue_reported", title: "Client reported an issue", body: "Payout is paused while the issue is reviewed.", relatedId: booking.id });
         void sendValisseTransactionalSms({ userId: booking.techId, category: "booking_issue", text: "Valisse: a client reported an issue with a completed appointment. Your payout is paused while it is reviewed. Reply STOP to opt out." }).catch((error) => console.warn("[Telnyx] Issue-report SMS failed", error));
@@ -1539,12 +1564,14 @@ const appointmentRouter = router({
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
       const serviceTotalInCents = await getBookingServiceTotalInCents(booking.id);
+      let canChooseTip = true;
+      try { assertTipChoiceWindow(booking, new Date()); } catch { canChooseTip = false; }
       return {
         serviceTotalInCents,
         standardOptions: getStandardTipOptions(serviceTotalInCents).filter((option) => option.amountInCents >= 50),
         tipStatus: booking.tipStatus,
         tipAmountInCents: booking.tipAmountInCents,
-        canChooseTip: booking.paymentStatus === "paid" && booking.payoutStatus === "pending_dispute_window" && !isTipFinal(booking.tipStatus),
+        canChooseTip,
       };
     }),
 
@@ -1553,17 +1580,24 @@ const appointmentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Tips can be added only after a paid, completed appointment during the issue window." });
-      }
-      if (isTipFinal(booking.tipStatus)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A final tip choice has already been recorded for this appointment." });
-      }
+      await guardedFinancialTransition(async () => assertTipChoiceWindow(booking, new Date()));
       const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
       }
-      const intent = await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents, mode: stripeMode });
+      if (booking.stripeTipPaymentIntentId && booking.tipAmountInCents !== input.amountInCents) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Finish the current tip first. Reopen it using the same amount." });
+      }
+      const intent = booking.stripeTipPaymentIntentId
+        ? await getStripe(stripeMode).paymentIntents.retrieve(booking.stripeTipPaymentIntentId)
+        : await createTipPaymentIntent({ bookingId: booking.id, customerId: ctx.user.stripeCustomerId, amountInCents: input.amountInCents, mode: stripeMode });
+      const customerId = typeof intent.customer === "string" ? intent.customer : intent.customer?.id;
+      if (!intent.client_secret || customerId !== ctx.user.stripeCustomerId || intent.amount !== input.amountInCents || intent.currency !== "usd" || intent.livemode !== (stripeMode === "live") || intent.metadata?.booking_id !== String(booking.id) || intent.metadata?.kind !== "tip" || intent.status === "canceled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The pending tip could not be verified. Finish the current tip before starting another." });
+      }
+      // A race loser has an unconfirmed, unused Stripe intent, but its secret is
+      // never exposed. Only the locked winner's reservation can be confirmed.
+      await guardedFinancialTransition(() => createPendingBookingTip(booking.id, { stripeTipPaymentIntentId: intent.id, amountInCents: input.amountInCents }));
       return { clientSecret: intent.client_secret, paymentIntentId: intent.id, amountInCents: input.amountInCents, stripeMode };
     }),
 
@@ -1572,27 +1606,27 @@ const appointmentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip." });
-      }
+      await guardedFinancialTransition(async () => assertStoredTipCompletion(booking, input.paymentIntentId, input.amountInCents));
+      if (booking.tipStatus === "paid" && isMatchingStoredTip(booking, input.paymentIntentId, input.amountInCents)) return { success: true };
       const stripeMode = getBookingStripeModeOrThrow(booking);
       if (!ctx.user.stripeCustomerId || !isStripeObjectInConfiguredEnvironment(ctx.user.stripeCustomerMode, stripeMode)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "No Stripe customer is available for the active payment environment." });
       }
       try {
-        await verifyTipPaymentIntent({
+        const verified = await verifyTipPaymentIntent({
           paymentIntentId: input.paymentIntentId,
           bookingId: booking.id,
           customerId: ctx.user.stripeCustomerId,
           amountInCents: input.amountInCents,
           mode: stripeMode,
         });
+        if (verified.currency !== "usd" || verified.livemode !== (stripeMode === "live") || verified.amount_received !== input.amountInCents) throw new Error("The tip payment could not be verified for this appointment.");
       } catch (error) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The tip payment could not be verified." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The tip payment could not be verified for this appointment." });
       }
-      await setBookingTipPaymentIntent(booking.id, { stripeTipPaymentIntentId: input.paymentIntentId, amountInCents: input.amountInCents });
-      if (!booking.isQaTest) {
-        await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id });
+      const result = await guardedFinancialTransition(() => setBookingTipPaymentIntent(booking.id, { stripeTipPaymentIntentId: input.paymentIntentId, amountInCents: input.amountInCents }));
+      if (result.wasRecorded && !booking.isQaTest) {
+        await createNotification({ userId: booking.techId, type: "tip_received", title: "A client added a tip", body: "The tip will be included with your payout after the issue window.", relatedId: booking.id }).catch(() => console.warn("[Booking] Tip notification failed"));
       }
       return { success: true };
     }),
@@ -1602,10 +1636,7 @@ const appointmentRouter = router({
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      if (booking.paymentStatus !== "paid" || booking.payoutStatus !== "pending_dispute_window" || isTipFinal(booking.tipStatus)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This appointment is no longer eligible for a tip choice." });
-      }
-      await declineBookingTip(booking.id);
+      await guardedFinancialTransition(() => declineBookingTip(booking.id));
       return { success: true };
     }),
 
@@ -2824,7 +2855,7 @@ const appointmentFeesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const event = await getBookingFeeEvent(input.feeEventId);
       if (!event || event.clientId !== ctx.user.id || event.status !== "charged") throw new TRPCError({ code: "FORBIDDEN" });
-      await updateBookingFeeEvent(event.id, { status: "disputed", payoutStatus: "on_hold", clientDisputedAt: new Date(), clientDisputeReason: input.reason });
+      await guardedFinancialTransition(() => reportBookingFeeIssue(event.id, ctx.user.id, input.reason));
       const booking = await getBookingById(event.bookingId);
       if (booking && !booking.isQaTest) {
         const admins = await getAdminUserIds();
@@ -3177,6 +3208,8 @@ const smartServiceMatchRouter = router({
       if (ctx.user.userType !== "nail_tech") throw new TRPCError({ code: "FORBIDDEN" });
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.techId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      await guardedFinancialTransition(async () => assertUnpaidPendingBooking(booking));
+      if (booking.revisionStatus === "pending") throw new TRPCError({ code: "BAD_REQUEST", message: "Wait for the client to respond to the pending revised quote." });
       const offeredServices = await getTechServices(ctx.user.id);
       const lineIds = new Set(input.serviceLines.map((line) => line.techServiceId));
       if (lineIds.size !== input.serviceLines.length) {
@@ -3197,7 +3230,7 @@ const smartServiceMatchRouter = router({
       if (!lines.some((line) => line.lineType === "primary")) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A revised quote needs one primary service." });
       }
-      const revisionId = await createBookingRevision({ bookingId: booking.id, techId: ctx.user.id, serviceLines: lines, techNote: input.techNote });
+      const revisionId = await guardedFinancialTransition(() => createBookingRevision({ bookingId: booking.id, techId: ctx.user.id, serviceLines: lines, techNote: input.techNote }));
       await createNotification({
         userId: booking.clientId,
         type: "booking_revision",
@@ -3238,7 +3271,11 @@ const smartServiceMatchRouter = router({
     .mutation(async ({ ctx, input }) => {
       const booking = await getBookingById(input.bookingId);
       if (!booking || booking.clientId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
-      await resolveBookingRevision({ ...input, clientId: ctx.user.id });
+      await guardedFinancialTransition(() => resolveBookingRevision({ ...input, clientId: ctx.user.id }));
+      if (input.accepted) {
+        const code = deriveAppointmentCode(booking.id, booking.scheduledAt, ENV.cookieSecret);
+        await setBookingAppointmentCode(booking.id, hashAppointmentCode(booking.id, code, ENV.cookieSecret), appointmentCodeVisibleAt(booking.scheduledAt));
+      }
       await createNotification({
         userId: booking.techId,
         type: "booking_revision_response",

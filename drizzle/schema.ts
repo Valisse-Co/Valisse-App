@@ -848,7 +848,9 @@ export const operationsJobs = mysqlTable("operations_jobs", {
   callbackPath: varchar("callbackPath", { length: 255 }).default("/api/scheduled/release-payouts").notNull(),
   cronExpression: varchar("cronExpression", { length: 128 }).default("0 */5 * * * *").notNull(),
   scheduleEnabled: boolean("scheduleEnabled").default(false).notNull(),
-  executionMode: mysqlEnum("executionMode", ["observe_only", "execute"]).default("observe_only").notNull(),
+  executionMode: mysqlEnum("executionMode", ["observe_only", "execute", "payouts_only"]).default("observe_only").notNull(),
+  payoutsFrom: timestamp("payoutsFrom", { fsp: 3 }),
+  payoutsApprovedAt: timestamp("payoutsApprovedAt", { fsp: 3 }),
   schedulerVerifiedAt: timestamp("schedulerVerifiedAt", { fsp: 3 }),
   providerLastExecutedAt: timestamp("providerLastExecutedAt", { fsp: 3 }),
   providerNextExecutionAt: timestamp("providerNextExecutionAt", { fsp: 3 }),
@@ -864,7 +866,7 @@ export const operationsRuns = mysqlTable("operations_runs", {
   id: varchar("id", { length: 36 }).primaryKey(),
   jobId: int("jobId").notNull().references(() => operationsJobs.jobId),
   environment: mysqlEnum("environment", ["production", "development"]).notNull(),
-  executionMode: mysqlEnum("executionMode", ["observe_only", "execute"]).notNull(),
+  executionMode: mysqlEnum("executionMode", ["observe_only", "execute", "payouts_only"]).notNull(),
   status: mysqlEnum("status", ["running", "succeeded", "partial_failure", "failed", "abandoned"]).default("running").notNull(),
   startedAt: timestamp("startedAt", { fsp: 3 }).notNull(),
   completedAt: timestamp("completedAt", { fsp: 3 }),
@@ -905,3 +907,39 @@ export const supportTickets = mysqlTable("support_tickets", {
 });
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type InsertSupportTicket = typeof supportTickets.$inferInsert;
+
+// ─── Automatic payout ledger ──────────────────────────────────────────────────
+// One immutable source-payment leg, never a retry-created second transfer.
+export const automaticPayoutLegs = mysqlTable("automatic_payout_legs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  mode: mysqlEnum("mode", ["live", "test"]).notNull(),
+  kind: mysqlEnum("kind", ["service", "tip", "appointment_fee"]).notNull(),
+  bookingId: int("bookingId").notNull().references(() => bookings.id),
+  feeEventId: int("feeEventId").references(() => bookingFeeEvents.id),
+  techId: int("techId").notNull().references(() => users.id),
+  clientId: int("clientId").notNull().references(() => users.id),
+  customerId: varchar("customerId", { length: 255 }).notNull(),
+  destination: varchar("destination", { length: 255 }).notNull(),
+  paymentIntentId: varchar("paymentIntentId", { length: 255 }).notNull(),
+  chargeId: varchar("chargeId", { length: 255 }).notNull(),
+  amountInCents: bigint("amountInCents", { mode: "number" }).notNull(),
+  originalGrossInCents: bigint("originalGrossInCents", { mode: "number" }).notNull(),
+  currency: mysqlEnum("currency", ["usd"]).notNull(),
+  cutoff: timestamp("cutoff", { fsp: 3 }).notNull(),
+  state: mysqlEnum("state", ["ready", "dispatching", "transferred", "needs_reconciliation", "blocked"]).default("ready").notNull(),
+  transferId: varchar("transferId", { length: 255 }).unique(),
+  firstAttemptAt: timestamp("firstAttemptAt", { fsp: 3 }),
+  attemptedAt: timestamp("attemptedAt", { fsp: 3 }),
+  leaseToken: varchar("leaseToken", { length: 36 }),
+  leaseUntil: timestamp("leaseUntil", { fsp: 3 }),
+  reason: mysqlEnum("reason", ["provider_uncertain", "persistence_uncertain", "reconciliation_required", "reconciliation_not_found", "reconciliation_conflict", "source_changed", "issue_hold", "preflight_deferred", "provider_rejected"]),
+  reasonAt: timestamp("reasonAt", { fsp: 3 }),
+  transferredAt: timestamp("transferredAt", { fsp: 3 }),
+  createdAt: timestamp("createdAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+  updatedAt: timestamp("updatedAt", { fsp: 3 }).default(sql`CURRENT_TIMESTAMP(3)`).notNull(),
+}, t => ({
+  uniqueModePayment: unique("automatic_payout_legs_mode_payment_unique").on(t.mode, t.paymentIntentId),
+  bookingKindIndex: index("automatic_payout_legs_booking_kind_idx").on(t.bookingId, t.kind),
+  stateLeaseIndex: index("automatic_payout_legs_state_lease_idx").on(t.state, t.leaseUntil),
+}));
+export type AutomaticPayoutLeg = typeof automaticPayoutLegs.$inferSelect;

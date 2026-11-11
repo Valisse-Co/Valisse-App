@@ -288,6 +288,13 @@
       "when": 1794113391242,
       "tag": "0040_eminent_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1794374532148,
+      "tag": "0041_lumpy_dagger",
+      "breakpoints": true
     }
   ]
 }

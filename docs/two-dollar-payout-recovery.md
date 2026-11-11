@@ -48,3 +48,9 @@ These presentation and monitoring fixes require publishing their checkpoint. The
 [2]: https://stripe.dev/blog/fund-segregation-stripe-connect "Stripe pooled funds and automatic payout risk"
 [3]: https://docs.stripe.com/payouts "Stripe bank payout schedules"
 [4]: https://docs.stripe.com/connect/top-ups "Stripe platform Payments balance funding"
+
+## Subsequent update — November 11, 2026 UTC
+
+The specifically approved **platform-only** bank payout setting has been changed to **Manual** and read back from Stripe; Ashton’s connected-account bank payout schedule remains **daily**. No account funding, refund, waiver, or corrective transfer for booking #1920002 has been performed. The old $1.90 entitlement remains recorded as awaiting transfer, rather than being falsely marked paid out.
+
+A separate [future-only automatic payout implementation](future-automatic-payouts.md) has now been built and tested. It requires publication and explicit activation, fixes a new capture cutoff at that activation, and excludes this historical payment. Processing fees and insufficient available balance can still defer otherwise eligible future transfers.

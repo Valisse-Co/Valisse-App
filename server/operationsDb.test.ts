@@ -11,7 +11,7 @@ import {
 
 const mock = vi.hoisted(() => ({ db: null as any }));
 vi.mock("./db", () => ({ getDb: vi.fn(async () => mock.db) }));
-import { beginOperationsRun, bindOperationsSchedule, ensureOperationsJob, finishOperationsRun, getOperationsJobByTaskUid, getOperationsSnapshot } from "./operationsDb";
+import { activateFutureOnlyPayouts, beginOperationsRun, bindOperationsSchedule, ensureOperationsJob, finishOperationsRun, getOperationsJobByTaskUid, getOperationsSnapshot } from "./operationsDb";
 
 const now = new Date("2026-11-08T04:00:00.123Z");
 function makeJob(overrides: Partial<OperationsJob> = {}): OperationsJob {
@@ -304,4 +304,22 @@ describe("SELECT-only snapshots (offline query spy)", () => {
     expect(smsSql).toContain("TRIM(`users`.`phone`) <> ''");
     expect(Object.keys(smsRead.selection)).toEqual(["count"]);
   });
+});
+
+describe("operator-only future payout activation (offline adapter)", () => {
+  it("sets a new cutoff and approval together without activating other workers", async () => {
+    const { db, state } = memoryDb(); mock.db = db; const before = Date.now();
+    const activated = await activateFutureOnlyPayouts("inspected-task");
+    expect(activated.executionMode).toBe("payouts_only"); expect(activated.payoutsFrom?.getTime()).toBeGreaterThanOrEqual(before); expect(activated.payoutsFrom).toEqual(activated.payoutsApprovedAt); expect(state.locks).toContain("operations_jobs");
+    expect(activated.scheduleCronTaskUid).toBe("inspected-task");
+  });
+  it("never shifts or backdates the existing cutoff on a retry", async () => {
+    const { db, state } = memoryDb(makeJob({ executionMode: "payouts_only", payoutsFrom: now, payoutsApprovedAt: now })); mock.db = db;
+    const activated = await activateFutureOnlyPayouts("inspected-task"); expect(activated.payoutsFrom).toEqual(now); expect(state.mutations).toBe(0);
+  });
+  it.each([{ scheduleEnabled: false }, { schedulerVerifiedAt: null }, { executionMode: "execute" as const }, { callbackPath: "/other" }, { environment: "development" as const }])("refuses unverified, disabled, or wrong-policy jobs", async overrides => {
+    const { db, state } = memoryDb(makeJob(overrides)); mock.db = db; await expect(activateFutureOnlyPayouts("inspected-task")).rejects.toThrow(); expect(state.mutations).toBe(0);
+  });
+  it("refuses a foreign task identity", async () => { const { db, state } = memoryDb(); mock.db = db; await expect(activateFutureOnlyPayouts("foreign-task")).rejects.toThrow(); expect(state.mutations).toBe(0); });
+  it("does not change policy during an active callback lease", async () => { const { db, state } = memoryDb(makeJob({ leaseToken: "active", leaseUntil: new Date(Date.now()+60_000) })); mock.db = db; await expect(activateFutureOnlyPayouts("inspected-task")).rejects.toThrow(); expect(state.mutations).toBe(0); });
 });

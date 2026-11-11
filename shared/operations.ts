@@ -6,7 +6,7 @@ export const OPERATIONS_STALE_MS = 15 * 60_000;
 export const OPERATIONS_PAGE_SIZE = 20;
 
 export type OperationsEnvironment = "production" | "development";
-export type OperationsExecutionMode = "observe_only" | "execute";
+export type OperationsExecutionMode = "observe_only" | "execute" | "payouts_only";
 export type OperationsRunStatus = "running" | "succeeded" | "partial_failure" | "failed" | "abandoned";
 export type OperationsFinalStatus = Exclude<OperationsRunStatus, "running">;
 export const OPERATIONS_STEP_KEYS = ["payouts", "appointment_codes", "attendance_fees"] as const;
@@ -35,6 +35,8 @@ export type OperationsSafeJob = {
   cronExpression: string;
   scheduleEnabled: boolean;
   executionMode: OperationsExecutionMode;
+  payoutsFrom?: Date | null;
+  payoutsApprovedAt?: Date | null;
   schedulerVerifiedAt: Date | null;
   providerLastExecutedAt: Date | null;
   providerNextExecutionAt: Date | null;
@@ -139,7 +141,8 @@ export function toOperationsSafeJob(job: OperationsSafeJob): OperationsSafeJob {
     jobId: job.jobId, jobKey: job.jobKey, environment: job.environment,
     scheduleCronTaskUid: job.scheduleCronTaskUid, callbackPath: job.callbackPath,
     cronExpression: job.cronExpression, scheduleEnabled: job.scheduleEnabled,
-    executionMode: job.executionMode, schedulerVerifiedAt: job.schedulerVerifiedAt,
+    executionMode: job.executionMode, payoutsFrom: job.payoutsFrom ?? null,
+    payoutsApprovedAt: job.payoutsApprovedAt ?? null, schedulerVerifiedAt: job.schedulerVerifiedAt,
     providerLastExecutedAt: job.providerLastExecutedAt, providerNextExecutionAt: job.providerNextExecutionAt,
     leaseUntil: job.leaseUntil, createdAt: job.createdAt, updatedAt: job.updatedAt,
   };

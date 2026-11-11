@@ -41,6 +41,32 @@ export async function getOperationsJobByTaskUid(taskUid: string, environment: Op
   return job ?? null;
 }
 
+/** Operator-only helper, not a public/admin tRPC action. Call only after published-code
+ * verification and a new explicit approval for future-only money movement. */
+export async function activateFutureOnlyPayouts(taskUid: string): Promise<OperationsJob> {
+  if (!taskUid || taskUid.length > 65) throw new Error("INVALID_OPERATIONS_SCHEDULE");
+  const db = await requireDatabase();
+  return db.transaction(async tx => {
+    const [job] = await tx.select().from(operationsJobs).where(and(
+      eq(operationsJobs.jobKey, OPERATIONS_JOB_KEY), eq(operationsJobs.environment, "production"),
+      eq(operationsJobs.scheduleCronTaskUid, taskUid),
+    )).limit(1).for("update");
+    const now = new Date();
+    if (!job || !job.scheduleEnabled || !job.schedulerVerifiedAt ||
+        job.callbackPath !== "/api/scheduled/release-payouts" || hasActiveOperationsLease(job, now)) {
+      throw new Error("PAYOUT_ACTIVATION_NOT_READY");
+    }
+    if (job.executionMode === "payouts_only") {
+      if (!job.payoutsFrom || !job.payoutsApprovedAt) throw new Error("PAYOUT_ACTIVATION_INVALID");
+      return job; // Never reset/backdate a cutoff on retry.
+    }
+    if (job.executionMode !== "observe_only") throw new Error("PAYOUT_ACTIVATION_POLICY_CHANGED");
+    const values = { executionMode: "payouts_only" as const, payoutsFrom: now, payoutsApprovedAt: now, updatedAt: now };
+    await tx.update(operationsJobs).set(values).where(eq(operationsJobs.jobId, job.jobId));
+    return { ...job, ...values };
+  });
+}
+
 export type BindOperationsScheduleInput = {
   environment: OperationsEnvironment;
   taskUid: string;

@@ -827,3 +827,19 @@
 - [ ] Publish the payout-history and admin-monitoring checkpoint; display fixes alone do not recover funds
 - [ ] With explicit approval, stop automatic platform-only bank sweeps; owner funds the platform Payments balance and separately approves one reconciled $1.90 technician transfer
 - [ ] Before batch financial activation, address the existing deadline, durable-reconciliation and payment/recipient identity validation work; no batch worker was enabled for this investigation
+
+## Future-Only Automatic Technician Transfers
+- [x] Apply the explicitly approved platform-only Manual bank payout schedule; verify Ashton’s daily bank schedule is unchanged
+- [x] Honor the revised scope: no funding, recovery, refund, waiver or payout for the historical $1.90 booking 1920002
+- [x] Add future-only activation cutoff and payout-only execution policy; keep SMS/email and attendance automation unactivated
+- [x] Add durable per-payment payout claims, frozen destination/amount, successful transfer persistence and ambiguous-result reconciliation
+- [x] Validate payment/customer/recipient identity, live mode, settlement, funds, 24-hour review window and dispute holds before automatic transfers
+- [x] Protect paid service totals, tip completion and dispute/transfer races from invalid financial transitions
+- [x] Add admin-visible cutoff/transfer health, deadlines and safe retry outcomes without a Run Now money button
+- [x] Run mocked failure/replay/concurrency regressions, disposable database tests, full TypeScript/test/build checks and checkpoint
+- [ ] Publish and explicitly enable the future-only payout lane after its safety checks; verify deployment without touching historic money
+- [x] Apply additive migration 0041; managed disposable transaction test passes; TypeScript/build pass and 681 internal tests pass (six opt-in tests skipped); only deferred Telnyx health check fails HTTP 401
+- [x] Confirm production still observe_only with null cutoff/approval, zero real ledger records, and historical booking 1920002 unchanged with no transfer
+- [x] Bound the future payout callback and final dispatch; reconcile successful prior sends without requiring additional balance and never blindly resend ambiguous attempts
+- [ ] Pending-tip cancellation/change needs a separate secure flow; this version safely reopens the same reserved amount and rejects competing choices
+- [ ] After an approved future live smoke test, reconcile actual connected-account transfer and bank receipt; no live payout was claimed as tested here
