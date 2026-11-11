@@ -12,6 +12,16 @@ The safe default is `observe_only`. This records eligible counts and job telemet
 
 On November 7, 2026, the project-owner Heartbeat listing returned zero jobs. This is evidence about the owner's native jobs, not proof that every possible end-user task was examined. The dashboard showed one non-QA overdue payout and one unresolved dispute; neither was acted on. Telnyx's read-only profile health test still returned HTTP 401. Resend configuration and delivery are deferred to the owner.
 
+On November 10, after the owner published checkpoint `0ed66445`, the observation-only native job was registered and verified:
+
+- Task UID: `PDkkXRNtZ8AFAAJDaPMX7G`; name `valisse-appointments-observe`; enabled cadence `0 */5 * * * *` (every five minutes).
+- Automatic (not manually triggered) production delivery returned HTTP 200, status success, one attempt, completed at `2026-11-11T01:42:54.304Z` (November 10, 6:42:54 PM MST).
+- Application run ID `be3ebec6-4419-40a0-9e23-3fb5950e092a` matched the native response body; native run UID `ZrWTyZ2DHWcbAMLTQqLTuL`.
+- Production mode was `observe_only`: payout and appointment-code steps were `observed`; attendance-fee processing was `skipped`. Counts: one overdue payout, zero failed transfers, zero payments due, one unresolved dispute, and one appointment-code SMS awaiting delivery.
+- No charges, transfers, SMS/email, booking changes, or fee creation ran. The production execution approval flag remained disabled. This verifies observation delivery only, not financial execution or bank payout readiness.
+
+The existing job is now enabled. Future work must inspect/update this exact UID rather than creating a duplicate. The first delivery arrived later than the initial advertised cron time; this is not a real-time delivery guarantee.
+
 ## Production verification sequence
 
 1. The owner publishes the final operations checkpoint through the website's Publish control. Do not create a cron before this: Heartbeat targets the deployed website, not the development preview.

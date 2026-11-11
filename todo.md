@@ -807,8 +807,10 @@
 - [x] Add admin-only operations snapshot showing scheduler evidence, overdue payouts, failed transfers, payments due, and unresolved disputes
 - [x] Build the mobile-friendly operations workspace and admin Settings entry; read-only by default, no Run Now money action
 - [x] Test task identity binding, auth, environment isolation, stale jobs, concurrency, partial failure and response privacy; migrate and checkpoint
-- [ ] After owner publishes the checkpoint, verify a production observation-only heartbeat delivery; enable money/SMS work only with explicit approval
+- [x] After owner published 0ed66445, registered and verified automatic observation-only delivery: task PDkkXRNtZ8AFAAJDaPMX7G, every five minutes, HTTP 200 and matching durable production run on Nov 10 at 6:42:54 PM MST; financial/SMS execution remains disabled
 - [x] Merge and retain the other task’s Privacy/Terms/Support update; operations migration 0040 applied without touching booking/account data
 - [x] TypeScript and production build pass; 319 internal tests pass plus one real disposable database lease/concurrency test; Telnyx-only health test remains HTTP 401
 - [x] Verify desktop/mobile admin UI, blocked non-admin UI, and unauthenticated scheduled callback HTTP 403; no transfers/messages sent
 - [ ] Before approving execute mode, bound provider/DB await chains under the platform two-minute deadline and validate slow-response/reconciliation scenarios
+- [x] Refreshed verified native scheduler timestamps in the registry; reran 45 callback/auth/persistence tests successfully; no code changes to the deployed callback were needed
+- [ ] Enable money/SMS execution only after separate explicit owner approval and completion of provider deadline/compliance checks
